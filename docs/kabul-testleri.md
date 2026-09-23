@@ -15,7 +15,7 @@ Yalnızca gerçekten çalıştırılan testler “doğrulandı” yazılır. Kom
 | T09 | İlk test başarısız, tekrar test başarılı | İlk test başarısızlığı korunur; FPY yanlış yükselmez | doğrulandı | production.test.ts › T09 ve T10 |
 | T10 | Son kaliteyi geçmeyen ürüne sevkiyat | Sevk engellenir | doğrulandı | production.test.ts › T09 ve T10 |
 | T11 | Makara bölme, fason transferi ve iade | Lot zinciri ve miktar dengesi korunur | planlandı | — |
-| T12 | Yanlış firmware veya süresi geçmiş test ekipmanı | Tanımlı uyarı/engel ve olay kaydı oluşur | geliştiriliyor | production.test.ts › yanlış parça (kısmi: yanlış firmware ve süresi geçmiş ekipman henüz yok) |
+| T12 | Yanlış firmware veya süresi geçmiş test ekipmanı | Tanımlı uyarı/engel ve olay kaydı oluşur | doğrulandı | production.test.ts › yanlış parça; quality.test.ts › yanlış firmware, kalibrasyon/hizmet dışı; e2e (web) |
 | T13 | Aynı stok/sipariş dosyası yeniden yükleniyor | Kayıt ve miktarlar mükerrer olmaz | doğrulandı | acceptance.test.ts › T13 |
 | T14 | Tarihsel sipariş aktarılıyor | Dış sipariş, ödeme ve müşteri mesajı gitmez | planlandı | — |
 | T15 | Distribütör API'si kesiliyor | Bilinmiyor/eski veri gösterilir; sıfır stok sayılmaz | planlandı | — |

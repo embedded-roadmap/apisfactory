@@ -14,16 +14,16 @@
 | W10 | Akış, onay, zaman aşımı, tekrar koruması | W06, W07 | Yönetim | geliştiriliyor | Durum geçişleri sunucuda, idempotency, outbox; genel akış motoru yok |
 | W11 | Ar-Ge proje, bütçe, talep ve gider | W07, W09, W10 | Ar-Ge, muhasebe | geliştiriliyor | Yok (yalnızca ürün/revizyon); proje, bütçe, gider sonraki adım |
 | W12 | Ürün, BOM, varyant, CAD ve fark görünümü | W08, W09 | Ar-Ge | geliştiriliyor | Ürün, BOM sürümü, CSV/Altium/KiCad kolon eşleştirme, fark |
-| W13 | Teknik devir, revizyon ve etki | W10, W12 | Ar-Ge, üretim, kalite | geliştiriliyor | Üç birim devir onayı, ret/düzeltme görevi; revizyon talebi (ECR) yok |
+| W13 | Teknik devir, revizyon ve etki | W10, W12 | Ar-Ge, üretim, kalite | geliştiriliyor | Üç birim devir onayı; ECR, iş emri bekletme, açık iş kararları; firmware kilidi |
 | W14 | Müşteri, teklif, sipariş ve satış engeli | W13 | Satış | geliştiriliyor | Müşteri, taslak/kesin sipariş, devir engeli |
 | W15 | Stok, lot, sahiplik, rezervasyon ve hareket | W07, W09 | Depo | geliştiriliyor | Lot, konum tipi, hareket defteri, rezervasyon, negatif stok engeli |
-| W16 | Net ihtiyaç, kapasite ve termin | W12, W14, W15 | Üretim, satış | geliştiriliyor | Net ihtiyaç, sipariş iptali ve rezervasyon bırakma; kapasite/termin yok |
+| W16 | Net ihtiyaç, kapasite ve termin | W12, W14, W15 | Üretim, satış | geliştiriliyor | Net ihtiyaç, iptal; termin aralığı (malzeme + iş merkezi + kuyruk + tatil), taahhüt; Gantt yok |
 | W17 | Distribütör veri adaptörleri ve güncellik | W03, W12 | Satın alma | entegrasyon bekliyor | Bağlayıcı durumu BAĞLANMADI olarak gösteriliyor |
 | W18 | Teklif, alım, teyit ve gecikme | W10, W15, W17 | Satın alma | geliştiriliyor | Talep onayı; teklif, sipariş gönderimi, teyit yok |
 | W19 | Mal kabul, karantina, kontrol ve iade | W15, W18 | Depo, kalite | geliştiriliyor | Mal kabul, giriş kalite, karantina; iade yok |
 | W20 | İş emri, rota, teknisyen ve tüketim | W13, W16, W19 | Üretim | geliştiriliyor | İş emri, rota, sıra, malzeme çıkışı (yanlış parça, karantina, başka işe ayrılmış engeli), teknisyen web+mobil, tüketim |
-| W21 | Kalite reçetesi, uygunsuzluk ve yeniden işleme | W19, W20 | Kalite | geliştiriliyor | Test sonucu, uygunsuzluk, yeniden işleme/hurda, son kalite serbest bırakma; kontrol planı yok |
-| W22 | Test istasyonu ve ekipman uygunluğu | W13, W21 | Kalite, Ar-Ge | geliştiriliyor | Ölçüm kaydı, tekrar ayıklama; istasyon adaptörü ve kalibrasyon yok |
+| W21 | Kalite reçetesi, uygunsuzluk ve yeniden işleme | W19, W20 | Kalite | geliştiriliyor | Sürümlü test planı, sunucu kararı, uygunsuzluk, yeniden işleme/hurda, son kalite; ara kontrol listesi yok |
+| W22 | Test istasyonu ve ekipman uygunluğu | W13, W21 | Kalite, Ar-Ge | geliştiriliyor | Ekipman, kalibrasyon, engel + olay, etkilenen testler; istasyon adaptörü yok |
 | W23 | Paketleme, etiket, sevkiyat ve adres | W14, W20, W21 | Depo, satış | geliştiriliyor | Sevkiyat (rezerve ve serbest bırakılmış stoktan), taslak belge; adres, etiket, paketleme yok |
 | W24 | Fatura eşleştirme, ödeme, tahsilat ve vade | W18, W19, W23 | Muhasebe | planlandı | — |
 | W25 | Tarihsel maliyet, marj ve metrik sözlüğü | W11, W20, W21, W24 | Muhasebe, yönetim | planlandı | — |

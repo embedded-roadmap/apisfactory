@@ -57,6 +57,7 @@ export function AdminPage() {
 
 function UserRow({ u, roles, self, act }: { u: any; roles: any[]; self: boolean; act: (fn: () => Promise<unknown>) => void }) {
   const [sel, setSel] = useState<string[]>(u.roles);
+  const [reason, setReason] = useState("");
   const changed = sel.slice().sort().join() !== u.roles.slice().sort().join();
   return (
     <tr>
@@ -76,10 +77,12 @@ function UserRow({ u, roles, self, act }: { u: any; roles: any[]; self: boolean;
         {self ? <span className="muted">Kendi hesabınız</span> : null}
         {!self && changed ? <button className="primary" onClick={() => act(() => post(`/api/admin/users/${u.membershipId}/roles`, { roles: sel }))}>Rolleri kaydet</button> : null}
         {!self ? (
-          <button onClick={() => {
-            const reason = window.prompt("Gerekçe") ?? "";
-            if (reason.length >= 3) act(() => post(`/api/admin/users/${u.membershipId}/status`, { status: u.status === "active" ? "suspended" : "active", reason }));
-          }}>{u.status === "active" ? "Askıya al" : "Etkinleştir"}</button>
+          <>
+            <input aria-label={`${u.name} için gerekçe`} placeholder="Gerekçe (en az 3 karakter)" value={reason} onChange={(e) => setReason(e.target.value)} style={{ width: 200 }} />
+            <button disabled={reason.trim().length < 3} onClick={() => { act(() => post(`/api/admin/users/${u.membershipId}/status`, { status: u.status === "active" ? "suspended" : "active", reason: reason.trim() })); setReason(""); }}>
+              {u.status === "active" ? "Askıya al" : "Etkinleştir"}
+            </button>
+          </>
         ) : null}
       </td>
     </tr>

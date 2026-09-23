@@ -25,8 +25,19 @@ export async function createCompany(client: pg.Client, input: { code: string; na
   for (const [code, name] of [["SAT", "Satış"], ["MUH", "Muhasebe"], ["SAL", "Satın alma"], ["URT", "Üretim"], ["ARG", "Ar-Ge"], ["KAL", "Kalite"], ["DEP", "Depo"]]) {
     await client.query(`insert into departments (company_id, code, name) values ($1, $2, $3)`, [companyId, code, name]);
   }
-  for (const [code, name, kind] of [["HAZ", "Malzeme hazırlama", "prep"], ["SMT", "Dizgi hattı", "smt"], ["LEH", "Lehim / THT", "manual"], ["PRG", "Programlama", "programming"], ["TST", "Fonksiyon testi", "test"], ["MON", "Mekanik montaj", "assembly"]]) {
-    await client.query(`insert into work_centers (company_id, code, name, kind) values ($1, $2, $3, $4)`, [companyId, code, name, kind]);
+  // Varsayılan kapasite ve standart süreler (şirket kendi değerleriyle değiştirir; W16).
+  for (const [code, name, kind, setup, perUnit] of [
+    ["HAZ", "Malzeme hazırlama", "prep", 30, 0.2],
+    ["SMT", "Dizgi hattı", "smt", 90, 0.5],
+    ["LEH", "Lehim / THT", "manual", 15, 2],
+    ["PRG", "Programlama", "programming", 10, 1],
+    ["TST", "Fonksiyon testi", "test", 15, 3],
+    ["MON", "Mekanik montaj", "assembly", 10, 4],
+  ] as const) {
+    await client.query(
+      `insert into work_centers (company_id, code, name, kind, setup_minutes, minutes_per_unit) values ($1, $2, $3, $4, $5, $6)`,
+      [companyId, code, name, kind, setup, perUnit],
+    );
   }
   const locations: Record<string, string> = {};
   for (const [code, name, type] of [
@@ -106,6 +117,10 @@ async function seedDemo() {
     ]) {
       await client.query(`insert into items (company_id, code, name, kind, manufacturer, mpn) values ($1,$2,$3,'component',$4,$5)`, [a.companyId, code, name, mfr, mpn]);
     }
+
+    // Örnek ekipman ve tatil (DEMO)
+    await client.query(`insert into equipment (company_id, code, name, kind, calibration_due) values ($1,'TST-01','Fonksiyon test istasyonu 1 (DEMO)','test_station', current_date + 180), ($1,'DMM-01','Multimetre (DEMO)','measuring', current_date - 5)`, [a.companyId]);
+    await client.query(`update items set lead_time_days = 21 where company_id = $1 and kind = 'component'`, [a.companyId]);
 
     const b = await createCompany(client, { code: "DEMO-IKI", name: "DEMO İkinci Şirket (izolasyon testi)", isDemo: true });
     await createUser(client, { email: "yonetici@ikinci.demo.apisfactory.com", name: "İkinci Şirket Yöneticisi", password: DEMO_PASSWORD, companyId: b.companyId, roles: ["manager", "rd", "sales", "warehouse"], roleIds: b.roleIds });

@@ -138,9 +138,9 @@ export function SalesOrderPage() {
               ) : null}
             </div>
           ))}
-          <p className="muted" style={{ margin: 0 }}>Termin hesabı (kapasite, vardiya, test) bu fazda yok; müşteriye taahhüt tarihi ayrıca girilecek (W16).</p>
         </section>
       ) : o.status === "draft" ? <Loading /> : null}
+      {o.status !== "cancelled" ? <EstimatePanel id={o.id} /> : null}
       {o.status === "firm" ? <Shipments order={o} /> : null}
       {can("sales.cancel") && ["draft", "firm"].includes(o.status) ? <CancelOrder id={o.id} /> : null}
       <History entityType="sales_order" id={o.id} />
@@ -222,6 +222,65 @@ export function History({ entityType, id }: { entityType: string; id: string }) 
           ))}
         </tbody>
       </table>
+    </section>
+  );
+}
+
+/** Tahmini termin (aralık) ve müşteriye taahhüt tarihi ayrı gösterilir; tahmin taahhüdü sessizce değiştirmez. */
+function EstimatePanel({ id }: { id: string }) {
+  const can = useCan();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["estimate", id], queryFn: () => get<{ estimate: any; promisedDate: string | null }>(`/api/sales-orders/${id}/estimate`) });
+  const refresh = () => { qc.invalidateQueries({ queryKey: ["estimate", id] }); qc.invalidateQueries({ queryKey: ["history"] }); };
+  const compute = useMutation({ mutationFn: () => post(`/api/sales-orders/${id}/estimate`), onSuccess: refresh });
+  const [date, setDate] = useState("");
+  const [note, setNote] = useState("");
+  const [risk, setRisk] = useState(false);
+  const promise = useMutation({
+    mutationFn: () => post(`/api/sales-orders/${id}/promise`, { date, note: note || undefined, acceptRisk: risk }),
+    onSuccess: () => { setNote(""); setRisk(false); refresh(); },
+  });
+  const e = q.data?.estimate;
+  const risky = !!e && !!date && (e.status !== "ok" || (e.latest && date < e.latest));
+  return (
+    <section className="card">
+      <div className="row between">
+        <h2>Termin</h2>
+        <button onClick={() => compute.mutate()} disabled={compute.isPending}>{e ? "Yeniden hesapla" : "Termin hesapla"}</button>
+      </div>
+      <ErrorNotice error={compute.error ?? q.error} />
+      {!e ? <Empty>Henüz hesaplanmadı.</Empty> : (
+        <>
+          <div className="grid4">
+            <div className="stat"><small>Tahmini termin</small><b>{e.status === "ok" ? (e.earliest === e.latest ? e.earliest : `${e.earliest} – ${e.latest}`) : "Hesaplanamadı"}</b><small>{fmtDate(e.computedAt)}</small></div>
+            <div className="stat"><small>Malzeme hazır</small><b>{e.materialReadyDate ?? "—"}</b></div>
+            <div className="stat"><small>Üretim / kuyruk</small><b>{e.productionDays} / {e.queueDays} gün</b><small>{e.bottleneck ? `darboğaz ${e.bottleneck}` : ""}</small></div>
+            <div className="stat"><small>Müşteriye taahhüt</small><b>{q.data?.promisedDate ?? "—"}</b></div>
+          </div>
+          {e.reasons.length ? <div className="notice warn">{e.reasons.join(" · ")}</div> : null}
+          {e.materials.length ? (
+            <table>
+              <thead><tr><th>Malzeme</th><th className="num">Gerekli</th><th>Kaynak</th><th>Hazır</th></tr></thead>
+              <tbody>{e.materials.map((m: any) => <tr key={m.itemCode}><td className="mono">{m.itemCode}</td><td className="num">{fmt(m.requiredQty)}</td><td>{m.source}</td><td>{m.readyDate ?? "—"}</td></tr>)}</tbody>
+            </table>
+          ) : null}
+          <details><summary className="muted">Varsayımlar</summary><ul>{e.assumptions.map((a: string) => <li key={a}>{a}</li>)}</ul></details>
+        </>
+      )}
+      {can("sales.promise") && e ? (
+        <form className="row" onSubmit={(ev) => { ev.preventDefault(); promise.mutate(); }}>
+          <label className="field">Taahhüt tarihi<input type="date" required value={date} onChange={(ev) => setDate(ev.target.value)} /></label>
+          {risky ? (
+            <>
+              <label className="row" style={{ gap: 6, alignSelf: "flex-end" }}><input type="checkbox" style={{ minHeight: 0 }} checked={risk} onChange={(ev) => setRisk(ev.target.checked)} /> Tahminden erken; riski kabul ediyorum</label>
+              <label className="field" style={{ flex: 1 }}>Gerekçe<input value={note} onChange={(ev) => setNote(ev.target.value)} placeholder="Zorunlu" /></label>
+            </>
+          ) : null}
+          <button className="primary" style={{ alignSelf: "flex-end" }} disabled={promise.isPending}>Taahhüdü kaydet</button>
+        </form>
+      ) : null}
+      <ErrorNotice error={promise.error} />
+      <p className="muted" style={{ margin: 0 }}>Müşteriye otomatik mesaj gönderilmez.</p>
     </section>
   );
 }

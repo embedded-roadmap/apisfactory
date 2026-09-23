@@ -132,6 +132,7 @@ export function ProductDetailPage() {
                 </tbody>
               </table>
             ) : null}
+            <RevisionQuality rev={r} onDone={refresh} />
             {r.status !== "released" ? <p className="muted" style={{ margin: 0 }}>Devir tamamlanmadan bu revizyonla kesin sipariş açılamaz; teklif taslağı hazırlanabilir.</p> : null}
           </div>
         ))}
@@ -246,5 +247,80 @@ function BomDiffView({ a, b, boms, setA, onClose }: { a: string; b: string; boms
       ) : null}
       {q.data && !q.data.added.length && !q.data.removed.length && !q.data.changed.length ? <Empty>Fark yok.</Empty> : null}
     </section>
+  );
+}
+
+/** Revizyonun firmware'i ve test planı sürümleri. Yayımlanan plan değiştirilemez; değişiklik yeni sürümdür. */
+function RevisionQuality({ rev, onDone }: { rev: RevisionDetail; onDone: () => void }) {
+  const can = useCan();
+  const qc = useQueryClient();
+  const plans = useQuery({ queryKey: ["testPlans", rev.id], queryFn: () => get<any[]>(`/api/revisions/${rev.id}/test-plans`) });
+  const [fw, setFw] = useState("");
+  const [sha, setSha] = useState("");
+  const [rows, setRows] = useState<{ name: string; unit: string; low: string; high: string; required: boolean }[]>([]);
+  const act = useMutation({
+    mutationFn: (f: () => Promise<unknown>) => f(),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["testPlans", rev.id] }); onDone(); },
+  });
+  const locked = ["handover_review", "released"].includes(rev.status);
+  const last = plans.data?.at(-1);
+  function startNew() {
+    setRows(last ? last.limits.map((l: any) => ({ name: l.name, unit: l.unit ?? "", low: l.low ?? "", high: l.high ?? "", required: l.required })) : [{ name: "", unit: "", low: "", high: "", required: true }]);
+  }
+  const num = (v: string | number) => (v === "" || v === null ? undefined : Number(v));
+  return (
+    <div className="stack">
+      <div className="row">
+        <b>Firmware:</b>
+        {rev.firmwareVersion ? <span className="mono">{rev.firmwareVersion}{rev.firmwareSha256 ? ` · sha256 ${rev.firmwareSha256.slice(0, 12)}…` : ""}</span> : <span className="muted">tanımsız (test firmware kontrolü yapılamaz)</span>}
+        {can("product.create") && !locked ? (
+          <form className="row" onSubmit={(e) => { e.preventDefault(); act.mutate(() => post(`/api/revisions/${rev.id}/firmware`, { version: fw, sha256: sha || undefined })); setFw(""); setSha(""); }}>
+            <input aria-label="Firmware sürümü" placeholder="Sürüm (ör. 1.4.2)" required value={fw} onChange={(e) => setFw(e.target.value)} style={{ width: 150 }} />
+            <input aria-label="SHA-256" placeholder="SHA-256 (isteğe bağlı)" pattern="[0-9a-f]{64}" value={sha} onChange={(e) => setSha(e.target.value)} style={{ width: 220 }} />
+            <button>Kaydet</button>
+          </form>
+        ) : null}
+      </div>
+      <div className="row between">
+        <b>Test planı</b>
+        {can("quality.plan.manage") && rows.length === 0 ? <button onClick={startNew}>{last ? "Yeni sürüm" : "Test planı oluştur"}</button> : null}
+      </div>
+      {plans.data?.length === 0 ? <span className="muted">Test planı yok; iş emrinde sonuç elle seçilir.</span> : null}
+      {plans.data?.map((p) => (
+        <div key={p.id} className="row" style={{ alignItems: "flex-start" }}>
+          <span className="mono">v{p.versionNo}</span><StateBadge value={p.status} />
+          <span className="muted">{p.limits.map((l: any) => `${l.name}${l.required ? "" : "?"} ${l.low ?? "−∞"}…${l.high ?? "+∞"} ${l.unit ?? ""}`).join(" · ")}</span>
+          {can("quality.plan.manage") && p.status === "draft" ? <button className="primary" onClick={() => act.mutate(() => post(`/api/test-plans/${p.id}/publish`))}>Yayımla</button> : null}
+        </div>
+      ))}
+      {rows.length > 0 ? (
+        <form className="stack" onSubmit={(e) => { e.preventDefault(); act.mutate(() => post(`/api/revisions/${rev.id}/test-plans`, { limits: rows.map((r) => ({ name: r.name, unit: r.unit || undefined, low: num(r.low), high: num(r.high), required: r.required })) })); setRows([]); }}>
+          <table>
+            <thead><tr><th>Ölçüm</th><th>Birim</th><th>Alt</th><th>Üst</th><th>Zorunlu</th><th /></tr></thead>
+            <tbody>
+              {rows.map((r, i) => {
+                const set = (patch: Partial<typeof r>) => setRows(rows.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+                return (
+                  <tr key={i}>
+                    <td><input aria-label="Ölçüm adı" required value={r.name} onChange={(e) => set({ name: e.target.value })} /></td>
+                    <td><input aria-label="Birim" value={r.unit} onChange={(e) => set({ unit: e.target.value })} style={{ width: 70 }} /></td>
+                    <td><input aria-label="Alt limit" inputMode="decimal" value={r.low} onChange={(e) => set({ low: e.target.value })} style={{ width: 90 }} /></td>
+                    <td><input aria-label="Üst limit" inputMode="decimal" value={r.high} onChange={(e) => set({ high: e.target.value })} style={{ width: 90 }} /></td>
+                    <td><input type="checkbox" aria-label="Zorunlu" style={{ minHeight: 0 }} checked={r.required} onChange={(e) => set({ required: e.target.checked })} /></td>
+                    <td><button type="button" onClick={() => setRows(rows.filter((_, j) => j !== i))}>Sil</button></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="row">
+            <button type="button" onClick={() => setRows([...rows, { name: "", unit: "", low: "", high: "", required: true }])}>Satır ekle</button>
+            <button className="primary">Taslak kaydet</button>
+            <button type="button" onClick={() => setRows([])}>Vazgeç</button>
+          </div>
+        </form>
+      ) : null}
+      <ErrorNotice error={act.error} />
+    </div>
   );
 }

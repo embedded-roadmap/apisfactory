@@ -11,8 +11,8 @@ Durumlar: planlandı · geliştiriliyor · doğrulandı · entegrasyon bekliyor 
 | R04 | Alımın proje ve muhasebeyle bağlantısı | W18, W24 | planlandı | — | — | — | — |
 | R05 | Devirde Ar-Ge maliyetinin hesaplanması | W11, W25 | planlandı | — | — | — | — |
 | R06 | Devir tamamlanmadan kesin satış engeli | W13, W14 | doğrulandı | Devir onaysız ürüne kesin satış sunucuda reddedilir | product_revisions, handover_approvals | T01 testi, devir testleri | — |
-| R07 | Üretimden Ar-Ge'ye revizyon talebi | W13, W20 | planlandı | Teknisyen duraklatma nedeni kaydı var; revizyon talebi (ECR) yok | — | — | W13 |
-| R08 | Kesin satış öncesi termin ve üretim uygunluğu | W14, W16 | geliştiriliyor | Uygunluk önizlemesi (stok, üretim, net malzeme) | — | T02 önizleme | Kapasite/termin hesabı yok (W16) |
+| R07 | Üretimden Ar-Ge'ye revizyon talebi | W13, W20 | doğrulandı | Değişiklik talebi (ECR) iş emrinden/mobilden; "üretimi durdur" iş emrini bekletir; karar yetkili ve talebi açmayan kişiyle, açık iş emirleri için tek tek; BOM değişmez | change_requests, work_orders.hold_reason | quality.test.ts › ECR, e2e | Yeni revizyonun talebe bağlanması elle |
+| R08 | Kesin satış öncesi termin ve üretim uygunluğu | W14, W16 | doğrulandı | Uygunluk önizlemesi + termin aralığı (malzeme hazır olma, iş merkezi yükü, açık iş kuyruğu, hafta sonu/tatil); temin süresi yoksa "hesaplanamadı"; taahhüt ayrı ve risk kabulü gerekçeli | sales_orders.estimate/promised_date, work_centers, holidays, items.lead_time_days | quality.test.ts › termin, e2e | Vardiya/çoklu hat, paralel operasyon yok |
 | R09 | Onaylanan satıştan otomatik üretim/net alım ihtiyacı | W10, W16, W18 | doğrulandı | Onayda rezervasyon + üretim ihtiyacı + net alım talebi; tekrar korumalı | reservations, production_needs, purchase_requests | T02, T03, T04 testleri | — |
 | R10 | DigiKey, Mouser, Farnell ve Octopart/Nexar sorguları | W03, W17 | entegrasyon bekliyor | Bağlayıcı durumu ekranda BAĞLANMADI | — | — | API lisans/erişim kararı (W03) |
 | R11 | EOL, PCN, fiyat, stok ve lead time takibi | W17 | entegrasyon bekliyor | — | — | — | W17 |
@@ -22,7 +22,7 @@ Durumlar: planlandı · geliştiriliyor · doğrulandı · entegrasyon bekliyor 
 | R15 | Sipariş durumu, gecikme ve tedarikçi hatırlatmaları | W18 | planlandı | Talep onayı var; sipariş/teyit takibi yok | purchase_order_lines | — | W18 |
 | R16 | Mal kabul ve teknisyen giriş kalite kontrolü | W19, W21 | doğrulandı | Mal kabul → giriş kontrol konumu → kalite kararı; kontrol öncesi kullanılamaz | goods_receipts, lots, inspections | T05 testi, e2e | Teknisyen kontrol listesi yok |
 | R17 | Üretim ve ara kontroller | W20, W21 | geliştiriliyor | İş emri, 6 adımlı rota, sıra zorunluluğu, malzeme uzlaşması, kalite kapısı | work_orders, work_order_operations | Üretim testleri, e2e | Ara kontrol listeleri, rota düzenleme ekranı yok |
-| R18 | Son kalite ret ve yeniden işleme döngüsü | W21, W22 | doğrulandı | Test sonucu, uygunsuzluk, yeniden işleme/hurda kararı, tekrar test; FPY ilk testle hesaplanır | test_runs, nonconformances, devices | T09 testi, e2e | Kontrol planı/limit sürümü yönetimi yok |
+| R18 | Son kalite ret ve yeniden işleme döngüsü | W21, W22 | doğrulandı | Test sonucu, uygunsuzluk, yeniden işleme/hurda kararı, tekrar test; FPY ilk testle; sürümlü test planı, karar sunucuda | test_runs, nonconformances, devices, test_plans, test_limits | T09, quality.test.ts, e2e | Ara kontrol listeleri yok |
 | R19 | Kaliteden paketleme ve depoya devir | W20, W23 | geliştiriliyor | Son kalite serbest bırakma → revizyonlu bitmiş ürün lotu → satıra rezervasyon | devices, lots | T10 testi | Paketleme operasyonu ve etiket yok (W23) |
 | R20 | Adres, kargo etiketi, irsaliye ve fatura | W23, W24, W36 | geliştiriliyor | Sevkiyat kaydı; belge TASLAK olarak işaretlenir | shipments | T10, e2e | Adres, kargo etiketi, e-irsaliye/e-fatura yok (W36) |
 | R21 | Vadeli tahsilat ve müşteri/muhasebe hatırlatması | W24 | planlandı | — | — | — | — |
@@ -40,12 +40,12 @@ Durumlar: planlandı · geliştiriliyor · doğrulandı · entegrasyon bekliyor 
 | R33 | Her yönetici raporunda stratejik AI bölümü | W30 | planlandı | — | — | — | — |
 | R34 | Haftalık, aylık, yıllık ekip performansı | W26, W25, W30 | planlandı | — | — | — | — |
 | R35 | AI önerisi onayı ve gerçekleşen etki takibi | W31 | planlandı | — | — | — | — |
-| R36 | PCB/BOM/firmware/test sürümlerinin birlikte yönetimi | W12, W13, W20 | geliştiriliyor | BOM sürümü yayım kilidi ve farkı; iş emri BOM sürümünü sabitler; cihazda firmware sürümü alanı | bom_versions, work_orders, test_runs | T06, BOM testleri | PCB/firmware/test reçetesi sürüm yönetimi yok |
+| R36 | PCB/BOM/firmware/test sürümlerinin birlikte yönetimi | W12, W13, W20 | geliştiriliyor | İş emri BOM sürümü, test planı sürümü ve revizyon firmware'ini (sürüm + SHA-256) sabitler; devirdeki revizyonda firmware kilitli | bom_versions, test_plans, product_revisions.firmware_*, work_orders | T06, T12 | PCB dosya sürümü yok |
 | R37 | Tedarik riskinin sipariş ve termine etkisi | W16, W18, W30 | planlandı | — | — | — | — |
 | R38 | Sade teknisyen ve depo ekranları | W04, W19, W20 | geliştiriliyor | Mobil: işlerim, üretim (operasyon, barkodlu çıkış, test), mal kabul, kalite, stok sorgu | — | Android paketi derlendi | Cihazda kullanıcı testi yapılmadı |
 | R39 | Hazır akışlarla hızlı şirket kurulumu | W10, W39 | planlandı | Seed ile varsayılan şirket şablonu | — | — | Kurulum sihirbazı yok |
 | R40 | Fason üretici portalı ve dosya teyidi | W32 | planlandı | — | — | — | — |
-| R41 | Otomatik test verisi ve ekipman uygunluğu | W22 | geliştiriliyor | Ölçüm değerleri, limit dışı "geçti" engeli, istasyon çalışma kimliğiyle tekrar ayıklama | test_runs | T09 testi | Test istasyonu API/CSV adaptörü ve ekipman kalibrasyonu yok (W22) |
+| R41 | Otomatik test verisi ve ekipman uygunluğu | W22 | geliştiriliyor | Ölçüm, plan limitleri, tekrar ayıklama; ekipman + değişmez kalibrasyon kaydı; hizmet dışı/süresi geçmiş ekipmanla test engeli ve olay; ekipmandan etkilenen testler listesi | test_runs, equipment, calibration_records | T12, quality.test.ts | Test istasyonu API/CSV adaptörü yok |
 | R42 | Üretim miktarı ve tedarik senaryoları | W35 | planlandı | — | — | — | — |
 | R43 | MSL, raf ömrü, makara ve sahiplik | W33 | planlandı | Lot ve lot zinciri alanı (parent_lot_id) var | lots | — | MSL, raf ömrü, makara yok (W33) |
 | R44 | Saha hatasının seri, lot ve revizyona bağlanması | W34 | planlandı | Cihaz geçmişi: seri → BOM sürümü, gerçek lotlar, testler | devices, material_issues | Üretim testi | Saha arızası kaydı yok (W34) |

@@ -1,13 +1,15 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { Db } from "../db/pool";
-import { badRequest, conflict, notFound } from "../lib/errors";
+import { AppError, badRequest, conflict, notFound } from "../lib/errors";
 import { closeTasks, idempotent, nextCode, openTask, recordEvent, type Actor } from "../lib/records";
 import { fromMicro, min, mul, toMicro } from "../lib/decimal";
 import { idempotencyKey, parse, tenant } from "../http/context";
+import { RuleRejection, withRejectionLog } from "../lib/rejection";
+import { activeTestPlan, loadTestPlan } from "./quality";
 
 /** Varsayılan rota. Yayımda iş emrine kopyalanır; sonradan rota değişikliği açık işi etkilemez. */
-const DEFAULT_ROUTE: { wc: string; name: string; gate?: boolean }[] = [
+export const DEFAULT_ROUTE: { wc: string; name: string; gate?: boolean }[] = [
   { wc: "HAZ", name: "Malzeme hazırlama" },
   { wc: "SMT", name: "Dizgi (SMT)" },
   { wc: "LEH", name: "Lehim / THT" },
@@ -16,7 +18,10 @@ const DEFAULT_ROUTE: { wc: string; name: string; gate?: boolean }[] = [
   { wc: "MON", name: "Mekanik montaj" },
 ];
 
-type WoRow = { id: string; code: string; status: string; qty: string; bom_version_id: string; product_revision_id: string; production_need_id: string | null };
+type WoRow = {
+  id: string; code: string; status: string; qty: string; bom_version_id: string; product_revision_id: string; production_need_id: string | null;
+  test_plan_id: string | null; firmware_version: string | null; firmware_sha256: string | null; hold_reason: string | null;
+};
 
 async function lockWo(db: Db, id: string): Promise<WoRow> {
   const r = await db.query(`select * from work_orders where id = $1 for update`, [id]);
@@ -80,7 +85,8 @@ export async function loadWorkOrder(db: Db, id: string) {
     `select w.id, w.code, w.status, w.qty, w.due_date as "dueDate", w.bom_version_id as "bomVersionId", w.product_revision_id as "productRevisionId",
             w.production_need_id as "productionNeedId", w.released_at as "releasedAt", w.completed_at as "completedAt",
             p.code as "productCode", p.name as "productName", pr.rev, b.version_no as "bomVersionNo",
-            so.code as "salesOrderCode"
+            so.code as "salesOrderCode", w.hold_reason as "holdReason", w.firmware_version as "firmwareVersion",
+            w.firmware_sha256 as "firmwareSha256", w.test_plan_id as "testPlanId"
        from work_orders w join product_revisions pr on pr.id = w.product_revision_id join products p on p.id = pr.product_id
        join bom_versions b on b.id = w.bom_version_id
        left join production_needs pn on pn.id = w.production_need_id
@@ -104,7 +110,12 @@ export async function loadWorkOrder(db: Db, id: string) {
     [id],
   );
   const wo = (await db.query(`select * from work_orders where id = $1`, [id])).rows[0] as WoRow;
-  return { ...w.rows[0], operations: ops.rows, materials: await materialStatus(db, wo), devices: devices.rows, stats: await deviceStats(db, id) };
+  const testPlan = wo.test_plan_id ? await loadTestPlan(db, wo.test_plan_id) : null;
+  const changes = await db.query(
+    `select id, code, title, status, stop_production as "stopProduction" from change_requests where work_order_id = $1 order by created_at desc`,
+    [id],
+  );
+  return { ...w.rows[0], testPlan, changeRequests: changes.rows, operations: ops.rows, materials: await materialStatus(db, wo), devices: devices.rows, stats: await deviceStats(db, id) };
 }
 
 async function setWoStatus(db: Db, actor: Actor, wo: WoRow, to: string, reason?: string) {
@@ -177,15 +188,17 @@ export async function productionRoutes(app: FastifyInstance) {
         qty = String(Math.ceil(Number(need.qty)));
       }
       if (!revisionId || !qty) throw badRequest("Üretim ihtiyacı veya revizyon + miktar gerekli");
-      const rev = await db.query(`select status, bom_version_id from product_revisions where id = $1`, [revisionId]);
+      const rev = await db.query(`select status, bom_version_id, firmware_version, firmware_sha256 from product_revisions where id = $1`, [revisionId]);
       if (!rev.rows[0]) throw notFound("Revizyon");
       if (rev.rows[0].status !== "released") throw conflict("product_not_released", "Yayımlanmamış revizyon için seri üretim iş emri açılamaz");
       bomVersionId ??= rev.rows[0].bom_version_id;
       const code = await nextCode(db, actor.companyId, "work_order", "IE");
+      // Test planı ve firmware iş emri açıldığı andaki sürümle sabitlenir; sonradan yayımlanan sürüm açık işi değiştirmez.
+      const testPlanId = await activeTestPlan(db, revisionId);
       const w = await db.query(
-        `insert into work_orders (company_id, code, production_need_id, product_revision_id, bom_version_id, qty, due_date, created_by)
-         values (app_company_id(), $1, $2, $3, $4, $5, $6, $7) returning id`,
-        [code, input.productionNeedId ?? null, revisionId, bomVersionId, qty, input.dueDate ?? null, actor.userId],
+        `insert into work_orders (company_id, code, production_need_id, product_revision_id, bom_version_id, qty, due_date, created_by, test_plan_id, firmware_version, firmware_sha256)
+         values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id`,
+        [code, input.productionNeedId ?? null, revisionId, bomVersionId, qty, input.dueDate ?? null, actor.userId, testPlanId, rev.rows[0].firmware_version, rev.rows[0].firmware_sha256],
       );
       if (input.productionNeedId) {
         await db.query(`update production_needs set status = 'released' where id = $1`, [input.productionNeedId]);
@@ -198,7 +211,7 @@ export async function productionRoutes(app: FastifyInstance) {
           [w.rows[0].id, (i + 1) * 10, op.name, op.wc, !!op.gate],
         );
       }
-      await recordEvent(db, actor, { entityType: "work_order", entityId: w.rows[0].id, eventType: "created", after: { code, qty, revisionId, bomVersionId } });
+      await recordEvent(db, actor, { entityType: "work_order", entityId: w.rows[0].id, eventType: "created", after: { code, qty, revisionId, bomVersionId, testPlanId, firmwareVersion: rev.rows[0].firmware_version } });
       return loadWorkOrder(db, w.rows[0].id);
     });
   });
@@ -233,6 +246,7 @@ export async function productionRoutes(app: FastifyInstance) {
     return tenant(req, "inventory.issue", (db, actor) =>
       idempotent(db, actor.companyId, "wo_issue", idempotencyKey(req), async () => {
         const wo = await lockWo(db, id);
+        if (wo.status === "on_hold") throw conflict("work_order_on_hold", `İş emri beklemede: ${wo.hold_reason ?? ""}`);
         if (!["released", "in_progress"].includes(wo.status)) throw conflict("invalid_transition", "Malzeme yalnızca yayımlanmış veya işlemdeki iş emrine çıkılır");
         const lot = await db.query(`select l.id, l.item_id, l.lot_no, i.code from lots l join items i on i.id = l.item_id where l.id = $1 for update of l`, [input.lotId]);
         if (!lot.rows[0]) throw notFound("Lot");
@@ -306,6 +320,7 @@ export async function productionRoutes(app: FastifyInstance) {
     const body = parse(z.object({ reason: z.string().max(500).optional() }), req.body ?? {});
     return tenant(req, "production.execute", async (db, actor) => {
       const wo = await lockWo(db, id);
+      if (wo.status === "on_hold") throw conflict("work_order_on_hold", `İş emri beklemede: ${wo.hold_reason ?? ""}`);
       if (!["released", "in_progress"].includes(wo.status)) throw conflict("invalid_transition", `İş emri "${wo.status}" durumunda`);
       const r = await db.query(`select * from work_order_operations where id = $1 and work_order_id = $2 for update`, [opId, id]);
       const op = r.rows[0];
@@ -349,53 +364,96 @@ export async function productionRoutes(app: FastifyInstance) {
   });
 
   /**
-   * Test sonucu: test operasyonu işlemdeyken kaydedilir. Ölçüm değerleri saklanır, istasyon çalışma kimliğiyle tekrarlar ayıklanır.
-   * Başarısız test uygunsuzluk açar; ilk test sonucu hiçbir zaman değişmez (T09).
+   * Test sonucu. İş emrinin sabitlediği test planı varsa karar sunucuda verilir: zorunlu ölçüm eksikse reddedilir,
+   * limit dışı ölçüm "başarısız"dır. Firmware iş emrinin sabitlediği sürümle, ekipman kalibrasyonla doğrulanır (T12).
+   * Engellenen deneme ayrı işlemde olay olarak kaydedilir. İlk test sonucu hiçbir zaman değişmez (T09).
    */
   app.post("/api/devices/:serial/test", async (req) => {
     const { serial } = req.params as { serial: string };
     const input = parse(
       z.object({
-        result: z.enum(["pass", "fail"]),
+        result: z.enum(["pass", "fail"]).optional(),
         measurements: z.array(z.object({ name: z.string(), value: z.number(), unit: z.string().optional(), low: z.number().optional(), high: z.number().optional() })).default([]),
         station: z.string().max(80).optional(),
+        equipmentId: z.string().uuid().optional(),
         firmwareVersion: z.string().max(80).optional(),
         externalRunId: z.string().max(120).optional(),
       }),
       req.body,
     );
-    return tenant(req, "production.test.record", async (db, actor) => {
-      const d = await db.query(`select * from devices where serial = $1 for update`, [serial]);
-      const dev = d.rows[0];
-      if (!dev) throw notFound("Cihaz");
-      if (input.externalRunId) {
-        const dup = await db.query(`select id, run_no, result from test_runs where external_run_id = $1`, [input.externalRunId]);
-        if (dup.rows[0]) return { serial, duplicate: true, runNo: dup.rows[0].run_no, result: dup.rows[0].result, status: dev.status };
-      }
-      if (!["in_process", "rework"].includes(dev.status)) throw conflict("invalid_transition", `Cihaz "${dev.status}" durumunda; test kaydı alınamaz`);
-      const gate = await db.query(
-        `select status from work_order_operations where work_order_id = $1 and is_quality_gate order by seq limit 1`,
-        [dev.work_order_id],
-      );
-      if (gate.rows[0]?.status !== "in_progress") throw conflict("sequence", "Test operasyonu işlemde değil");
-      // Ölçüm limit dışıysa "geçti" kabul edilmez: kayıt çelişkiliyse reddedilir.
-      const outOfLimit = input.measurements.filter((m) => (m.low !== undefined && m.value < m.low) || (m.high !== undefined && m.value > m.high));
-      if (input.result === "pass" && outOfLimit.length) throw conflict("measurement_out_of_limit", "Limit dışı ölçümle geçti sonucu kaydedilemez", { measurements: outOfLimit.map((m) => m.name) });
-      const runNo = (await db.query(`select coalesce(max(run_no), 0) + 1 as n from test_runs where device_id = $1`, [dev.id])).rows[0].n;
-      const tr = await db.query(
-        `insert into test_runs (company_id, device_id, run_no, external_run_id, result, measurements, station, firmware_version, operator_id)
-         values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8) returning id`,
-        [dev.id, runNo, input.externalRunId ?? null, input.result, JSON.stringify(input.measurements), input.station ?? null, input.firmwareVersion ?? null, actor.userId],
-      );
-      const next = input.result === "pass" ? "passed" : "test_failed";
-      await db.query(`update devices set status = $2 where id = $1`, [dev.id, next]);
-      if (input.result === "fail") {
-        await db.query(`insert into nonconformances (company_id, device_id, test_run_id) values (app_company_id(), $1, $2)`, [dev.id, tr.rows[0].id]);
-        await openTask(db, actor.companyId, { kind: "device_disposition", title: `Test başarısız — ${serial}: yeniden işleme / hurda kararı`, entityType: "device", entityId: dev.id, assigneeRole: "quality" });
-      }
-      await recordEvent(db, actor, { entityType: "device", entityId: dev.id, eventType: `test.${input.result}`, after: { serial, runNo, station: input.station, measurements: input.measurements } });
-      return { serial, duplicate: false, runNo, result: input.result, status: next };
-    });
+    return withRejectionLog(req, () =>
+      tenant(req, "production.test.record", async (db, actor) => {
+        const d = await db.query(`select * from devices where serial = $1 for update`, [serial]);
+        const dev = d.rows[0];
+        if (!dev) throw notFound("Cihaz");
+        if (input.externalRunId) {
+          const dup = await db.query(`select id, run_no, result from test_runs where external_run_id = $1`, [input.externalRunId]);
+          if (dup.rows[0]) return { serial, duplicate: true, runNo: dup.rows[0].run_no, result: dup.rows[0].result, status: dev.status };
+        }
+        const wo = (await db.query(`select * from work_orders where id = $1`, [dev.work_order_id])).rows[0] as WoRow;
+        const reject = (code: string, message: string, details?: Record<string, unknown>) =>
+          new RuleRejection(new AppError(409, code, message, details), { entityType: "device", entityId: dev.id, eventType: `test.rejected.${code}`, after: { serial, ...details } });
+        if (wo.status === "on_hold") throw conflict("work_order_on_hold", `İş emri beklemede: ${wo.hold_reason ?? ""}`);
+        if (!["in_process", "rework"].includes(dev.status)) throw conflict("invalid_transition", `Cihaz "${dev.status}" durumunda; test kaydı alınamaz`);
+        const gate = await db.query(`select status from work_order_operations where work_order_id = $1 and is_quality_gate order by seq limit 1`, [dev.work_order_id]);
+        if (gate.rows[0]?.status !== "in_progress") throw conflict("sequence", "Test operasyonu işlemde değil");
+
+        // Firmware: iş emrinin sabitlediği sürüm dışında yüklenmiş cihaz geçemez.
+        if (wo.firmware_version) {
+          if (!input.firmwareVersion) throw reject("firmware_required", `Firmware sürümü girilmeli (beklenen ${wo.firmware_version})`, { expected: wo.firmware_version });
+          if (input.firmwareVersion !== wo.firmware_version) {
+            throw reject("wrong_firmware", `Yanlış firmware: ${input.firmwareVersion}; bu iş emri ${wo.firmware_version} ister`, { expected: wo.firmware_version, actual: input.firmwareVersion });
+          }
+        }
+
+        // Ekipman: plan varsa zorunlu; hizmet dışı veya kalibrasyonu geçmiş ekipmanla test kaydı alınmaz.
+        if (wo.test_plan_id && !input.equipmentId) throw reject("equipment_required", "Test planlı iş emrinde test ekipmanı seçilmeli");
+        if (input.equipmentId) {
+          const e = await db.query(`select code, status, calibration_due, calibration_due < current_date as expired from equipment where id = $1`, [input.equipmentId]);
+          const eq = e.rows[0];
+          if (!eq) throw notFound("Ekipman");
+          if (eq.status !== "active") throw reject("equipment_out_of_service", `${eq.code} hizmet dışı`, { equipment: eq.code });
+          if (eq.expired) throw reject("calibration_expired", `${eq.code} kalibrasyonu ${eq.calibration_due} tarihinde doldu`, { equipment: eq.code, calibrationDue: eq.calibration_due });
+        }
+
+        // Karar: planlı işte limitler plandan gelir, istemcinin gönderdiği limit dikkate alınmaz.
+        let measurements = input.measurements;
+        let computed: "pass" | "fail";
+        if (wo.test_plan_id) {
+          const plan = await loadTestPlan(db, wo.test_plan_id);
+          const byName = new Map(input.measurements.map((m) => [m.name, m]));
+          const missing = plan.limits.filter((l: { name: string; required: boolean }) => l.required && !byName.has(l.name)).map((l: { name: string }) => l.name);
+          if (missing.length) throw reject("measurement_missing", `Zorunlu ölçüm eksik: ${missing.join(", ")}`, { missing });
+          measurements = plan.limits
+            .filter((l: { name: string }) => byName.has(l.name))
+            .map((l: { name: string; unit: string | null; low: number | null; high: number | null }) => ({
+              name: l.name, value: byName.get(l.name)!.value, unit: l.unit ?? undefined, low: l.low ?? undefined, high: l.high ?? undefined,
+            }));
+        }
+        const outOfLimit = measurements.filter((m) => (m.low !== undefined && m.value < m.low) || (m.high !== undefined && m.value > m.high));
+        computed = outOfLimit.length ? "fail" : wo.test_plan_id ? "pass" : (input.result ?? "pass");
+        if (!wo.test_plan_id && !input.result) throw badRequest("Test planı olmayan iş emrinde sonuç (geçti/kaldı) girilmeli");
+        if (input.result === "pass" && computed === "fail") {
+          throw reject("measurement_out_of_limit", "Limit dışı ölçümle geçti sonucu kaydedilemez", { measurements: outOfLimit.map((m) => m.name) });
+        }
+        const result = input.result === "fail" ? "fail" : computed;
+
+        const runNo = (await db.query(`select coalesce(max(run_no), 0) + 1 as n from test_runs where device_id = $1`, [dev.id])).rows[0].n;
+        const tr = await db.query(
+          `insert into test_runs (company_id, device_id, run_no, external_run_id, result, measurements, station, firmware_version, operator_id, test_plan_id, equipment_id)
+           values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id`,
+          [dev.id, runNo, input.externalRunId ?? null, result, JSON.stringify(measurements), input.station ?? null, input.firmwareVersion ?? null, actor.userId, wo.test_plan_id, input.equipmentId ?? null],
+        );
+        const next = result === "pass" ? "passed" : "test_failed";
+        await db.query(`update devices set status = $2 where id = $1`, [dev.id, next]);
+        if (result === "fail") {
+          await db.query(`insert into nonconformances (company_id, device_id, test_run_id) values (app_company_id(), $1, $2)`, [dev.id, tr.rows[0].id]);
+          await openTask(db, actor.companyId, { kind: "device_disposition", title: `Test başarısız — ${serial}: yeniden işleme / hurda kararı`, entityType: "device", entityId: dev.id, assigneeRole: "quality" });
+        }
+        await recordEvent(db, actor, { entityType: "device", entityId: dev.id, eventType: `test.${result}`, after: { serial, runNo, station: input.station, measurements, testPlanId: wo.test_plan_id, equipmentId: input.equipmentId } });
+        return { serial, duplicate: false, runNo, result, status: next, outOfLimit: outOfLimit.map((m) => m.name) };
+      }),
+    );
   });
 
   /** Başarısız cihaz için kalite kararı: yeniden işleme (tekrar test gerekir) veya hurda. Gerekçe zorunlu. */
@@ -428,6 +486,7 @@ export async function productionRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     return tenant(req, "quality.final.release", async (db, actor) => {
       const wo = await lockWo(db, id);
+      if (wo.status === "on_hold") throw conflict("work_order_on_hold", `İş emri beklemede: ${wo.hold_reason ?? ""}`);
       if (!["in_progress"].includes(wo.status)) throw conflict("invalid_transition", "Yalnızca işlemdeki iş emri için serbest bırakma yapılır");
       const gate = await db.query(`select status from work_order_operations where work_order_id = $1 and is_quality_gate order by seq limit 1`, [id]);
       if (gate.rows[0]?.status !== "done") throw conflict("quality_gate", "Fonksiyon testi kalite kapısı tamamlanmadan serbest bırakma yapılamaz");
@@ -498,8 +557,10 @@ export async function productionRoutes(app: FastifyInstance) {
       );
       if (!d.rows[0]) throw notFound("Cihaz");
       const runs = await db.query(
-        `select t.run_no as "runNo", t.result, t.measurements, t.station, t.firmware_version as "firmwareVersion", u.name as operator, t.created_at as "createdAt"
-           from test_runs t left join users u on u.id = t.operator_id where t.device_id = $1 order by t.run_no`,
+        `select t.run_no as "runNo", t.result, t.measurements, t.station, t.firmware_version as "firmwareVersion", u.name as operator, t.created_at as "createdAt",
+                e.code as "equipmentCode", tp.version_no as "testPlanVersion"
+           from test_runs t left join users u on u.id = t.operator_id left join equipment e on e.id = t.equipment_id
+           left join test_plans tp on tp.id = t.test_plan_id where t.device_id = $1 order by t.run_no`,
         [d.rows[0].id],
       );
       const lots = await db.query(

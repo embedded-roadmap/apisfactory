@@ -10,7 +10,11 @@ export type Db = pg.PoolClient;
 
 let appPool: pg.Pool | null = null;
 export function pool(): pg.Pool {
-  if (!appPool) appPool = new pg.Pool({ connectionString: config.databaseUrl, max: 20 });
+  if (!appPool) {
+    appPool = new pg.Pool({ connectionString: config.databaseUrl, max: 20 });
+    // Boştaki bağlantı koparsa (veri tabanı yeniden başlatma) süreç çökmez; havuz yeni bağlantı açar.
+    appPool.on("error", (err) => console.error("pg pool: boştaki bağlantı hatası", err.message));
+  }
   return appPool;
 }
 

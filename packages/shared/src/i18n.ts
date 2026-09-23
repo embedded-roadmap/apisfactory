@@ -82,6 +82,14 @@ const tr = {
   "dev.scrapped": "Hurda",
   "dev.released": "Serbest bırakıldı",
   "dev.shipped": "Sevk edildi",
+  "nav.quality": "Kalite & Ekipman",
+  "nav.changes": "Değişiklik talepleri",
+  "cr.open": "Açık",
+  "cr.approved": "Onaylandı",
+  "cr.rejected": "Reddedildi",
+  "cr.implemented": "Uygulandı",
+  "eq.active": "Aktif",
+  "eq.out_of_service": "Hizmet dışı",
 } as const;
 
 export type MessageKey = keyof typeof tr;
@@ -165,6 +173,14 @@ const en: Record<MessageKey, string> = {
   "dev.scrapped": "Scrapped",
   "dev.released": "Released",
   "dev.shipped": "Shipped",
+  "nav.quality": "Quality & Equipment",
+  "nav.changes": "Change requests",
+  "cr.open": "Open",
+  "cr.approved": "Approved",
+  "cr.rejected": "Rejected",
+  "cr.implemented": "Implemented",
+  "eq.active": "Active",
+  "eq.out_of_service": "Out of service",
 };
 
 export const MESSAGES: Record<Locale, Record<MessageKey, string>> = { tr, en };

@@ -289,6 +289,7 @@ export function LookupScreen() {
 }
 
 const WO_LABEL: Record<string, string> = { planned: "Planlandı", released: "Yayımlandı", in_progress: "İşlemde", completed: "Tamamlandı", cancelled: "İptal", on_hold: "Beklemede" };
+const CR_LABEL: Record<string, string> = { open: "Açık", approved: "Onaylandı", rejected: "Reddedildi", implemented: "Uygulandı" };
 const OP_LABEL: Record<string, string> = { pending: "Bekliyor", in_progress: "İşlemde", paused: "Duraklatıldı", done: "Tamamlandı" };
 const PAUSE_REASONS = ["Malzeme", "Ekipman", "Kalite", "Personel", "Dış bağımlılık"];
 
@@ -297,7 +298,7 @@ export function ProductionScreen({ perms }: { perms: Set<string> }) {
   const [woId, setWoId] = useState<string | null>(null);
   const list = useQuery({ queryKey: ["wos"], queryFn: () => api<any[]>("GET", "/api/work-orders") });
   if (woId) return <WorkOrderScreen id={woId} perms={perms} onBack={() => setWoId(null)} />;
-  const active = (list.data ?? []).filter((w) => ["released", "in_progress"].includes(w.status));
+  const active = (list.data ?? []).filter((w) => ["released", "in_progress", "on_hold"].includes(w.status));
   return (
     <FlatList
       style={s.screen}
@@ -338,12 +339,20 @@ function WorkOrderScreen({ id, perms, onBack }: { id: string; perms: Set<string>
   const [lotCode, setLotCode] = useState("");
   const [issueQty, setIssueQty] = useState("");
   const [serial, setSerial] = useState("");
-  const [measure, setMeasure] = useState("");
+  const [vals, setVals] = useState<Record<string, string>>({});
+  const [equipmentId, setEquipmentId] = useState("");
+  const [firmware, setFirmware] = useState("");
+  const [lastResult, setLastResult] = useState<string | null>(null);
+  const [ecrOpen, setEcrOpen] = useState(false);
+  const [ecr, setEcr] = useState({ title: "", description: "", stopProduction: false });
   const [issueKey, setIssueKey] = useState(newKey());
+  const equipment = useQuery({ queryKey: ["equipment"], queryFn: () => api<any[]>("GET", "/api/equipment"), enabled: perms.has("production.test.record") });
   if (!q.data) return <View style={[s.screen, s.pad]}><ErrorBox error={q.error} /></View>;
   const wo = q.data;
   const testOp = wo.operations.find((o: any) => o.isQualityGate);
-  const canTest = perms.has("production.test.record") && testOp?.status === "in_progress";
+  const canTest = perms.has("production.test.record") && testOp?.status === "in_progress" && wo.status !== "on_hold";
+  const limits: any[] = wo.testPlan?.limits ?? [{ name: "3V3", unit: "V", low: 3.2, high: 3.4, required: false }];
+  const usableEq = (equipment.data ?? []).filter((e) => e.status === "active" && !e.calibrationExpired);
 
   async function issue() {
     const lots = await api<any[]>("GET", `/api/lots/lookup?code=${encodeURIComponent(lotCode)}`);
@@ -355,13 +364,21 @@ function WorkOrderScreen({ id, perms, onBack }: { id: string; perms: Set<string>
     setIssueKey(newKey());
   }
 
-  function test(result: "pass" | "fail") {
-    const v = Number(measure.replace(",", "."));
-    const measurements = measure ? [{ name: "3V3", value: v, unit: "V", low: 3.2, high: 3.4 }] : [];
+  function test(result?: "pass" | "fail") {
+    const measurements = limits
+      .filter((l) => vals[l.name])
+      .map((l) => ({ name: l.name, value: Number(vals[l.name]!.replace(",", ".")), ...(wo.testPlan ? {} : { unit: l.unit, low: l.low, high: l.high }) }));
     act.mutate(async () => {
-      await api("POST", `/api/devices/${encodeURIComponent(serial)}/test`, { result, measurements, station: "mobil" });
+      const r = await api<any>("POST", `/api/devices/${encodeURIComponent(serial)}/test`, {
+        result: wo.testPlan ? result : (result ?? "pass"),
+        measurements,
+        station: "mobil",
+        equipmentId: equipmentId || undefined,
+        firmwareVersion: firmware || undefined,
+      });
+      setLastResult(`${serial}: ${r.result === "pass" ? "GEÇTİ" : "KALDI"}${r.outOfLimit?.length ? ` (limit dışı: ${r.outOfLimit.join(", ")})` : ""}`);
       setSerial("");
-      setMeasure("");
+      setVals({});
     });
   }
 
@@ -370,8 +387,9 @@ function WorkOrderScreen({ id, perms, onBack }: { id: string; perms: Set<string>
       <Button title="← İş emirleri" onPress={onBack} />
       <Text style={s.h1}>{wo.code}</Text>
       <Text style={s.muted}>
-        {wo.productCode} Rev.{wo.rev} · BOM v{wo.bomVersionNo} · {Number(wo.qty)} adet
+        {wo.productCode} Rev.{wo.rev} · BOM v{wo.bomVersionNo} · {Number(wo.qty)} adet · FW {wo.firmwareVersion ?? "—"}
       </Text>
+      {wo.status === "on_hold" ? <ErrorBox error={new Error(`İş emri beklemede: ${wo.holdReason ?? ""}`)} /> : null}
       <ErrorBox error={act.error} />
 
       {perms.has("inventory.issue") ? (
@@ -407,10 +425,10 @@ function WorkOrderScreen({ id, perms, onBack }: { id: string; perms: Set<string>
               </Text>
               <Text style={{ color: o.status === "done" ? c.ok : o.status === "pending" ? c.muted : c.warn, fontWeight: "700" }}>{OP_LABEL[o.status]}</Text>
             </View>
-            {perms.has("production.execute") && ["pending", "paused"].includes(o.status) ? (
+            {perms.has("production.execute") && ["pending", "paused"].includes(o.status) && wo.status !== "on_hold" ? (
               <Button title="Başla" onPress={() => act.mutate(() => api("POST", `/api/work-orders/${id}/operations/${o.id}/start`, {}))} />
             ) : null}
-            {perms.has("production.execute") && o.status === "in_progress" ? (
+            {perms.has("production.execute") && o.status === "in_progress" && wo.status !== "on_hold" ? (
               <View style={{ gap: 8 }}>
                 <Button title="Tamamla" primary onPress={() => act.mutate(() => api("POST", `/api/work-orders/${id}/operations/${o.id}/complete`, {}))} />
                 <View style={[s.row, { flexWrap: "wrap" }]}>
@@ -437,18 +455,60 @@ function WorkOrderScreen({ id, perms, onBack }: { id: string; perms: Set<string>
               <Button title="Okut" onPress={() => setScan("serial")} />
             </View>
           </View>
-          <Field label="3V3 ölçümü (V) — limit 3,2–3,4" value={measure} onChangeText={setMeasure} keyboardType="decimal-pad" />
+          <Text style={s.muted}>{wo.testPlan ? `Test planı v${wo.testPlan.versionNo}: karar sunucuda verilir` : "Test planı yok: sonucu siz seçersiniz"}</Text>
+          <Text style={s.text}>Ekipman</Text>
+          <View style={[s.row, { flexWrap: "wrap" }]}>
+            {usableEq.map((e) => (
+              <Pressable key={e.id} accessibilityRole="radio" accessibilityState={{ selected: equipmentId === e.id }} onPress={() => setEquipmentId(e.id)}
+                style={[s.btn, { minHeight: 44, borderColor: equipmentId === e.id ? c.accent : c.line }]}>
+                <Text style={equipmentId === e.id ? { color: c.accent, fontWeight: "700" } : s.muted}>{e.code}</Text>
+              </Pressable>
+            ))}
+            {usableEq.length === 0 ? <Text style={s.muted}>Kullanılabilir (kalibrasyonu geçerli) ekipman yok.</Text> : null}
+          </View>
+          <Field label={`Cihazdaki firmware${wo.firmwareVersion ? ` (beklenen ${wo.firmwareVersion})` : ""}`} value={firmware} onChangeText={setFirmware} autoCapitalize="none" />
+          {limits.map((l) => (
+            <Field key={l.name} label={`${l.name}${l.unit ? ` (${l.unit})` : ""} — ${l.low ?? "−∞"}…${l.high ?? "+∞"}${l.required ? "" : " · isteğe bağlı"}`}
+              value={vals[l.name] ?? ""} onChangeText={(v) => setVals({ ...vals, [l.name]: v })} keyboardType="decimal-pad" />
+          ))}
           <View style={s.row}>
             <View style={{ flex: 1 }}>
-              <Button title="Geçti" primary disabled={!serial} onPress={() => test("pass")} />
+              {wo.testPlan
+                ? <Button title="Testi kaydet" primary disabled={!serial} busy={act.isPending} onPress={() => test()} />
+                : <Button title="Geçti" primary disabled={!serial} onPress={() => test("pass")} />}
             </View>
             <View style={{ flex: 1 }}>
               <Button title="Kaldı" disabled={!serial} onPress={() => test("fail")} />
             </View>
           </View>
+          {lastResult ? <OkBox>{lastResult}</OkBox> : null}
           <Text style={s.muted}>
             İlk testte başarı: {wo.stats.firstPassYield == null ? "—" : `%${(wo.stats.firstPassYield * 100).toFixed(1)}`} · geçen {wo.stats.passed} · hurda {wo.stats.scrapped}
           </Text>
+        </View>
+      ) : null}
+
+      {perms.has("change.create") && ["released", "in_progress", "on_hold"].includes(wo.status) ? (
+        <View style={s.card}>
+          <Text style={s.h2}>Sorun bildir (değişiklik talebi)</Text>
+          {wo.changeRequests?.map((cr: any) => (
+            <Text key={cr.id} style={s.muted}>{cr.code} · {cr.title} · {CR_LABEL[cr.status] ?? cr.status}</Text>
+          ))}
+          {!ecrOpen ? <Button title="Talep aç" onPress={() => setEcrOpen(true)} /> : (
+            <View style={{ gap: 8 }}>
+              <Field label="Başlık" value={ecr.title} onChangeText={(v) => setEcr({ ...ecr, title: v })} />
+              <Field label="Açıklama (gözlem, seri)" value={ecr.description} onChangeText={(v) => setEcr({ ...ecr, description: v })} multiline />
+              <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: ecr.stopProduction }} onPress={() => setEcr({ ...ecr, stopProduction: !ecr.stopProduction })} style={[s.btn, { minHeight: 44, borderColor: ecr.stopProduction ? c.bad : c.line }]}>
+                <Text style={ecr.stopProduction ? { color: c.bad, fontWeight: "700" } : s.muted}>{ecr.stopProduction ? "☑" : "☐"} Üretimi durdur (iş emri bekletilir)</Text>
+              </Pressable>
+              <Button title="Gönder" primary disabled={ecr.title.length < 3 || ecr.description.length < 10} busy={act.isPending}
+                onPress={() => act.mutate(async () => {
+                  await api("POST", "/api/change-requests", { workOrderId: id, title: ecr.title, description: ecr.description, stopProduction: ecr.stopProduction, deviceSerial: serial || undefined });
+                  setEcr({ title: "", description: "", stopProduction: false });
+                  setEcrOpen(false);
+                })} />
+            </View>
+          )}
         </View>
       ) : null}
 

@@ -1,3 +1,6 @@
+import { qualityRoutes } from "./modules/quality";
+import { changeRoutes } from "./modules/changes";
+import { leadTimeRoutes } from "./modules/leadtime";
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import { ZodError } from "zod";
@@ -44,5 +47,8 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(productionRoutes);
   await app.register(shippingRoutes);
   await app.register(adminRoutes);
+  await app.register(qualityRoutes);
+  await app.register(changeRoutes);
+  await app.register(leadTimeRoutes);
   return app;
 }

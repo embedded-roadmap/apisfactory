@@ -44,6 +44,8 @@ export type RevisionDetail = {
   status: RevisionState;
   bomVersionId: string | null;
   releasedAt: string | null;
+  firmwareVersion?: string | null;
+  firmwareSha256?: string | null;
   approvals: HandoverApproval[];
   missingApprovals: ("rd" | "production" | "quality")[];
 };

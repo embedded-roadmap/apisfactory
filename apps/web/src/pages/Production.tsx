@@ -67,6 +67,9 @@ export function WorkOrderPage() {
   const refresh = () => { qc.invalidateQueries({ queryKey: ["wo", id] }); qc.invalidateQueries({ queryKey: ["history"] }); };
   const act = useMutation({ mutationFn: (f: () => Promise<unknown>) => f(), onSuccess: refresh });
   const [pauseReason, setPauseReason] = useState("");
+  const [equipmentId, setEquipmentId] = useState("");
+  const [firmware, setFirmware] = useState("");
+  const equipment = useQuery({ queryKey: ["equipment"], queryFn: () => get<any[]>("/api/equipment") });
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorNotice error={q.error} />;
   const wo = q.data;
@@ -75,7 +78,7 @@ export function WorkOrderPage() {
     <>
       <PageHeader
         title={`İş emri ${wo.code}`}
-        sub={<>{wo.productCode} Rev.{wo.rev} · BOM v{wo.bomVersionNo} (sabit) · {wo.salesOrderCode ? `sipariş ${wo.salesOrderCode}` : "stok için"} · <Link to="/production">← Üretim</Link></>}
+        sub={<>{wo.productCode} Rev.{wo.rev} · BOM v{wo.bomVersionNo} (sabit) · firmware {wo.firmwareVersion ?? "tanımsız"} · test planı {wo.testPlan ? `v${wo.testPlan.versionNo}` : "yok"} · {wo.salesOrderCode ? `sipariş ${wo.salesOrderCode}` : "stok için"} · <Link to="/production">← Üretim</Link></>}
         actions={
           <div className="row">
             <StateBadge value={wo.status} prefix="wo" />
@@ -86,6 +89,8 @@ export function WorkOrderPage() {
         }
       />
       <ErrorNotice error={act.error} />
+      {wo.status === "on_hold" ? <div className="notice bad"><strong>İş emri beklemede:</strong> {wo.holdReason}</div> : null}
+      <HoldAndChange wo={wo} onDone={refresh} />
       <div className="grid4">
         <div className="stat"><small>Miktar</small><b>{fmt(wo.qty)}</b></div>
         <div className="stat"><small>İlk testte başarı</small><b>{s.firstPassYield == null ? "—" : `%${(s.firstPassYield * 100).toFixed(1)}`}</b><small>{s.first_passed}/{s.first_tested} ilk test</small></div>
@@ -122,7 +127,7 @@ export function WorkOrderPage() {
                 <td className="muted">{o.workedSeconds ? `${Math.round(o.workedSeconds / 60)} dk` : "—"}</td>
                 <td className="row">
                   {can("production.execute") && ["pending", "paused"].includes(o.status) && ["released", "in_progress"].includes(wo.status) ? <button onClick={() => act.mutate(() => post(`/api/work-orders/${id}/operations/${o.id}/start`))}>Başla</button> : null}
-                  {can("production.execute") && o.status === "in_progress" ? (
+                  {can("production.execute") && o.status === "in_progress" && wo.status !== "on_hold" ? (
                     <>
                       <button onClick={() => act.mutate(() => post(`/api/work-orders/${id}/operations/${o.id}/pause`, { reason: pauseReason || undefined }))}>Duraklat</button>
                       <button className="primary" onClick={() => act.mutate(() => post(`/api/work-orders/${id}/operations/${o.id}/complete`))}>Tamamla</button>
@@ -138,9 +143,27 @@ export function WorkOrderPage() {
       <section className="card">
         <h2>Cihazlar ve test</h2>
         {wo.devices.length === 0 ? <Empty>İş emri yayımlanınca seri numaraları oluşur.</Empty> : null}
+        {wo.devices.length > 0 && can("production.test.record") ? (
+          <div className="row">
+            <label className="field">Test ekipmanı
+              <select value={equipmentId} onChange={(e) => setEquipmentId(e.target.value)}>
+                <option value="">{wo.testPlan ? "Seçin (zorunlu)" : "Seçin"}</option>
+                {equipment.data?.map((e) => (
+                  <option key={e.id} value={e.id} disabled={e.status !== "active" || e.calibrationExpired}>
+                    {e.code} · {e.name}{e.status !== "active" ? " (hizmet dışı)" : e.calibrationExpired ? ` (kalibrasyon ${e.calibrationDue} doldu)` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">Cihazdaki firmware
+              <input value={firmware} onChange={(e) => setFirmware(e.target.value)} placeholder={wo.firmwareVersion ? `beklenen ${wo.firmwareVersion}` : "isteğe bağlı"} style={{ width: 180 }} />
+            </label>
+            <span className="muted" style={{ alignSelf: "flex-end" }}>{wo.testPlan ? "Karar test planına göre sunucuda verilir." : "Test planı yok: sonucu siz seçersiniz."}</span>
+          </div>
+        ) : null}
         <table>
           <tbody>
-            {wo.devices.map((d: any) => <DeviceRow key={d.serial} d={d} onDone={refresh} />)}
+            {wo.devices.map((d: any) => <DeviceRow key={d.serial} d={d} plan={wo.testPlan} ctx={{ equipmentId: equipmentId || undefined, firmwareVersion: firmware || undefined }} onDone={refresh} />)}
           </tbody>
         </table>
       </section>
@@ -195,12 +218,18 @@ function MaterialRow({ m, woId, canIssue, onDone }: { m: any; woId: string; canI
   );
 }
 
-function DeviceRow({ d, onDone }: { d: any; onDone: () => void }) {
+type TestCtx = { equipmentId?: string; firmwareVersion?: string };
+
+function DeviceRow({ d, plan, ctx, onDone }: { d: any; plan: any | null; ctx: TestCtx; onDone: () => void }) {
   const can = useCan();
   const [note, setNote] = useState("");
-  const [v, setV] = useState("");
-  const act = useMutation({ mutationFn: (f: () => Promise<unknown>) => f(), onSuccess: onDone });
+  const [vals, setVals] = useState<Record<string, string>>({});
+  const act = useMutation({ mutationFn: (f: () => Promise<any>) => f(), onSuccess: onDone });
   const runs: any[] = d.runs ?? [];
+  const limits: any[] = plan?.limits ?? [{ name: "3V3", unit: "V", low: 3.2, high: 3.4, required: false }];
+  const measurements = () =>
+    limits.filter((l) => vals[l.name] !== undefined && vals[l.name] !== "").map((l) => ({ name: l.name, value: Number(vals[l.name]), ...(plan ? {} : { unit: l.unit, low: l.low, high: l.high }) }));
+  const send = (result?: "pass" | "fail") => act.mutate(() => post(`/api/devices/${d.serial}/test`, { ...ctx, result, measurements: measurements() }));
   return (
     <tr>
       <td className="mono">{d.serial}</td>
@@ -210,9 +239,16 @@ function DeviceRow({ d, onDone }: { d: any; onDone: () => void }) {
         <div className="row">
           {can("production.test.record") && ["in_process", "rework"].includes(d.status) ? (
             <>
-              <input aria-label={`${d.serial} 3V3 ölçümü`} placeholder="3V3 (V)" value={v} onChange={(e) => setV(e.target.value)} style={{ width: 100 }} inputMode="decimal" />
-              <button onClick={() => act.mutate(() => post(`/api/devices/${d.serial}/test`, { result: "pass", measurements: v ? [{ name: "3V3", value: Number(v), unit: "V", low: 3.2, high: 3.4 }] : [] }))}>Geçti</button>
-              <button className="danger" onClick={() => act.mutate(() => post(`/api/devices/${d.serial}/test`, { result: "fail", measurements: v ? [{ name: "3V3", value: Number(v), unit: "V", low: 3.2, high: 3.4 }] : [] }))}>Kaldı</button>
+              {limits.map((l) => (
+                <input key={l.name} aria-label={`${d.serial} ${l.name}`} placeholder={`${l.name}${l.unit ? ` (${l.unit})` : ""}${l.required ? "" : " ?"}`} title={`${l.low ?? "−∞"} … ${l.high ?? "+∞"}`}
+                  value={vals[l.name] ?? ""} onChange={(e) => setVals({ ...vals, [l.name]: e.target.value })} style={{ width: 110 }} inputMode="decimal" />
+              ))}
+              {plan ? (
+                <button className="primary" onClick={() => send()}>Testi kaydet</button>
+              ) : (
+                <button onClick={() => send("pass")}>Geçti</button>
+              )}
+              <button className="danger" title="Ölçüm dışı hata (görsel, fonksiyon)" onClick={() => send("fail")}>Kaldı</button>
             </>
           ) : null}
           {can("quality.final.release") && d.status === "test_failed" ? (
@@ -223,8 +259,69 @@ function DeviceRow({ d, onDone }: { d: any; onDone: () => void }) {
             </>
           ) : null}
         </div>
+        {act.data?.outOfLimit?.length ? <div className="notice warn">Limit dışı: {act.data.outOfLimit.join(", ")} → kaldı</div> : null}
         <ErrorNotice error={act.error} />
       </td>
     </tr>
+  );
+}
+
+/** Bekletme / devam ve değişiklik talebi. Talep BOM'u değiştirmez; üretimi durdur işaretliyse iş emri bekletilir. */
+function HoldAndChange({ wo, onDone }: { wo: any; onDone: () => void }) {
+  const can = useCan();
+  const nav = useNavigate();
+  const [reason, setReason] = useState("");
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState({ title: "", description: "", urgency: "normal", stopProduction: false, deviceSerial: "" });
+  const act = useMutation({ mutationFn: (fn: () => Promise<any>) => fn(), onSuccess: () => { setReason(""); onDone(); } });
+  const create = useMutation({
+    mutationFn: () => post<any>("/api/change-requests", { workOrderId: wo.id, ...f, deviceSerial: f.deviceSerial || undefined }),
+    onSuccess: (cr) => { onDone(); nav(`/changes/${cr.id}`); },
+  });
+  const active = ["released", "in_progress", "on_hold"].includes(wo.status);
+  if (!active && !wo.changeRequests.length) return null;
+  return (
+    <section className="card">
+      <div className="row between">
+        <h2>Bekletme ve değişiklik talepleri</h2>
+        {can("change.create") && active ? <button onClick={() => setOpen(!open)}>Değişiklik talebi aç</button> : null}
+      </div>
+      {can("production.plan") && active ? (
+        <div className="row">
+          <input aria-label="Bekletme / devam gerekçesi" placeholder="Gerekçe" value={reason} onChange={(e) => setReason(e.target.value)} style={{ flex: 1 }} />
+          {wo.status !== "on_hold" ? <button disabled={reason.trim().length < 3} onClick={() => act.mutate(() => post(`/api/work-orders/${wo.id}/hold`, { reason }))}>Beklet</button>
+            : <button className="primary" disabled={reason.trim().length < 3} onClick={() => act.mutate(() => post(`/api/work-orders/${wo.id}/resume`, { reason }))}>Devam ettir</button>}
+        </div>
+      ) : null}
+      <ErrorNotice error={act.error} />
+      {open ? (
+        <form className="stack" onSubmit={(e) => { e.preventDefault(); create.mutate(); }}>
+          <label className="field">Başlık<input required minLength={3} value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></label>
+          <label className="field">Açıklama (gözlem, etkilenen kart/seri)<textarea required minLength={10} rows={3} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></label>
+          <div className="row">
+            <label className="field">Seri (isteğe bağlı)<input value={f.deviceSerial} onChange={(e) => setF({ ...f, deviceSerial: e.target.value })} /></label>
+            <label className="field">Aciliyet
+              <select value={f.urgency} onChange={(e) => setF({ ...f, urgency: e.target.value })}>
+                <option value="low">Düşük</option><option value="normal">Normal</option><option value="high">Yüksek</option><option value="critical">Kritik</option>
+              </select>
+            </label>
+            <label className="row" style={{ gap: 6, alignSelf: "flex-end" }}><input type="checkbox" style={{ minHeight: 0 }} checked={f.stopProduction} onChange={(e) => setF({ ...f, stopProduction: e.target.checked })} /> Üretimi durdur (iş emri bekletilir)</label>
+          </div>
+          <div className="row"><button className="primary" disabled={create.isPending}>Talebi aç</button><button type="button" onClick={() => setOpen(false)}>Vazgeç</button></div>
+          <ErrorNotice error={create.error} />
+        </form>
+      ) : null}
+      {wo.changeRequests.length ? (
+        <table>
+          <tbody>
+            {wo.changeRequests.map((c: any) => (
+              <tr key={c.id} className="click" onClick={() => nav(`/changes/${c.id}`)}>
+                <td className="mono">{c.code}</td><td>{c.title}</td><td>{c.stopProduction ? <span className="badge bad">Üretimi durdur</span> : null}</td><td><StateBadge value={c.status} prefix="cr" /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+    </section>
   );
 }

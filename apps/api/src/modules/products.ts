@@ -23,7 +23,8 @@ const AREA_PERMISSION = { rd: "product.approve.rd", production: "product.approve
 export async function loadRevision(db: Db, id: string): Promise<RevisionDetail> {
   const r = await db.query(
     `select pr.id, pr.product_id as "productId", pr.rev, pr.status, pr.bom_version_id as "bomVersionId",
-            pr.released_at as "releasedAt", coalesce(h.current_round, 0) as round
+            pr.released_at as "releasedAt", pr.firmware_version as "firmwareVersion", pr.firmware_sha256 as "firmwareSha256",
+            coalesce(h.current_round, 0) as round
        from product_revisions pr left join handover_rounds h on h.revision_id = pr.id
       where pr.id = $1`,
     [id],
