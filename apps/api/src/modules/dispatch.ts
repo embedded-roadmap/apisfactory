@@ -19,7 +19,7 @@ const EINVOICE_NAMES: Record<string, string> = { gib_portal: "GİB e-Belge Porta
 const CARGO_NAMES: Record<string, string> = { yurtici: "Yurtiçi Kargo", aras: "Aras Kargo", mng: "MNG Kargo", ptt: "PTT Kargo", surat: "Sürat Kargo", ups: "UPS" };
 const CARGO_PREFIX: Record<string, string> = { yurtici: "YK", aras: "AR", mng: "MG", ptt: "PT", surat: "SR", ups: "1Z" };
 
-async function ensureConnectors(db: Db) {
+export async function ensureEinvoiceCargoConnectors(db: Db) {
   for (const [key, name] of Object.entries(EINVOICE_NAMES)) await db.query(`insert into einvoice_connectors (company_id, key, name) values (app_company_id(), $1, $2) on conflict do nothing`, [key, name]);
   for (const [key, name] of Object.entries(CARGO_NAMES)) await db.query(`insert into cargo_connectors (company_id, key, name) values (app_company_id(), $1, $2) on conflict do nothing`, [key, name]);
 }
@@ -42,7 +42,7 @@ export async function dispatchRoutes(app: FastifyInstance) {
   // ---- e-fatura/e-arşiv bağlayıcıları ----
   app.get("/api/einvoice-connectors", async (req) =>
     tenant(req, "receivable.view", async (db) => {
-      await ensureConnectors(db);
+      await ensureEinvoiceCargoConnectors(db);
       return (
         await db.query(
           `select id, key, name, mode, note, updated_at as "updatedAt" from einvoice_connectors order by key`,
@@ -89,7 +89,7 @@ export async function dispatchRoutes(app: FastifyInstance) {
   // ---- kargo bağlayıcıları ----
   app.get("/api/cargo-connectors", async (req) =>
     tenant(req, "shipment.view", async (db) => {
-      await ensureConnectors(db);
+      await ensureEinvoiceCargoConnectors(db);
       return (await db.query(`select id, key, name, mode, note, updated_at as "updatedAt" from cargo_connectors order by key`)).rows;
     }),
   );

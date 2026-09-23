@@ -23,7 +23,7 @@ const KEYS = [
 type Connector = { id: string; key: string; name: string; mode: string; supplier_id: string | null; cache_ttl_minutes: number; daily_call_limit: number; currency: string };
 type Break = { qty: number; price: number };
 
-async function ensureConnectors(db: Db) {
+export async function ensureConnectors(db: Db) {
   for (const [key, name, cur] of KEYS) {
     await db.query(`insert into distributor_connectors (company_id, key, name, currency) values (app_company_id(), $1, $2, $3) on conflict do nothing`, [key, name, cur]);
   }

@@ -49,7 +49,7 @@ Durumlar: planlandı · geliştiriliyor · doğrulandı · entegrasyon bekliyor 
 | R42 | Üretim miktarı ve tedarik senaryoları | W35 | planlandı | — | — | — | — |
 | R43 | MSL, raf ömrü, makara ve sahiplik | W33 | planlandı | Lot ve lot zinciri alanı (parent_lot_id) var | lots | — | MSL, raf ömrü, makara yok (W33) |
 | R44 | Saha hatasının seri, lot ve revizyona bağlanması | W34 | planlandı | Cihaz geçmişi: seri → BOM sürümü, gerçek lotlar, testler | devices, material_issues | Üretim testi | Saha arızası kaydı yok (W34) |
-| R45 | Veri kaynağı ve güncellik görünümü | W17, W38 | geliştiriliyor | Bağlayıcı durum ekranı; veri modu ayrımı | — | — | Gerçek veri kaynağı yok |
+| R45 | Veri kaynağı ve güncellik görünümü | W17, W38 | karşılandı | Tüm bağlayıcılar için tek pano: mod, kota/önbellek isabeti, hata, son etkinlik | connector_calls, document_dispatches | ops.test.ts | Gerçek veri kaynağı yok |
 | R46 | Yedek, geri yükleme ve kesintide talimat erişimi | W37 | planlandı | — | — | — | — |
 | R47 | Şirketin tam veri ve dosya çıkış paketi | W09, W42 | planlandı | — | — | — | W42 |
 | R48 | Entegrasyonlu mali ve iletişim akışları | W28, W36 | planlandı | — | — | — | — |

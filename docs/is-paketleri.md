@@ -39,7 +39,7 @@
 | W35 | Senaryo, maliyet/termin kıyası ve uygulama | W16, W25, W29 | Yönetim | planlandı | — |
 | W36 | Muhasebe/e-belge ve kargo adaptörleri | W03, W23, W24 | Muhasebe, depo | geliştiriliyor | E-belge (6 sağlayıcı) ve kargo (6 firma) bağlayıcı çerçevesi, yalnız TEST modu (sentetik ETTN/takip no, işaretli), kesilmiş faturadan e-belge gönderimi, paketlenmiş sevkiyattan kargo etiketi, değişmez dispatch kaydı; gerçek entegrasyon yok |
 | W37 | Güvenlik, şirket ayrımı, yedek ve kesinti | W05, W06, W08 | Teknik lider | geliştiriliyor | RLS şirket ayrımı, oturum iptali; yedek/kurtarma yok |
-| W38 | Kota, maliyet, izleme ve operasyon panoları | W17, W28, W29, W30 | Teknik lider | planlandı | — |
+| W38 | Kota, maliyet, izleme ve operasyon panoları | W17, W28, W29, W30 | Teknik lider | geliştiriliyor | Bağlayıcı operasyon panosu: distribütör kota/önbellek isabeti, e-belge/kargo gönderim sayısı, 7 günlük hata, son etkinlik; yeni veri kaynağı yok |
 | W39 | Tarihsel veri geçişi, uzlaşma ve pilot | W09, W20, W25, W37 | Pilot şirket | planlandı | — |
 | W40 | Uçtan uca test, yük ve hata dayanıklılığı | İlgili bütün paketler | QA | planlandı | — |
 | W41 | Eğitim, yardım, canlı geçiş ve destek | W39, W40 | Ürün sahibi | planlandı | — |

@@ -12,7 +12,7 @@ import { ReceivingPage } from "./pages/Receiving";
 import { SalesPage, SalesOrderPage } from "./pages/Sales";
 import { PurchasingPage } from "./pages/Purchasing";
 import { ImportsPage } from "./pages/Imports";
-import { EventsPage } from "./pages/Events";
+import { ConnectorsStatusPage, EventsPage } from "./pages/Events";
 import { ProductionPage, WorkOrderPage } from "./pages/Production";
 import { AdminPage, PasswordPage } from "./pages/Admin";
 import { QualityPage } from "./pages/Quality";
@@ -203,6 +203,7 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/payables/:id" element={<InvoicePage />} />
               <Route path="/imports" element={<ImportsPage />} />
               <Route path="/events" element={<EventsPage />} />
+              <Route path="/events/connectors" element={<ConnectorsStatusPage />} />
               <Route path="/production" element={<ProductionPage />} />
               <Route path="/production/routings" element={<RoutingPage />} />
               <Route path="/production/:id" element={<WorkOrderPage />} />

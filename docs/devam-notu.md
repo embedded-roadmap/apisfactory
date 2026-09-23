@@ -1,12 +1,12 @@
 # Devam notu
 
-Son güncelleme: 23.09.2026 — oturum 19 (W27 devamı: mesajlara dosya/fotoğraf eki, serbest grup kanalları)
+Son güncelleme: 23.09.2026 — oturum 20 (W38: bağlayıcı operasyon panosu — kota, önbellek isabeti, hata, son etkinlik)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 138/138 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6, payables 5, receivables 4, distributors 5, alternates 6, dispatch 5, collaboration 9), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 142/142 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6, payables 5, receivables 4, distributors 5, alternates 6, dispatch 5, collaboration 9, ops 4), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
@@ -27,6 +27,15 @@ Son güncelleme: 23.09.2026 — oturum 19 (W27 devamı: mesajlara dosya/fotoğra
 | Playwright uçtan uca (oturum 17) | Satın alma CMP-CAP-01 için kural tabanlı adaylardan CMP-CAP-02'yi seçip kanıtla önerir; Ar-Ge notsuz onayda "kanıt eksik" uyarısı alır, notla onaylar; üretim onaylayınca durum Onaylı; kalite gerekçeyle geri alır; sayfa hatası yok |
 | Playwright uçtan uca (oturum 18) | Muhasebe e-belge bağlayıcısını (Uyumsoft) TEST moduna alır; depo kargo bağlayıcısını (Yurtiçi Kargo) TEST moduna alır; sayfa hatası yok |
 | Playwright uçtan uca (oturum 19) | Üretim yeni kanal açar, fotoğraf ekleyip mesaj gönderir; ek mesajda rozet olarak görünür ve indirilebilir; sayfa hatası yok |
+| Playwright uçtan uca (oturum 20) | Yönetici bağlayıcı panosunu açar; distribütör/e-belge/kargo bölümleri BAĞLANMADI ve sıfır etkinlikle görünür; sayfa hatası yok |
+
+## Oturum 20'de eklenenler (W38)
+
+1. **Bağlayıcı operasyon panosu** (`/events/connectors`; ayar `audit.view` — yönetici/teknik lider): distribütör (5), e-belge (6) ve kargo (6) bağlayıcılarının tek ekranda özeti. Yeni tablo yok — mevcut değişmez `connector_calls` ve `document_dispatches` kayıtlarının toplamı.
+2. Distribütörler için: bugünkü çağrı / günlük kota ve yüzdesi (≥%90 kırmızı), önbellek isabet oranı, toplam çağrı, son 7 gün hata sayısı, son başarılı etkinlik zamanı.
+3. E-belge ve kargo için: bugünkü/toplam gönderim sayısı, son gönderim zamanı.
+4. Üstte özet: kaç bağlayıcı bağlı, son 7 günde toplam hata, bugün kota dolan bağlayıcı sayısı.
+5. İşlem geçmişi sayfasından bağlantı; gerçek dış API'si olan bağlayıcı yok — pano yalnız TEST/fiyat dosyası etkinliğini gösterir, canlıya geçilince aynı ekran gerçek verilerle çalışır.
 
 ## Oturum 19'da eklenenler (W27 devamı)
 
@@ -216,7 +225,7 @@ Son güncelleme: 23.09.2026 — oturum 19 (W27 devamı: mesajlara dosya/fotoğra
 
 ## Sıradaki uygulanabilir iş
 
-1. W38: bağlayıcı kotası, önbellek isabeti ve hata panosu (çağrı kayıtları hazır; e-belge/kargo dispatch kayıtları da eklenebilir).
-2. W29 devamı: alternatif kanıtına datasheet eki, mobilde alternatif lot seçimi, gerçek AI önerisi (W30 sonrası).
-3. W36 devamı: gerçek entegratör/kargo firması sözleşmesi imzalanınca canlı bağlanma (sağlayıcı kararı şirkete ait).
-4. W27 devamı: mobil uygulamaya dosya eki ve kanal desteği (şimdilik yalnız web); video paylaşımı yok (R28).
+1. W29 devamı: alternatif kanıtına datasheet eki, mobilde alternatif lot seçimi, gerçek AI önerisi (W30 sonrası).
+2. W36 devamı: gerçek entegratör/kargo firması sözleşmesi imzalanınca canlı bağlanma (sağlayıcı kararı şirkete ait).
+3. W27 devamı: mobil uygulamaya dosya eki ve kanal desteği (şimdilik yalnız web); video paylaşımı yok (R28).
+4. Kalan planlı iş paketleri için `docs/is-paketleri.md`ye bakın (W03/W30 gibi kalanlar dış karar veya AI kapsamı bekliyor).
