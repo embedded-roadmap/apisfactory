@@ -19,6 +19,7 @@ import { QualityPage } from "./pages/Quality";
 import { StationPage } from "./pages/Station";
 import { RoutingPage } from "./pages/Routing";
 import { MeetingPage, MeetingsPage } from "./pages/Meetings";
+import { DistributorsPage } from "./pages/Distributors";
 import { CustomerInvoicePage, CustomerInvoicesPage, ReceivablesAgingPage } from "./pages/Receivables";
 import { AgingPage, ApPolicyPage, InvoicePage, InvoicesPage, NewInvoicePage } from "./pages/Payables";
 import { FollowupsPage, PurchaseOrderPage, PurchaseOrdersPage, RfqPage, RfqsPage, SuppliersPage } from "./pages/Procurement";
@@ -186,6 +187,7 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/purchasing/orders/:id" element={<PurchaseOrderPage />} />
               <Route path="/purchasing/followups" element={<FollowupsPage />} />
               <Route path="/purchasing/suppliers" element={<SuppliersPage />} />
+              <Route path="/purchasing/distributors" element={<DistributorsPage />} />
               <Route path="/receivables" element={<CustomerInvoicesPage />} />
               <Route path="/receivables/aging" element={<ReceivablesAgingPage />} />
               <Route path="/receivables/:id" element={<CustomerInvoicePage />} />

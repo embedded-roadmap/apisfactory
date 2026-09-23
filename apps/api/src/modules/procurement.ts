@@ -253,7 +253,7 @@ export async function procurementRoutes(app: FastifyInstance) {
         `insert into rfq_quotes (company_id, rfq_id, supplier_id, unit_price, currency, lead_time_days, moq, valid_until, note, entered_by)
          values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9)
          on conflict (rfq_id, supplier_id) do update set unit_price = excluded.unit_price, currency = excluded.currency, lead_time_days = excluded.lead_time_days,
-           moq = excluded.moq, valid_until = excluded.valid_until, note = excluded.note, entered_by = excluded.entered_by, created_at = now()`,
+           moq = excluded.moq, valid_until = excluded.valid_until, note = excluded.note, entered_by = excluded.entered_by, source = 'manual', created_at = now()`,
         [id, input.supplierId, input.unitPrice, input.currency, input.leadTimeDays, input.moq ?? null, input.validUntil ?? null, input.note ?? null, actor.userId],
       );
       await recordEvent(db, actor, { entityType: "rfq", entityId: id, eventType: prev ? "quote.updated" : "quote.added", before: prev ?? undefined, after: input });

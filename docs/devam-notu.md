@@ -1,12 +1,12 @@
 # Devam notu
 
-Son güncelleme: 23.09.2026 — oturum 15 (alacaklar: müşteri faturası, tahsilat kaydı, yaşlandırma, kredi limiti)
+Son güncelleme: 23.09.2026 — oturum 16 (W17: distribütör fiyat/stok — test modu, fiyat dosyası, önbellek/kota, BOM tedarik görünümü, otomatik RFQ teklifi)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 119/119 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6, payables 5, receivables 4), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 124/124 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6, payables 5, receivables 4, distributors 5), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
@@ -23,6 +23,15 @@ Son güncelleme: 23.09.2026 — oturum 15 (alacaklar: müşteri faturası, tahsi
 | Playwright uçtan uca (oturum 13) | Ar-Ge talep açar; satın alma onaylar → "Teklif iste" → iki DEMO tedarikçiden teklif (en ucuz ihtiyaç sonrası, en hızlı pahalı) → hızlıyı seçince gerekçe istenir → gerekçeyle taslak sipariş → test gönderimi → teyit → ileri kayma not ister, kayma 3 gün uyarısı; depo sipariş satırını seçerek mal kabul eder → sipariş "teslim alındı"; tedarikçi performansı; sayfa hatası yok |
 | Playwright uçtan uca (oturum 14) | Oturum 13 akışının devamı: kalite 190 kabul / 10 ret; muhasebe faturayı girer (faturalanabilir satır listeden, fiyat 5,10 vs sipariş 4,90 → %4,08 fiyat farkı), önizleme "fark var", kaydedince onaya düşer ve giren onaylayamaz; yönetici gerekçeyle onaylar; yaşlandırma; muhasebe banka referansıyla ödeme kaydı girer → "ödendi"; sayfa hatası yok |
 | Playwright uçtan uca (oturum 15) | Muhasebe sevk edilmiş sevkiyattan taslak fatura (4 × 250 + %20) → 45 gün önceki tarihle keser (vadesi geçti) → kredi limiti 5.000 ve gecikme sınırı 7 gün tanımlar (müşteri "engelli"); satış yeni siparişi kesinleştiremez (`credit_blocked`, 15 gün gecikme); yönetici gerekçeyle serbest bırakır, satış kesinleştirir; muhasebe banka referansıyla tahsilat kaydı girer → "tahsil edildi"; sayfa hatası yok |
+| Playwright uçtan uca (oturum 16) | Satın alma DigiKey'i TEST moduna alıp DEMO tedarikçiye bağlar, Mouser'ı fiyat dosyası moduna alıp CSV yükler; RFQ sayfasında distribütör teklifleri (TEST VERİSİ rozeti, alınma zamanı) ve "otomatik teklif" → DigiKey teklifi eklenir, Mouser atlanır (tedarikçiye bağlı değil); Ar-Ge BOM tedarik görünümünü hesaplar; sayfa hatası yok |
+
+## Oturum 16'da eklenenler (W17)
+
+1. **Distribütör bağlayıcıları** (`/purchasing/distributors`; ayar `supplier.manage`): DigiKey, Mouser, Farnell, Nexar/Octopart, LCSC — varsayılan **BAĞLANMADI** (gerçek API lisans/erişim doğrulaması bekliyor). Modlar: **TEST** (MPN'den deterministik sentetik katalog; her yerde "TEST VERİSİ" rozeti — gerçek fiyat/stok değildir) ve **FİYAT DOSYASI** (distribütörden indirilen CSV: mpn, sku, stock, moq, lead_time_days, lifecycle, price_N kırılımları; dosya adı + özetle kaynak). Tedarikçi eşlemesi, önbellek süresi, günlük çağrı kotası, para birimi; değişiklik gerekçeli ve olay kayıtlı.
+2. **Önbellek ve kota**: teklif kaynak, alınma zamanı ve son geçerlilikle saklanır; süresi geçen "eski" işaretlenir; test modunda istek üzerine yenilenir, kota dolunca önbellek + uyarı. Çağrı kaydı değişmez (ok / bulunamadı / önbellek / kota). Bağlantı durumunda her distribütörün gerçek modu.
+3. **Kalem teklifleri** (`/api/items/:id/offers`): adet için kırılım fiyatı, stok, MOQ, temin, yaşam döngüsü (NRND/EOL); fiyat yalnız maliyet görme yetkisiyle.
+4. **BOM tedarik görünümü** (ürün › BOM): adet için brüt ihtiyaç, serbest stok, alınacak miktar, stoğu yeten en ucuz teklif, para birimi bazında tahmini alım (kur dönüşümü yok) ve riskler (MPN yok, teklif yok, stok yetersiz, eski teklif, NRND/EOL).
+5. **RFQ'ya otomatik teklif**: tedarikçiye bağlı aktif bağlayıcıların teklifi (kaynak "test_connector", notta TEST/dosya, stok ve alınma zamanı) eklenir; elle girilmiş teklifin üzerine yazmaz (elle teklif artık kaynağı "manual" olarak günceller).
 
 ## Oturum 15'te eklenenler (alacaklar)
 
@@ -159,7 +168,7 @@ Son güncelleme: 23.09.2026 — oturum 15 (alacaklar: müşteri faturası, tahsi
 
 ## Demo veya test modunda olanlar
 
-- Dış bağlayıcıların hepsi **BAĞLANMADI** (distribütör, e-belge, kargo, toplantı). Test istasyonu adaptörü **TEST** modunda (gerçek istasyon çıktısıyla doğrulanmadı).
+- Dış bağlayıcılar **BAĞLANMADI** (e-belge, kargo, toplantı). Distribütörler varsayılan BAĞLANMADI; TEST modu sentetik veridir, FİYAT DOSYASI gerçek ama elle yüklenen veridir. Test istasyonu adaptörü **TEST** modunda (gerçek istasyon çıktısıyla doğrulanmadı).
 - Sevkiyat belgesi **TASLAK**. Kullanıcı daveti e-postası yok. Outbox yalnızca test modunda.
 - Demo ekipman: TST-01 (geçerli), DMM-01 (kalibrasyonu geçmiş). Demo komponent temin süresi 21 gün.
 
@@ -174,14 +183,14 @@ Son güncelleme: 23.09.2026 — oturum 15 (alacaklar: müşteri faturası, tahsi
 - Paketleme rotada ayrı iş merkezi değil; sevkiyat modülünde yapılır.
 - Planlama: Gantt'ta kaynak kapasitesi ve vardiya yok; iş emri çubukları salt okunur.
 - İletişim: kayıttan bağımsız birebir/grup sohbet, dosya/fotoğraf eki, anlık (canlı) güncelleme yok (sayfa yenilenince/işlemde güncellenir); sesli/görüntülü görüşme, kayıt ve transkript yok (dış bağlayıcı gerekir); takvim (ICS/Outlook) daveti yok; mobilde konuşma yazma yok.
-- Satın alma: tedarikçiye gerçek gönderim (e-posta/EDI/portal) yok; teklifler elle girilir (distribütör API'si W17); çok kalemli RFQ/sipariş yok (talep başına bir satır); kur dönüşümü yok (farklı para birimli teklif sapma hesaplanmaz); sipariş onay limiti (W10 politikası) sipariş aşamasına bağlanmadı.
+- Satın alma: tedarikçiye gerçek gönderim (e-posta/EDI/portal) yok; teklifler elle, fiyat dosyasından veya TEST kataloğundan (gerçek distribütör API'si yok); çok kalemli RFQ/sipariş yok (talep başına bir satır); kur dönüşümü yok (farklı para birimli teklif sapma hesaplanmaz); sipariş onay limiti (W10 politikası) sipariş aşamasına bağlanmadı.
 - Borçlar: e-fatura (GİB) alımı yok (fatura elle girilir, W36); banka/ödeme bağlantısı yok (yalnız kayıt); kur farkı, stopaj ve iade faturası (fiyat farkı/iade) yok; iade/fiyat farkı (alacak dekontu) yok; kısmi sevkiyatta sipariş toplamı değil sevk edilen miktar faturalanır; kur dönüşümü olmadığından kredi riski yalnız müşterinin kredi para biriminde hesaplanır; muhasebe fişi/entegrasyonu yok.
 - Akış: politika yalnızca beş onay türü için; satın alma dışındaki türlerde parasal limit yok. Yükseltme tek seviye (üst rolün de süresi dolarsa ikinci yükseltme yok). Bildirim yalnızca çıkış kutusunda (e-posta/anlık bildirim bağlanmadı). Vekâlet mobilde gösterilmiyor. Tahmini tutar son lot maliyetinden; tedarikçi teklifi/fiyat listesi yok (W18).
 - Maliyet: kur dönüşümü yok (farklı para birimli satır "hesaplanamadı"); dış hizmet (fason) maliyeti yok; iade tamiri ve iade hurdası maliyete yansımıyor; bütçe modülü yok; prototip/pilot/seri ayrımı ve ekip performansı raporu (W26) yok. İşçilik yalnızca operasyon başlat/tamamla süresinden; hızlı tıklanan operasyon süre biriktirmez (uyarı olarak eksik listesine düşer). Mobilde maliyet ekranı yok (ofis işi).
 
 ## Sıradaki uygulanabilir iş
 
-1. W17: distribütör fiyat/stok bağlayıcısı (test modu, önbellek, kaynak ve zaman damgası) ve RFQ'ya otomatik teklif.
+1. W29: onaylı alternatif parça (Ar-Ge/üretim onayı), BOM'da alternatif ve tedarik görünümünde alternatife geçiş önerisi (EOL/stok yok).
 2. W36: e-fatura/e-arşiv ve kargo adaptörleri (test modu, sağlayıcı kararı gerekli).
 3. W27 devamı: konuşmaya dosya/fotoğraf eki (W08 depolama), grup kanalları.
-4. W20/W22 devamı: standart süre önerisi, istasyon klasör ajanı.
+4. W38: bağlayıcı kotası, önbellek isabeti ve hata panosu (çağrı kayıtları hazır).

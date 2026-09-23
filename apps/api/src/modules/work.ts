@@ -84,10 +84,10 @@ export async function workRoutes(app: FastifyInstance) {
   /** Entegrasyon durumu: bu fazda hiçbir dış sağlayıcı bağlı değil; ekran bunu açıkça gösterir (prompt §2.9). */
   app.get("/api/integrations", async (req) =>
     tenant(req, null, async (db) => [
-      { key: "digikey", name: "DigiKey", mode: "not_connected", note: "W17 — lisans/erişim doğrulaması bekliyor" },
-      { key: "mouser", name: "Mouser", mode: "not_connected", note: "W17" },
-      { key: "farnell", name: "Farnell", mode: "not_connected", note: "W17" },
-      { key: "nexar", name: "Nexar / Octopart", mode: "not_connected", note: "W17" },
+      ...(await db.query(`select key, name, mode from distributor_connectors order by key`)).rows.map((c) => ({
+        key: c.key, name: c.name, mode: c.mode === "not_connected" ? "not_connected" : "test",
+        note: c.mode === "test" ? "Sentetik TEST kataloğu — gerçek fiyat/stok değildir" : c.mode === "price_file" ? "Yüklenen fiyat listesi (dosya tarihli)" : "W17 — lisans/erişim doğrulaması bekliyor",
+      })),
       { key: "supplier_orders", name: "Tedarikçi sipariş gönderimi", mode: "test", note: "Sipariş, hatırlatma ve iptal yalnızca çıkış kutusuna yazılır; tedarikçiye gerçek gönderim yok" },
       { key: "einvoice", name: "e-Fatura / e-İrsaliye", mode: "not_connected", note: "W36 — sağlayıcı kararı açık" },
       await (async () => {

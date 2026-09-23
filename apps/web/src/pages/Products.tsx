@@ -5,6 +5,7 @@ import type { BomDiff, BomVersion, ProductSummary, RevisionDetail } from "@apisf
 import { get, post } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, fmtDate, useCan } from "../lib/ui";
 import { Discussion } from "../components/Discussion";
+import { BomSourcing } from "./Distributors";
 
 export function ProductsPage() {
   const can = useCan();
@@ -233,7 +234,8 @@ function HandoverPanel({ rev, onDone }: { rev: RevisionDetail; onDone: () => voi
 }
 
 function BomView({ id }: { id: string }) {
-  const q = useQuery({ queryKey: ["bom", id], queryFn: () => get<BomVersion>(`/api/boms/${id}`) });
+  const can = useCan();
+  const q =useQuery({ queryKey: ["bom", id], queryFn: () => get<BomVersion>(`/api/boms/${id}`) });
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorNotice error={q.error} />;
   const b = q.data!;
@@ -251,6 +253,7 @@ function BomView({ id }: { id: string }) {
           ))}
         </tbody>
       </table>
+      {can("bom.view") ? <BomSourcing bomId={b.id} /> : null}
     </section>
   );
 }

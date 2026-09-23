@@ -5,6 +5,7 @@ import { get, newKey, post } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, fmt, fmtDate, useCan } from "../lib/ui";
 import { History } from "./Sales";
 import { Discussion } from "../components/Discussion";
+import { ItemOffers } from "./Distributors";
 
 export function PurchasingTabs() {
   return (
@@ -14,6 +15,7 @@ export function PurchasingTabs() {
       <NavLink to="/purchasing/orders">Siparişler</NavLink>
       <NavLink to="/purchasing/followups">Takip</NavLink>
       <NavLink to="/purchasing/suppliers">Tedarikçiler</NavLink>
+      <NavLink to="/purchasing/distributors">Distribütörler</NavLink>
     </div>
   );
 }
@@ -112,6 +114,7 @@ export function RfqPage() {
   const act = useMutation({ mutationFn: (f: () => Promise<any>) => f(), onSuccess: () => { qc.invalidateQueries({ queryKey: ["rfq", id] }); qc.invalidateQueries({ queryKey: ["history"] }); } });
   const [f, setF] = useState({ supplierId: "", unitPrice: "", currency: "TRY", leadTimeDays: "", moq: "", validUntil: "" });
   const [pick, setPick] = useState<string | null>(null);
+  const [auto, setAuto] = useState<{ added: string[]; skipped: string[] } | null>(null);
   const [reason, setReason] = useState("");
   const [key] = useState(newKey());
   const award = useMutation({ mutationFn: () => post<any>(`/api/rfqs/${id}/award`, { quoteId: pick, reason: reason || undefined }, { "Idempotency-Key": key }), onSuccess: (r) => nav(`/purchasing/orders/${r.poId}`) });
@@ -130,7 +133,7 @@ export function RfqPage() {
             <tbody>{r.quotes.map((x: any) => (
               <tr key={x.id} style={{ background: r.awardedQuoteId === x.id ? "var(--accent-soft)" : undefined }}>
                 <td>{open ? <input type="radio" name="pick" aria-label={`${x.supplierName} seç`} style={{ minHeight: 0 }} checked={pick === x.id} onChange={() => setPick(x.id)} /> : null}</td>
-                <td>{x.supplierName} {x.supplierStatus !== "active" ? <span className="badge bad">bloke</span> : null}</td>
+                <td>{x.supplierName} {x.supplierStatus !== "active" ? <span className="badge bad">bloke</span> : null}{x.source === "test_connector" ? <div className="muted" style={{ fontSize: 12 }}>{x.note?.startsWith("TEST") ? <span className="badge mode warn">TEST VERİSİ</span> : null} otomatik (distribütör)</div> : null}</td>
                 <td className="num">{x.unitPrice !== null ? `${fmt(x.unitPrice)} ${x.currency}` : "—"}</td>
                 <td className="num">{x.total ?? "—"} {x.cheapest ? <span className="badge ok">en ucuz</span> : null}</td>
                 <td className="num">{x.leadTimeDays} gün {x.fastest ? <span className="badge ok">en hızlı</span> : null}</td>
@@ -153,7 +156,11 @@ export function RfqPage() {
       </section>
       {open ? (
         <section className="card">
-          <h2>Teklif gir</h2>
+          <div className="row between">
+            <h2 style={{ margin: 0 }}>Teklif gir</h2>
+            <button type="button" onClick={() => act.mutate(() => post<any>(`/api/rfqs/${id}/auto-quotes`).then((x) => setAuto(x)))}>Distribütörlerden otomatik teklif</button>
+          </div>
+          {auto ? <div className="notice">{auto.added.length ? `Eklenen: ${auto.added.join(", ")}. ` : "Eklenen yok. "}{auto.skipped.length ? `Atlanan: ${auto.skipped.join("; ")}.` : ""}</div> : null}
           <form className="row" style={{ flexWrap: "wrap" }} onSubmit={(e) => { e.preventDefault(); act.mutate(() => post(`/api/rfqs/${id}/quotes`, { supplierId: f.supplierId, unitPrice: f.unitPrice.replace(",", "."), currency: f.currency, leadTimeDays: Number(f.leadTimeDays), moq: f.moq || undefined, validUntil: f.validUntil || undefined }).then(() => setF({ ...f, supplierId: "", unitPrice: "", leadTimeDays: "", moq: "" }))); }}>
             <label className="field">Tedarikçi<select aria-label="Teklif tedarikçisi" required value={f.supplierId} onChange={(e) => setF({ ...f, supplierId: e.target.value })}><option value="">Seçin</option>{sup.data?.filter((s) => s.status === "active").map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}</select></label>
             <label className="field" style={{ width: 110 }}>Birim fiyat<input aria-label="Birim fiyat" required inputMode="decimal" value={f.unitPrice} onChange={(e) => setF({ ...f, unitPrice: e.target.value })} /></label>
@@ -167,6 +174,7 @@ export function RfqPage() {
           <ErrorNotice error={act.error} />
         </section>
       ) : null}
+      {r.status === "open" ? <ItemOffers itemId={r.itemId} qty={Number(r.qty)} /> : null}
       <History entityType="rfq" id={r.id} />
     </>
   );
