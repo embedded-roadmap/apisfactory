@@ -27,7 +27,7 @@
 | W23 | Paketleme, etiket, sevkiyat ve adres | W14, W20, W21 | Depo, satış | doğrulandı | Adres, hazırlık, okutmalı paketleme + kontrol listesi, kısmi sevk, takip no, teslim/sorun, taslak irsaliye ve Code128 etiket (web + mobil) |
 | W24 | Fatura eşleştirme, ödeme, tahsilat ve vade | W18, W19, W23 | Muhasebe | planlandı | — |
 | W25 | Tarihsel maliyet, marj ve metrik sözlüğü | W11, W20, W21, W24 | Muhasebe, yönetim | geliştiriliyor | Lot maliyeti, sürümlü politika ve maliyet hesabı, kârlılık, metrik sözlüğü + kaynaklar; bütçe, kur, dış hizmet yok |
-| W26 | Görev, Gantt, takvim ve organizasyon | W06, W10, W16 | Birim yöneticileri | geliştiriliyor | Günlük iş listesi (devir, kalite, üretim, malzeme, test kararı görevleri); Gantt yok |
+| W26 | Görev, Gantt, takvim ve organizasyon | W06, W10, W16 | Birim yöneticileri | geliştiriliyor | Günlük liste (sistem + planlı görev), planlı görev, bağımlılık, baz plan, Gantt (sürükleme + etki), organizasyon şeması, ekip performansı (web; mobilde görev ilerletme) |
 | W27 | Mesaj, grup, kayıt konuşması ve medya | W06, W08 | Bütün birimler | planlandı | — |
 | W28 | Görüşme, kayıt, transkript ve not | W27, W03 | Ürün sahibi | planlandı | — |
 | W29 | Alternatif AI, kanıt ve teknik onay | W13, W17, W21 | Ar-Ge, üretim | planlandı | — |

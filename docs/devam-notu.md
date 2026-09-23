@@ -1,12 +1,12 @@
 # Devam notu
 
-Son güncelleme: 23.09.2026 — oturum 6 (maliyet, kârlılık, metrik sözlüğü)
+Son güncelleme: 23.09.2026 — oturum 7 (görev, Gantt, organizasyon, ekip performansı)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 70/70 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 76/76 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
@@ -14,6 +14,19 @@ Son güncelleme: 23.09.2026 — oturum 6 (maliyet, kârlılık, metrik sözlüğ
 | Playwright uçtan uca (oturum 4) | Satış → iş emri → test → son kalite → sipariş ekranından sevkiyat hazırlığı → yanlış kod okutma engeli → 2 seri okutma → kontrol listesiyle paket kapatma → paketleme tamam → taşıyıcı + takip no ile sevk → irsaliye taslağı ve Code128 etiket; sipariş kısmi sevkte açık kalır; sayfa hatası yok |
 | Playwright uçtan uca (oturum 5) | Satış: seri okut → müşteri/sevk/garanti bulunur → iade aç; depo teslim alır; kalite inceler (üretim hatası) → tamir + alacak belgesi talebi; teknisyen tamir + tekrar test; depo geri gönderir → kapandı; cihaz geçmişi sevk + iade + olaylar; sayfa hatası yok |
 | Playwright uçtan uca (oturum 6) | Yönetici iş emri maliyetini hesaplar → lot maliyeti yok uyarısı; satın alma Depo & Lot ekranından 3 lota fatura maliyeti girer; yeniden hesap v2 (politika v1, birim maliyet); Maliyet & Metrikler: KPI satırı, ilk testte başarı kaynak kayıtları, kârlılık (fiyatsız satır "satış fiyatı yok"), politika sürümleri; sayfa hatası yok |
+| Playwright uçtan uca (oturum 7) | Teknisyen günlük listede DEMO görevini açar → kontrol listesi eksik uyarısı → tedarikçi engeli (dış kaynaklı); yönetici baz planı dondurur, Gantt'ta çubuğu 5 gün sürükler, gerekçeyle kaydeder → ardıl çakışma uyarısı; organizasyonda alt birim ve geçici üye ekler; ekip performansı; sayfa hatası yok |
+
+## Oturum 7'de eklenenler (W26)
+
+1. **Planlı görevler** (`task.manage`: yönetici, üretim, Ar-Ge, kalite): başlık, açıklama, sorumlu kişi/rol, departman, öncelik, başlangıç/bitiş, kilometre taşı, kontrol listesi; ürün, sipariş, iş emri, değişiklik talebi, iade, sevkiyata bağlanabilir.
+2. **Durum**: açık → sürüyor → engelli/tamamlandı; sorumlu kişi de ilerletebilir. Kapanış için kontrol listesi ve öncüllerin tamamı gerekir. Engel kategorisi zorunlu; tedarikçi/müşteri kaynaklıysa "dış gecikme" işaretlenir. Sistem görevleri elle kapatılamaz.
+3. **Bağımlılık**: bitiş→başlangıç, gecikme günü; döngüsel bağımlılık reddedilir.
+4. **Baz plan ve tarih değişikliği**: baz planı olan görevin tarihi gerekçesiz değişmez; değişiklik ardıl çakışmalarını ve bağlı siparişin müşteri taahhüdüne etkisini döner — taahhüt ve başka görev değişmez.
+5. **Gantt** (`/planning/gantt`): görev + iş emri çubukları, baz plan çizgisi, gerçekleşen bitiş, kilometre taşı, bağımlılık okları (çakışma kırmızı), hafta sonu/tatil gölgesi, bugün çizgisi, sürükleyerek taşıma/bitiş uzatma (yetkiyle, gerekçe onayıyla), tablo görünümü.
+6. **Organizasyon** (`/planning/org`): departman/ekip ağacı, yönetici, çoklu ve geçici üyelik, bitirme (silinmez), tarihe göre geçmiş yapı; döngü engeli; şema yetki vermez.
+7. **Ekip performansı** (`/planning/team`, `team.report.view`): kişi bazında kapanan görev, zamanında, iç/dış gecikme, zamanında oranı (dış gecikme paydadan çıkar), süresi geçmiş açık, operasyon ve test kaydı sayısı; haftalık/aylık kovalar; tanımlar ve "puan yok" notu.
+8. Günlük işler: sistem + planlı görevler, öncelik, bitiş, gecikti ve liste ilerlemesi; mobil "İşlerim"de planlı görev: kontrol listesi, başla, engel, tamamla.
+9. DEMO: departman yöneticileri/üyeleri ve bağımlı üç görev (biri kilometre taşı).
 
 ## Oturum 6'da eklenenler (W25)
 
@@ -80,12 +93,12 @@ Son güncelleme: 23.09.2026 — oturum 6 (maliyet, kârlılık, metrik sözlüğ
 - Kargo API'si, e-irsaliye/e-fatura yok (W36); belge TASLAK. Çevrimdışı mobil kuyruk yok.
 - İade: tamir sonrası tekrar test yalnızca geçti/kaldı olarak girilir (test planı ölçümleri iade tamirine bağlanmadı). Karantinadaki iade ürününün sonraki analizi ve hurda/yeniden işleme kararı stok ekranından yapılmalı (ayrı akış yok). Geri gönderim sevkiyat listesinde ayrı satır olarak görünmez; iade kaydında izlenir.
 - Paketleme rotada ayrı iş merkezi değil; sevkiyat modülünde yapılır.
+- Planlama: Gantt'ta kaynak kapasitesi ve vardiya yok; iş emri çubukları salt okunur; mesajlaşma/toplantı (W27/W28) yok; vekâlet yok.
 - Maliyet: kur dönüşümü yok (farklı para birimli satır "hesaplanamadı"); dış hizmet (fason) maliyeti yok; iade tamiri ve iade hurdası maliyete yansımıyor; bütçe modülü yok; prototip/pilot/seri ayrımı ve ekip performansı raporu (W26) yok. İşçilik yalnızca operasyon başlat/tamamla süresinden; hızlı tıklanan operasyon süre biriktirmez (uyarı olarak eksik listesine düşer). Mobilde maliyet ekranı yok (ofis işi).
 
 ## Sıradaki uygulanabilir iş
 
-1. W26: görev, takvim ve ekip performansı raporları (haftalık/aylık; tedarikçi gecikmesi teknisyene yazılmaz, mesaj sayısı puan değildir).
+1. W10: genel akış motoru — zaman aşımı, vekâlet (süreli/kapsamlı), üst sorumluya bildirim, kendi talebini onaylama ve parasal limit politikası.
 2. W22: test istasyonu CSV/API adaptörü (test modunda), ölçümün cihaz serisiyle eşleşmesi.
-3. W10: genel akış motoru (zaman aşımı, vekil, üst sorumluya bildirim).
 4. W20: revizyon bazında rota ve standart süre düzenleme; iş merkezi kapasitesinin rotadan okunması.
 5. Politika: devre gönderimde test planı + firmware zorunluluğu (şirket ayarı).

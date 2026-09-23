@@ -41,7 +41,7 @@ export async function openTask(
   await db.query(
     `insert into tasks (company_id, kind, title, entity_type, entity_id, assignee_role)
      values ($1,$2,$3,$4,$5,$6)
-     on conflict (company_id, kind, entity_id, assignee_role) do update set status = 'open', closed_at = null, title = excluded.title`,
+     on conflict (company_id, kind, entity_id, assignee_role) where kind <> 'manual' do update set status = 'open', closed_at = null, title = excluded.title`,
     [companyId, t.kind, t.title, t.entityType, t.entityId, t.assigneeRole],
   );
 }
@@ -49,7 +49,7 @@ export async function openTask(
 export async function closeTasks(db: Db, companyId: string, kind: string, entityId: string, assigneeRole?: string) {
   await db.query(
     `update tasks set status = 'done', closed_at = now()
-      where company_id = $1 and kind = $2 and entity_id = $3 and status = 'open' and ($4::text is null or assignee_role = $4)`,
+      where company_id = $1 and kind = $2 and entity_id = $3 and status in ('open', 'in_progress', 'blocked') and ($4::text is null or assignee_role = $4)`,
     [companyId, kind, entityId, assigneeRole ?? null],
   );
 }

@@ -136,7 +136,7 @@ export type ConfirmResult = {
 export type Task = {
   id: string;
   title: string;
-  status: "open" | "done";
+  status: "open" | "in_progress" | "blocked" | "done" | "cancelled";
   assigneeRole: string | null;
   entityType: string;
   entityId: string;

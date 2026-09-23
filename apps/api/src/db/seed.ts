@@ -127,6 +127,33 @@ async function seedDemo() {
     // Örnek ekipman ve tatil (DEMO)
     await client.query(`insert into equipment (company_id, code, name, kind, calibration_due) values ($1,'TST-01','Fonksiyon test istasyonu 1 (DEMO)','test_station', current_date + 180), ($1,'DMM-01','Multimetre (DEMO)','measuring', current_date - 5)`, [a.companyId]);
     await client.query(`update items set lead_time_days = 21 where company_id = $1 and kind = 'component'`, [a.companyId]);
+    // Örnek organizasyon ve plan (DEMO): departman yöneticileri/üyeleri ve bağımlı üç görev
+    await client.query(
+      `insert into department_members (company_id, department_id, user_id, is_manager, valid_from)
+       select $1, d.id, u.id, x.mgr, date_trunc('year', current_date)
+         from (values ('URT', 'uretim@demo.apisfactory.com', true), ('URT', 'teknisyen@demo.apisfactory.com', false),
+                      ('KAL', 'kalite@demo.apisfactory.com', true), ('ARG', 'arge@demo.apisfactory.com', true),
+                      ('DEP', 'depo@demo.apisfactory.com', true), ('SAT', 'satis@demo.apisfactory.com', true),
+                      ('SAL', 'satinalma@demo.apisfactory.com', true), ('MUH', 'muhasebe@demo.apisfactory.com', true)) as x(dep, email, mgr)
+         join departments d on d.company_id = $1 and d.code = x.dep join users u on u.email = x.email`,
+      [a.companyId],
+    );
+    const demoTasks = await client.query(
+      `insert into tasks (company_id, title, assignee_user_id, department_id, priority, start_date, due_date, milestone, checklist, entity_type, entity_id, kind)
+       select $1, x.title, u.id, d.id, x.pri, current_date + x.s, current_date + x.e, x.ms, x.cl::jsonb, 'task', gen_random_uuid(), 'manual'
+         from (values
+           (1, 'Pilot üretim fikstürü hazırlığı (DEMO)', 'teknisyen@demo.apisfactory.com', 'URT', 'high', 1, 4, false, '[{"text":"Fikstür pim kontrolü","done":false},{"text":"Programlama kablosu","done":false}]'),
+           (2, 'Pilot test planı gözden geçirme (DEMO)', 'kalite@demo.apisfactory.com', 'KAL', 'normal', 5, 7, false, '[]'),
+           (3, 'Seri üretime geçiş kararı (DEMO)', 'uretim@demo.apisfactory.com', 'URT', 'critical', 9, 9, true, '[]')
+         ) as x(n, title, email, dep, pri, s, e, ms, cl)
+         join users u on u.email = x.email join departments d on d.company_id = $1 and d.code = x.dep
+        returning id, title`,
+      [a.companyId],
+    );
+    const tid = (p: string) => demoTasks.rows.find((r) => r.title.startsWith(p))!.id;
+    const [t1, t2, t3] = [tid('Pilot üretim'), tid('Pilot test'), tid('Seri üretime')];
+    await client.query(`update tasks set entity_id = id where id = any($1)`, [[t1, t2, t3]]);
+    await client.query(`insert into task_dependencies (company_id, task_id, depends_on_id) values ($1, $2, $3), ($1, $4, $2)`, [a.companyId, t2, t1, t3]);
     // Örnek maliyet politikası (DEMO değerleri; gerçek muhasebe politikası değildir)
     await client.query(
       `insert into cost_policies (company_id, version_no, valid_from, currency, labor_rate_per_hour, overhead_per_labor_hour, overhead_pct_of_material, note)

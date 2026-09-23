@@ -54,8 +54,14 @@ export async function workRoutes(app: FastifyInstance) {
     const c = ctxOf(req);
     return tenant(req, "task.view", async (db) => {
       const r = await db.query(
-        `select id, title, status, kind, assignee_role as "assigneeRole", entity_type as "entityType", entity_id as "entityId", created_at as "createdAt"
-           from tasks where status = 'open' and (assignee_user_id = $1 or assignee_role = any($2)) order by created_at limit 200`,
+        `select id, title, status, kind, assignee_role as "assigneeRole", entity_type as "entityType", entity_id as "entityId", created_at as "createdAt",
+                priority, start_date::text as "startDate", due_date::text as "dueDate", milestone,
+                (due_date is not null and due_date < current_date) as overdue,
+                jsonb_array_length(checklist) as "checklistTotal",
+                (select count(*) from jsonb_array_elements(checklist) e where (e->>'done')::boolean)::int as "checklistDone"
+           from tasks where status in ('open', 'in_progress', 'blocked') and (assignee_user_id = $1 or (assignee_user_id is null and assignee_role = any($2)))
+          order by (due_date is not null and due_date < current_date) desc,
+                   array_position(array['critical', 'high', 'normal', 'low'], priority), due_date nulls last, created_at limit 200`,
         [c.userId, c.roles],
       );
       return r.rows;

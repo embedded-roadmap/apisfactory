@@ -22,7 +22,7 @@ const STATE_TONE: Record<string, string> = {
   released: "ok", published: "ok", firm: "ok", approved: "ok", accepted: "ok", stock: "ok", finished: "ok", ok: "ok",
   handover_review: "warn", pilot: "warn", pending: "warn", open: "warn", incoming_inspection: "warn", partial: "warn", availability_review: "warn", new_item: "warn", ambiguous: "warn",
   rejected: "bad", cancelled: "bad", quarantine: "bad", error: "bad", suspended: "bad",
-  in_progress: "warn", paused: "warn", test_failed: "bad", rework: "warn", passed: "ok", scrapped: "bad", completed: "ok", done: "ok", shipped: "ok", in_process: "", on_hold: "bad", out_of_service: "bad", implemented: "ok", active: "ok", preparing: "warn", packed: "warn", delivered: "ok", problem: "bad", received: "warn", inspected: "warn", decided: "warn", closed: "ok", returned: "warn", in_repair: "warn", quarantined: "bad",
+  in_progress: "warn", paused: "warn", test_failed: "bad", rework: "warn", passed: "ok", scrapped: "bad", completed: "ok", done: "ok", shipped: "ok", in_process: "", on_hold: "bad", out_of_service: "bad", implemented: "ok", active: "ok", preparing: "warn", packed: "warn", delivered: "ok", problem: "bad", received: "warn", inspected: "warn", decided: "warn", closed: "ok", returned: "warn", in_repair: "warn", quarantined: "bad", blocked: "bad",
 };
 
 /** Durum rozeti: renk tek başına bilgi taşımaz, metin her zaman yazılır (prompt §25). */

@@ -1,6 +1,5 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import type { Task } from "@apisfactory/shared";
 import { get } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, fmtDate, useMe } from "../lib/ui";
 
@@ -11,12 +10,18 @@ const LINK: Record<string, (id: string) => string> = {
   production_need: () => "/production",
   work_order: (id) => `/production/${id}`,
   device: () => "/production",
+  task: (id) => `/planning/tasks/${id}`,
+  sales_order: (id) => `/sales/${id}`,
+  change_request: (id) => `/changes/${id}`,
+  rma: (id) => `/returns/${id}`,
+  shipment: (id) => `/shipments/${id}`,
 };
+const PRI: Record<string, string> = { low: "Düşük", normal: "Normal", high: "Yüksek", critical: "Kritik" };
 
 /** Kullanıcının bütün rollerinden gelen açık işler tek listede (prompt §20, §25 "Günlük işler"). */
 export function TodayPage() {
   const { me } = useMe();
-  const tasks = useQuery({ queryKey: ["tasks"], queryFn: () => get<(Task & { kind: string })[]>("/api/tasks/mine") });
+  const tasks = useQuery({ queryKey: ["tasks"], queryFn: () => get<({ id: string; title: string; assigneeRole: string | null; entityType: string; entityId: string; createdAt: string } & { kind: string; priority: string; dueDate: string | null; overdue: boolean; milestone: boolean; checklistTotal: number; checklistDone: number; status: string } & Record<string, any>)[]>("/api/tasks/mine") });
   const integrations = useQuery({ queryKey: ["integrations"], queryFn: () => get<{ key: string; name: string; mode: string; note: string }[]>("/api/integrations") });
   return (
     <>
@@ -27,14 +32,16 @@ export function TodayPage() {
         {tasks.data && tasks.data.length === 0 ? <Empty>Açık işiniz yok.</Empty> : null}
         {tasks.data && tasks.data.length > 0 ? (
           <table>
-            <thead><tr><th>İş</th><th>Rol</th><th>Açılış</th><th /></tr></thead>
+            <thead><tr><th>İş</th><th>Sorumlu</th><th>Öncelik</th><th>Bitiş</th><th>Açılış</th><th /></tr></thead>
             <tbody>
               {tasks.data.map((t) => (
                 <tr key={t.id}>
-                  <td>{t.title}</td>
-                  <td><span className="badge">{t.assigneeRole}</span></td>
+                  <td>{t.milestone ? "◆ " : ""}{t.title}{t.checklistTotal ? <span className="muted"> · liste {t.checklistDone}/{t.checklistTotal}</span> : null}{t.status === "blocked" ? <span className="badge bad">engelli</span> : null}</td>
+                  <td>{t.assigneeRole ? <span className="badge">{t.assigneeRole}</span> : <span className="badge">bana</span>}</td>
+                  <td>{PRI[t.priority] ?? ""}</td>
+                  <td>{t.dueDate ?? "—"} {t.overdue ? <span className="badge bad">gecikti</span> : null}</td>
                   <td className="muted">{fmtDate(t.createdAt)}</td>
-                  <td><Link to={(LINK[t.entityType] ?? (() => "/"))(t.entityId)}>Aç</Link></td>
+                  <td><Link to={t.kind === "manual" ? `/planning/tasks/${t.id}` : (LINK[t.entityType] ?? (() => "/"))(t.entityId)}>Aç</Link></td>
                 </tr>
               ))}
             </tbody>

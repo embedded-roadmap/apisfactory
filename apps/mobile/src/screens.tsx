@@ -58,7 +58,8 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 export function TasksScreen({ go }: { go: (tab: string) => void }) {
-  const q = useQuery({ queryKey: ["tasks"], queryFn: () => api<(Task & { kind: string })[]>("GET", "/api/tasks/mine") });
+  const q = useQuery({ queryKey: ["tasks"], queryFn: () => api<(Task & { kind: string } & Record<string, any>)[]>("GET", "/api/tasks/mine") });
+  const [openId, setOpenId] = useState<string | null>(null);
   return (
     <FlatList
       style={s.screen}
@@ -76,14 +77,51 @@ export function TasksScreen({ go }: { go: (tab: string) => void }) {
       renderItem={({ item }) => (
         <Pressable
           accessibilityRole="button"
-          onPress={() => (item.kind === "incoming_inspection" ? go("inspect") : ["material_issue", "work_order_execution"].includes(item.kind) ? go("production") : undefined)}
+          onPress={() => (item.kind === "manual" ? setOpenId(openId === item.id ? null : item.id) : item.kind === "incoming_inspection" ? go("inspect") : ["material_issue", "work_order_execution"].includes(item.kind) ? go("production") : undefined)}
           style={({ pressed }) => [s.card, { opacity: pressed ? 0.8 : 1 }]}
         >
-          <Text style={s.label}>{KIND_LABEL[item.kind] ?? item.kind}</Text>
-          <Text style={s.text}>{item.title}</Text>
+          <Text style={s.label}>{item.kind === "manual" ? `Görev · ${PRI[item.priority] ?? ""}` : KIND_LABEL[item.kind] ?? item.kind}</Text>
+          <Text style={s.text}>{item.milestone ? "◆ " : ""}{item.title}</Text>
+          {item.dueDate ? <Text style={{ color: item.overdue ? c.bad : c.muted }}>Bitiş {item.dueDate}{item.overdue ? " · gecikti" : ""}{item.status === "blocked" ? " · engelli" : ""}</Text> : null}
+          {openId === item.id ? <ManualTask id={item.id} onDone={() => { setOpenId(null); q.refetch(); }} /> : null}
         </Pressable>
       )}
     />
+  );
+}
+
+const PRI: Record<string, string> = { low: "Düşük", normal: "Normal", high: "Yüksek", critical: "Kritik" };
+
+/** Elle açılmış görev: kontrol listesi, başla, engel (tedarikçi/müşteri dış gecikme sayılır), tamamla. */
+function ManualTask({ id, onDone }: { id: string; onDone: () => void }) {
+  const qc = useQueryClient();
+  const t = useQuery({ queryKey: ["task", id], queryFn: () => api<any>("GET", `/api/tasks/${id}`) });
+  const act = useMutation({ mutationFn: (f: () => Promise<unknown>) => f(), onSuccess: () => qc.invalidateQueries({ queryKey: ["task", id] }) });
+  const [reason, setReason] = useState("");
+  const [cat, setCat] = useState("supplier");
+  if (!t.data) return <ErrorBox error={t.error} />;
+  const d = t.data;
+  return (
+    <View style={{ gap: 8, marginTop: 8 }}>
+      <ErrorBox error={act.error} />
+      {d.checklist.map((c: any, i: number) => (
+        <Pressable key={i} accessibilityRole="checkbox" accessibilityState={{ checked: c.done }} onPress={() => act.mutate(() => api("POST", `/api/tasks/${id}/checklist`, { index: i, done: !c.done }))}
+          style={[s.btn, { minHeight: 44, borderColor: c.done ? c.ok : c.line }]}>
+          <Text style={c.done ? { color: c.ok } : s.text}>{c.done ? "☑" : "☐"} {c.text}</Text>
+        </Pressable>
+      ))}
+      {d.status !== "in_progress" ? <Button title="Başladım" onPress={() => act.mutate(() => api("POST", `/api/tasks/${id}/status`, { status: "in_progress" }))} /> : null}
+      <Button title="Tamamlandı" primary onPress={() => act.mutate(async () => { await api("POST", `/api/tasks/${id}/status`, { status: "done" }); onDone(); })} />
+      <View style={[s.row, { flexWrap: "wrap" }]}>
+        {[["supplier", "Tedarikçi"], ["customer", "Müşteri"], ["material", "Malzeme"], ["equipment", "Ekipman"], ["other", "Diğer"]].map(([k, v]) => (
+          <Pressable key={k} accessibilityRole="radio" accessibilityState={{ selected: cat === k }} onPress={() => setCat(k!)} style={[s.btn, { minHeight: 44, borderColor: cat === k ? c.accent : c.line }]}>
+            <Text style={cat === k ? { color: c.accent, fontWeight: "700" } : s.muted}>{v}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Field label="Engel açıklaması" value={reason} onChangeText={setReason} />
+      <Button title="Engel bildir" disabled={reason.length < 3} onPress={() => act.mutate(() => api("POST", `/api/tasks/${id}/status`, { status: "blocked", blockedCategory: cat, reason }))} />
+    </View>
   );
 }
 

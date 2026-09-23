@@ -6,7 +6,7 @@ Durumlar: planlandı · geliştiriliyor · doğrulandı · entegrasyon bekliyor 
 | Kod | Gereksinim | Paketler | Durum | Yapılan | Veri modeli | Kanıt | Engel / kalan |
 |---|---|---|---|---|---|---|---|
 | R01 | Yedi birim, teknisyen ve çok rollü kullanım | W04, W06 | geliştiriliyor | 10 rol şablonu, çoklu rol, kullanıcı ekleme, rol atama, askıya alma; kendi rolünü değiştirme engeli | memberships, roles, role_permissions | T18, yetki testleri | Vekâlet, MFA, alan izni ekranı yok |
-| R02 | Organizasyon şeması ve yönetici yetkileri | W06, W26 | planlandı | Departman tablosu var; şema/ekran yok | departments | — | W26 |
+| R02 | Organizasyon şeması ve yönetici yetkileri | W06, W26 | geliştiriliyor | Departman ağacı, yönetici, çoklu ve geçici üyelik, tarihsel görünüm; şema yetki vermez | departments, department_members | planning.test.ts, e2e | Vekâlet ve parasal onay limitleri yok (W10) |
 | R03 | Ar-Ge ihtiyacının satın almaya aktarılması | W11, W18 | geliştiriliyor | Üretim ihtiyacından otomatik satın alma talebi | purchase_requests | T02 testi | Ar-Ge proje talebi (W11) yok |
 | R04 | Alımın proje ve muhasebeyle bağlantısı | W18, W24 | planlandı | — | — | — | — |
 | R05 | Devirde Ar-Ge maliyetinin hesaplanması | W11, W25 | planlandı | — | — | — | — |
@@ -33,12 +33,12 @@ Durumlar: planlandı · geliştiriliyor · doğrulandı · entegrasyon bekliyor 
 | R26 | Sesli/görüntülü görüşme ve ekran paylaşımı | W28 | planlandı | — | — | — | — |
 | R27 | Toplantı kaydı, transkript, not ve görev | W28, W26 | planlandı | — | — | — | — |
 | R28 | Dosya, fotoğraf ve video paylaşımı | W08, W27 | planlandı | — | — | — | — |
-| R29 | Görev, Gantt, bağımlılık ve kapasite | W16, W26 | planlandı | — | — | — | — |
+| R29 | Görev, Gantt, bağımlılık ve kapasite | W16, W26 | geliştiriliyor | Kayda bağlı görev, öncelik, tarih, kontrol listesi, bağımlılık (döngü reddi), kilometre taşı, baz plan; Gantt (hafta sonu/tatil, iş emri, gerçekleşen, sürükleme yetkiyle) ve gecikme etkisi; müşteri taahhüdü değişmez | tasks, task_dependencies | planning.test.ts, e2e | Kaynak kapasitesi Gantt'ta gösterilmiyor, vardiya yok |
 | R30 | Bütün birimlerde import/export ve rapor çıktısı | W09 ve bütün modüller | geliştiriliyor | BOM ve açılış stoğu import; stok CSV export (formül kaçışlı) | import_jobs | T13, BOM testi | Diğer modüller |
 | R31 | Revizyon, üretim, işlem ve onay logları | W08, W13, W20 | geliştiriliyor | Değişmez olay defteri; revizyon, stok, onay, operasyon, test, yetki olayları | events, stock_moves, test_runs | Değişmezlik testi | Dosya/sürüm logu yok |
 | R32 | Fire, yeniden işleme ve kâr analizi | W25, W30 | geliştiriliyor | Metrik sözlüğü v1: hurda, ilk testte başarı, yeniden işleme, komponent firesi, zamanında teslim, iade oranı; pay/payda/tanım/kapsam ve kaynak kayıtlar | — | costing.test.ts, e2e | Bütçe sapması (bütçe modülü yok), prototip/pilot/seri ayrımı yok |
 | R33 | Her yönetici raporunda stratejik AI bölümü | W30 | planlandı | — | — | — | — |
-| R34 | Haftalık, aylık, yıllık ekip performansı | W26, W25, W30 | planlandı | — | — | — | — |
+| R34 | Haftalık, aylık, yıllık ekip performansı | W26, W25, W30 | geliştiriliyor | Kişi ve dönem bazında kapanan görev, zamanında oranı (dış gecikme hariç), süresi geçmiş, operasyon ve test sayıları; puan yok, tanımlar görünür | tasks, events, test_runs | planning.test.ts, e2e | Ürün karmaşıklığı/aşama ayrımı yok |
 | R35 | AI önerisi onayı ve gerçekleşen etki takibi | W31 | planlandı | — | — | — | — |
 | R36 | PCB/BOM/firmware/test sürümlerinin birlikte yönetimi | W12, W13, W20 | geliştiriliyor | İş emri BOM sürümü, test planı sürümü ve revizyon firmware'ini (sürüm + SHA-256) sabitler; devirdeki revizyonda firmware kilitli | bom_versions, test_plans, product_revisions.firmware_*, work_orders | T06, T12 | PCB dosya sürümü yok |
 | R37 | Tedarik riskinin sipariş ve termine etkisi | W16, W18, W30 | planlandı | — | — | — | — |

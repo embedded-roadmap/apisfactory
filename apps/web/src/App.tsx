@@ -16,6 +16,7 @@ import { EventsPage } from "./pages/Events";
 import { ProductionPage, WorkOrderPage } from "./pages/Production";
 import { AdminPage, PasswordPage } from "./pages/Admin";
 import { QualityPage } from "./pages/Quality";
+import { GanttPage, OrgPage, PlanningPage, TaskPage, TeamReportPage } from "./pages/Planning";
 import { ReportsPage } from "./pages/Reports";
 import { DevicePage, ReturnPage, ReturnsPage } from "./pages/Returns";
 import { ShipmentPage, ShipmentPrintPage, ShipmentsPage } from "./pages/Shipping";
@@ -94,6 +95,7 @@ function CompanyPicker({ session }: { session: Session }) {
 
 const NAV: { to: string; key: string; perm?: Permission }[] = [
   { to: "/", key: "nav.today", perm: "task.view" },
+  { to: "/planning", key: "nav.planning", perm: "task.view" },
   { to: "/products", key: "nav.products", perm: "product.view" },
   { to: "/inventory", key: "nav.inventory", perm: "inventory.view" },
   { to: "/receiving", key: "nav.receiving", perm: "inventory.view" },
@@ -180,6 +182,11 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/devices" element={<DevicePage />} />
               <Route path="/devices/:serial" element={<DevicePage />} />
               <Route path="/reports" element={<ReportsPage />} />
+              <Route path="/planning" element={<PlanningPage />} />
+              <Route path="/planning/tasks/:id" element={<TaskPage />} />
+              <Route path="/planning/gantt" element={<GanttPage />} />
+              <Route path="/planning/org" element={<OrgPage />} />
+              <Route path="/planning/team" element={<TeamReportPage />} />
               <Route path="/quality" element={<QualityPage />} />
               <Route path="/changes" element={<ChangesPage />} />
               <Route path="/changes/:id" element={<ChangePage />} />
