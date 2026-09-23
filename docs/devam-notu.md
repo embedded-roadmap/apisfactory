@@ -100,5 +100,5 @@ Son güncelleme: 23.09.2026 — oturum 7 (görev, Gantt, organizasyon, ekip perf
 
 1. W10: genel akış motoru — zaman aşımı, vekâlet (süreli/kapsamlı), üst sorumluya bildirim, kendi talebini onaylama ve parasal limit politikası.
 2. W22: test istasyonu CSV/API adaptörü (test modunda), ölçümün cihaz serisiyle eşleşmesi.
-4. W20: revizyon bazında rota ve standart süre düzenleme; iş merkezi kapasitesinin rotadan okunması.
-5. Politika: devre gönderimde test planı + firmware zorunluluğu (şirket ayarı).
+3. W20: revizyon bazında rota ve standart süre düzenleme; iş merkezi kapasitesinin rotadan okunması.
+4. Politika: devre gönderimde test planı + firmware zorunluluğu (şirket ayarı).
