@@ -120,6 +120,8 @@ async function seedDemo() {
       ["CMP-LDO-01", "LDO 3V3 SOT-23-5 (DEMO)", "DemoPower", "DP3301-33"],
       ["CMP-CAP-01", "Kondansatör 10µF 16V 0603 (DEMO)", "DemoPassive", "DPC0603X106"],
       ["CMP-CON-01", "Konnektör 2x5 1.27mm (DEMO)", "DemoConn", "DCN-2X5-127"],
+      // W29: kural tabanlı alternatif adayı örneği (onaysız; uyumluluk iddiası yoktur)
+      ["CMP-CAP-02", "Kondansatör 10µF 16V 0603 X5R (DEMO)", "DemoPassive2", "DP2-0603-106"],
     ]) {
       await client.query(`insert into items (company_id, code, name, kind, manufacturer, mpn) values ($1,$2,$3,'component',$4,$5)`, [a.companyId, code, name, mfr, mpn]);
     }

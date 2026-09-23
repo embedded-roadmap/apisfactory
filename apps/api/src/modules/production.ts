@@ -8,6 +8,7 @@ import { idempotencyKey, parse, tenant } from "../http/context";
 import { RuleRejection, withRejectionLog } from "../lib/rejection";
 import { activeTestPlan, loadTestPlan } from "./quality";
 import { routeFor } from "../lib/routing";
+import { approvedAlternate } from "./alternates";
 
 export { DEFAULT_ROUTE } from "../lib/routing";
 
@@ -26,7 +27,8 @@ async function lockWo(db: Db, id: string): Promise<WoRow> {
 async function materialStatus(db: Db, wo: WoRow) {
   const r = await db.query(
     `select bl.item_id, i.code, i.name, i.mpn, sum(bl.qty_per) as qty_per,
-            coalesce((select sum(mi.qty) from material_issues mi where mi.work_order_id = $2 and mi.item_id = bl.item_id), 0) as issued
+            coalesce((select sum(mi.qty) from material_issues mi where mi.work_order_id = $2 and coalesce(mi.for_item_id, mi.item_id) = bl.item_id), 0) as issued,
+            coalesce((select sum(mi.qty) from material_issues mi where mi.work_order_id = $2 and mi.for_item_id = bl.item_id), 0) as issued_alt
        from bom_lines bl join items i on i.id = bl.item_id
       where bl.bom_version_id = $1 and not bl.dnp
       group by bl.item_id, i.code, i.name, i.mpn order by i.code`,
@@ -44,6 +46,7 @@ async function materialStatus(db: Db, wo: WoRow) {
       required: fromMicro(required),
       issued: fromMicro(issued),
       remaining: fromMicro(required - issued > 0n ? required - issued : 0n),
+      issuedAsAlternate: fromMicro(toMicro(m.issued_alt)),
       complete: issued >= required,
     };
   });
@@ -330,7 +333,7 @@ export async function productionRoutes(app: FastifyInstance) {
    */
   app.post("/api/work-orders/:id/issue", async (req) => {
     const { id } = req.params as { id: string };
-    const input = parse(z.object({ lotId: z.string().uuid(), qty: z.string().regex(/^\d+(\.\d+)?$/) }), req.body);
+    const input = parse(z.object({ lotId: z.string().uuid(), qty: z.string().regex(/^\d+(\.\d+)?$/), forItemId: z.string().uuid().optional() }), req.body);
     return tenant(req, "inventory.issue", (db, actor) =>
       idempotent(db, actor.companyId, "wo_issue", idempotencyKey(req), async () => {
         const wo = await lockWo(db, id);
@@ -340,8 +343,18 @@ export async function productionRoutes(app: FastifyInstance) {
         if (!lot.rows[0]) throw notFound("Lot");
         const itemId = lot.rows[0].item_id as string;
         const mats = await materialStatus(db, wo);
-        const need = mats.find((m) => m.itemId === itemId);
-        if (!need) throw conflict("wrong_part", `${lot.rows[0].code} bu iş emrinin BOM sürümünde yok; yanlış parça`, { lotNo: lot.rows[0].lot_no });
+        let need = input.forItemId ? undefined : mats.find((m) => m.itemId === itemId);
+        let alternateId: string | null = null;
+        if (!need) {
+          // BOM'da yoksa: yalnızca onaylı alternatif (ürün kapsamı veya genel) birincil kalemin yerine çıkılabilir.
+          const productId = (await db.query(`select product_id from product_revisions where id = $1`, [wo.product_revision_id])).rows[0].product_id;
+          const cands = input.forItemId ? mats.filter((m) => m.itemId === input.forItemId) : mats;
+          for (const m of cands) {
+            const alt = await approvedAlternate(db, m.itemId, itemId, productId);
+            if (alt) { need = m; alternateId = alt; break; }
+          }
+          if (!need) throw conflict("wrong_part", `${lot.rows[0].code} bu iş emrinin BOM sürümünde yok ve onaylı alternatif değil; yanlış parça`, { lotNo: lot.rows[0].lot_no });
+        }
         const qty = toMicro(input.qty);
         if (qty > toMicro(need.remaining)) throw conflict("over_issue", `Kalan ihtiyaç ${need.remaining}; fazla çıkış yapılamaz`);
         const src = await db.query(
@@ -370,30 +383,33 @@ export async function productionRoutes(app: FastifyInstance) {
            values (app_company_id(), $1, $2, $3, $4, $5, 'issue', 'work_order', $6, $7)`,
           [itemId, input.lotId, src.rows[0].location_id, prodLoc, fromMicro(qty), id, actor.userId],
         );
-        await db.query(`insert into material_issues (company_id, work_order_id, item_id, lot_id, qty, issued_by) values (app_company_id(), $1, $2, $3, $4, $5)`, [
+        await db.query(`insert into material_issues (company_id, work_order_id, item_id, lot_id, qty, issued_by, for_item_id, alternate_id) values (app_company_id(), $1, $2, $3, $4, $5, $6, $7)`, [
           id,
           itemId,
           input.lotId,
           fromMicro(qty),
           actor.userId,
+          alternateId ? need.itemId : null,
+          alternateId,
         ]);
         // Bu iş için ayrılmış rezervasyon tüketilir (aynı miktar iki kez sayılmaz).
         if (wo.production_need_id) {
           let rest = qty;
           const res = await db.query(
             `select id, qty from reservations where demand_type = 'production_need' and demand_id = $1 and item_id = $2 and status = 'active' order by created_at for update`,
-            [wo.production_need_id, itemId],
+            [wo.production_need_id, need.itemId],
           );
           for (const r of res.rows) {
             if (rest <= 0n) break;
             const take = min(rest, toMicro(r.qty));
             const left = toMicro(r.qty) - take;
-            if (left === 0n) await db.query(`update reservations set status = 'consumed' where id = $1`, [r.id]);
+            // Alternatif çıkıldıysa birincil kalemin ayrılmış miktarı serbest bırakılır (tüketilmedi).
+            if (left === 0n) await db.query(`update reservations set status = $2 where id = $1`, [r.id, alternateId ? "released" : "consumed"]);
             else await db.query(`update reservations set qty = $2 where id = $1`, [r.id, fromMicro(left)]);
             rest -= take;
           }
         }
-        await recordEvent(db, actor, { entityType: "work_order", entityId: id, eventType: "material.issued", after: { itemId, lotId: input.lotId, lotNo: lot.rows[0].lot_no, qty: fromMicro(qty) } });
+        await recordEvent(db, actor, { entityType: "work_order", entityId: id, eventType: alternateId ? "material.issued.alternate" : "material.issued", after: { itemId, lotId: input.lotId, lotNo: lot.rows[0].lot_no, qty: fromMicro(qty), forItemId: alternateId ? need.itemId : undefined, alternateId } });
         const after = await materialStatus(db, wo);
         if (after.every((m) => m.complete)) await closeTasks(db, actor.companyId, "material_issue", id);
         return { workOrderId: id, materials: after };

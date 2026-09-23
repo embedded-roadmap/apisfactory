@@ -7,6 +7,7 @@ import { procurementRoutes } from "./modules/procurement";
 import { payablesRoutes } from "./modules/payables";
 import { receivablesRoutes } from "./modules/receivables";
 import { distributorRoutes } from "./modules/distributors";
+import { alternateRoutes } from "./modules/alternates";
 import { planningRoutes } from "./modules/planning";
 import { costingRoutes } from "./modules/costing";
 import { returnRoutes } from "./modules/returns";
@@ -76,5 +77,6 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(payablesRoutes);
   await app.register(receivablesRoutes);
   await app.register(distributorRoutes);
+  await app.register(alternateRoutes);
   return app;
 }

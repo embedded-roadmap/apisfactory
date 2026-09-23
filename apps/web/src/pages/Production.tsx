@@ -181,7 +181,17 @@ function MaterialRow({ m, woId, canIssue, onDone }: { m: any; woId: string; canI
   const [lotNo, setLotNo] = useState("");
   const [qty, setQty] = useState(m.remaining);
   const [key, setKey] = useState(newKey());
-  const lots = useQuery({ enabled: open, queryKey: ["lotsFor", m.itemId], queryFn: () => get<any[]>(`/api/stock/balances?itemId=${m.itemId}`) });
+  const lots = useQuery({
+    enabled: open,
+    queryKey: ["lotsFor", m.itemId],
+    queryFn: async () => {
+      const own = (await get<any[]>(`/api/stock/balances?itemId=${m.itemId}`)).map((l) => ({ ...l, alt: null as string | null }));
+      // W29: onaylı alternatiflerin lotları da seçilebilir (sunucu ürün kapsamını ayrıca doğrular)
+      const alts = (await get<any[]>(`/api/alternates?status=approved&itemId=${m.itemId}`).catch(() => [])).filter((a) => a.itemId === m.itemId);
+      for (const a of alts) for (const l of await get<any[]>(`/api/stock/balances?itemId=${a.alternateItemId}`)) own.push({ ...l, alt: a.alternateCode });
+      return own;
+    },
+  });
   const issue = useMutation({
     mutationFn: async () => {
       const lot = lots.data?.find((l) => l.lotNo === lotNo);
@@ -193,7 +203,7 @@ function MaterialRow({ m, woId, canIssue, onDone }: { m: any; woId: string; canI
   return (
     <>
       <tr>
-        <td className="mono">{m.itemCode}</td><td className="mono">{m.mpn}</td><td className="num">{fmt(m.required)}</td><td className="num">{fmt(m.issued)}</td>
+        <td className="mono">{m.itemCode}</td><td className="mono">{m.mpn}</td><td className="num">{fmt(m.required)}</td><td className="num">{fmt(m.issued)}{Number(m.issuedAsAlternate) > 0 ? <div className="muted">alternatif {fmt(m.issuedAsAlternate)}</div> : null}</td>
         <td className="num">{m.complete ? <span className="badge ok">Tamam</span> : fmt(m.remaining)}</td>
         <td>{canIssue && !m.complete ? <button onClick={() => setOpen(!open)}>Çıkış yap</button> : null}</td>
       </tr>
@@ -206,7 +216,7 @@ function MaterialRow({ m, woId, canIssue, onDone }: { m: any; woId: string; canI
                   <option value="">Seçin…</option>
                   {lots.data?.map((l) => (
                     <option key={l.lotId + l.locationId} value={l.lotNo} disabled={l.locationType !== "stock"}>
-                      {l.lotNo} · {l.locationCode} · {fmt(l.qty)}{l.locationType !== "stock" ? " (kullanılamaz)" : ""}
+                      {l.lotNo} · {l.locationCode} · {fmt(l.qty)}{l.alt ? ` · onaylı alternatif ${l.alt}` : ""}{l.locationType !== "stock" ? " (kullanılamaz)" : ""}
                     </option>
                   ))}
                 </select>

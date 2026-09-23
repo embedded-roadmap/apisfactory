@@ -23,7 +23,7 @@ export function ProductsPage() {
   });
   return (
     <>
-      <PageHeader title="Ar-Ge & BOM" sub="Ürünler, revizyonlar ve üretime devir durumu" />
+      <PageHeader title="Ar-Ge & BOM" sub="Ürünler, revizyonlar ve üretime devir durumu" actions={<Link className="btn" to="/products/alternates">Alternatif parçalar</Link>} />
       {can("product.create") ? (
         <form className="card" onSubmit={(e: FormEvent) => { e.preventDefault(); create.mutate(); }}>
           <h3>Yeni ürün</h3>

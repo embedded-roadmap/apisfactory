@@ -1,12 +1,12 @@
 # Devam notu
 
-Son güncelleme: 23.09.2026 — oturum 16 (W17: distribütör fiyat/stok — test modu, fiyat dosyası, önbellek/kota, BOM tedarik görünümü, otomatik RFQ teklifi)
+Son güncelleme: 23.09.2026 — oturum 17 (W29: onaylı alternatif parça — kural tabanlı aday, Ar-Ge + üretim onayı, iş emrinde alternatif çıkışı, tedarik önerisi)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 124/124 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6, payables 5, receivables 4, distributors 5), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 130/130 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6, payables 5, receivables 4, distributors 5, alternates 6), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
@@ -24,6 +24,16 @@ Son güncelleme: 23.09.2026 — oturum 16 (W17: distribütör fiyat/stok — tes
 | Playwright uçtan uca (oturum 14) | Oturum 13 akışının devamı: kalite 190 kabul / 10 ret; muhasebe faturayı girer (faturalanabilir satır listeden, fiyat 5,10 vs sipariş 4,90 → %4,08 fiyat farkı), önizleme "fark var", kaydedince onaya düşer ve giren onaylayamaz; yönetici gerekçeyle onaylar; yaşlandırma; muhasebe banka referansıyla ödeme kaydı girer → "ödendi"; sayfa hatası yok |
 | Playwright uçtan uca (oturum 15) | Muhasebe sevk edilmiş sevkiyattan taslak fatura (4 × 250 + %20) → 45 gün önceki tarihle keser (vadesi geçti) → kredi limiti 5.000 ve gecikme sınırı 7 gün tanımlar (müşteri "engelli"); satış yeni siparişi kesinleştiremez (`credit_blocked`, 15 gün gecikme); yönetici gerekçeyle serbest bırakır, satış kesinleştirir; muhasebe banka referansıyla tahsilat kaydı girer → "tahsil edildi"; sayfa hatası yok |
 | Playwright uçtan uca (oturum 16) | Satın alma DigiKey'i TEST moduna alıp DEMO tedarikçiye bağlar, Mouser'ı fiyat dosyası moduna alıp CSV yükler; RFQ sayfasında distribütör teklifleri (TEST VERİSİ rozeti, alınma zamanı) ve "otomatik teklif" → DigiKey teklifi eklenir, Mouser atlanır (tedarikçiye bağlı değil); Ar-Ge BOM tedarik görünümünü hesaplar; sayfa hatası yok |
+| Playwright uçtan uca (oturum 17) | Satın alma CMP-CAP-01 için kural tabanlı adaylardan CMP-CAP-02'yi seçip kanıtla önerir; Ar-Ge notsuz onayda "kanıt eksik" uyarısı alır, notla onaylar; üretim onaylayınca durum Onaylı; kalite gerekçeyle geri alır; sayfa hatası yok |
+
+## Oturum 17'de eklenenler (W29)
+
+1. **Alternatif parça kaydı** (`/products/alternates`, Ar-Ge & BOM sayfasından bağlantı): birincil → alternatif, kapsam (genel veya ürün), gerekçe (≥ 10), kanıt (pin uyumu, footprint, elektriksel eşdeğerlik, not). Öneri Ar-Ge (`product.create`) veya satın alma (`supplier.manage`) yapar; aynı canlı çift ikinci kez önerilemez.
+2. **Kural tabanlı aday**: ad/değer/kılıf belirteçleri örtüşmesi, puan ≥ 50, serbest stokla — ekranda "yapay zekâ değildir" yazar; aday yalnız öneridir.
+3. **Onay**: Ar-Ge ve üretim ayrı karar (değişmez kayıt, görev açılır/kapanır); öneren onaylayamaz; kanıt eksikse onay için ≥ 20 karakter teknik not; ret gerekçe ister; herhangi bir ret → reddedildi. Geri alma (herhangi bir `product.approve.*`, gerekçeli) yeni çıkışı engeller, geçmiş çıkış kayıtta kalır; aynı çift yeniden önerilebilir.
+4. **İş emrinde alternatif çıkışı**: lot seçiminde onaylı alternatif lotları da listelenir; sunucu ürün kapsamını doğrular, çıkış birincil kalem ihtiyacından düşer (`for_item_id`, `alternate_id` izlenebilir), malzeme tablosunda "alternatif" miktarı, olay `material.issued.alternate`. Onaysız parça `wrong_part` ile reddedilir.
+5. **Tedarik görünümü**: her BOM satırında onaylı alternatifler ve serbest stoğu; birincil stok yetmiyor/teklif yok/EOL ise "Onaylı alternatif X stoktan karşılar" önerisi.
+6. Demo: CMP-CAP-02 (onaysız aday örneği).
 
 ## Oturum 16'da eklenenler (W17)
 
@@ -190,7 +200,7 @@ Son güncelleme: 23.09.2026 — oturum 16 (W17: distribütör fiyat/stok — tes
 
 ## Sıradaki uygulanabilir iş
 
-1. W29: onaylı alternatif parça (Ar-Ge/üretim onayı), BOM'da alternatif ve tedarik görünümünde alternatife geçiş önerisi (EOL/stok yok).
-2. W36: e-fatura/e-arşiv ve kargo adaptörleri (test modu, sağlayıcı kararı gerekli).
-3. W27 devamı: konuşmaya dosya/fotoğraf eki (W08 depolama), grup kanalları.
-4. W38: bağlayıcı kotası, önbellek isabeti ve hata panosu (çağrı kayıtları hazır).
+1. W36: e-fatura/e-arşiv ve kargo adaptörleri (test modu, sağlayıcı kararı gerekli).
+2. W27 devamı: konuşmaya dosya/fotoğraf eki (W08 depolama), grup kanalları.
+3. W38: bağlayıcı kotası, önbellek isabeti ve hata panosu (çağrı kayıtları hazır).
+4. W29 devamı: alternatif kanıtına datasheet eki, mobilde alternatif lot seçimi, gerçek AI önerisi (W30 sonrası).

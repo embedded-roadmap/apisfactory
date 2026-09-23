@@ -30,7 +30,7 @@
 | W26 | Görev, Gantt, takvim ve organizasyon | W06, W10, W16 | Birim yöneticileri | geliştiriliyor | Günlük liste (sistem + planlı görev), planlı görev, bağımlılık, baz plan, Gantt (sürükleme + etki), organizasyon şeması, ekip performansı (web; mobilde görev ilerletme) |
 | W27 | Mesaj, grup, kayıt konuşması ve medya | W06, W08 | Bütün birimler | geliştiriliyor | Kayda bağlı konuşma, yetkili bahsetme, okundu, değişmez mesaj + gerekçeli geri çekme; grup kanalı ve medya yok |
 | W28 | Görüşme, kayıt, transkript ve not | W27, W03 | Ürün sahibi | geliştiriliyor | Toplantı: gündem, katılım, tutanak, karar/aksiyon → görev, değişmez kapanış; görüşme/kayıt/transkript bağlayıcısı yok |
-| W29 | Alternatif AI, kanıt ve teknik onay | W13, W17, W21 | Ar-Ge, üretim | planlandı | — |
+| W29 | Alternatif AI, kanıt ve teknik onay | W13, W17, W21 | Ar-Ge, üretim | geliştiriliyor | Kural tabanlı aday (AI değil), gerekçe + kanıt, Ar-Ge + üretim ayrı onay (öneren onaylayamaz), geri alma, iş emrinde izlenebilir alternatif çıkışı, tedarik görünümünde öneri |
 | W30 | Yönetici raporu ve stratejik AI | W25, W08 | Yönetim | planlandı | — |
 | W31 | AI önerisini göreve alma ve etki ölçme | W10, W26, W30 | Yönetim | planlandı | — |
 | W32 | Fason portalı, dosya ve malzeme teyidi | W13, W15, W18, W20 | Üretim, satın alma | planlandı | — |

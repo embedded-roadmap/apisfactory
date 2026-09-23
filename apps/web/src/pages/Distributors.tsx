@@ -140,7 +140,9 @@ export function BomSourcing({ bomId }: { bomId: string }) {
                 <td className="num">{num(l.gross, 2)}</td><td className="num">{num(l.free, 2)}</td><td className="num"><b>{num(l.toBuy, 2)}</b></td>
                 <td>{l.best ? <>{l.best.connector} · stok {num(l.best.stock, 0)} · {l.best.leadTimeDays ?? "?"} g {l.best.testData ? <span className="badge mode warn">TEST</span> : null}</> : l.toBuy > 0 ? "—" : <span className="muted">stoktan</span>}</td>
                 <td className="num">{l.best?.total != null ? `${num(l.best.total, 2)} ${l.best.currency}` : "—"}</td>
-                <td>{l.risks.map((r: string) => <span key={r} className="badge bad" style={{ marginRight: 4 }}>{r}</span>)}</td>
+                <td>{l.risks.map((r: string) => <span key={r} className="badge bad" style={{ marginRight: 4 }}>{r}</span>)}
+                  {l.suggestion ? <div className="notice ok" style={{ margin: "4px 0 0", padding: "4px 8px" }}>{l.suggestion}</div> : null}
+                  {l.alternates?.length && !l.suggestion ? <div className="muted">Onaylı alternatif: {l.alternates.map((a: any) => a.code).join(", ")}</div> : null}</td>
               </tr>
             ))}</tbody>
           </table>

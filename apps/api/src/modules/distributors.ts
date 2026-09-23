@@ -215,7 +215,7 @@ export async function distributorRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const q = z.object({ qty: z.coerce.number().int().min(1).max(1_000_000).default(100), refresh: z.coerce.boolean().optional() }).parse(req.query);
     return tenant(req, "bom.view", async (db, actor) => {
-      const b = (await db.query(`select id from bom_versions where id = $1`, [id])).rows[0];
+      const b = (await db.query(`select id, product_id from bom_versions where id = $1`, [id])).rows[0];
       if (!b) throw notFound("BOM sürümü");
       const lines = (await db.query(
         `select i.id, i.code, i.mpn, i.manufacturer, i.lifecycle, sum(bl.qty_per)::float8 as qty_per,
@@ -258,7 +258,22 @@ export async function distributorRoutes(app: FastifyInstance) {
         if (best && !best.enough) risks.push("distribütör stoğu yetersiz");
         if (best?.stale) risks.push("teklif eski");
         if (lifecycle && ["nrnd", "eol", "obsolete"].includes(lifecycle)) risks.push(`yaşam döngüsü: ${lifecycle.toUpperCase()}`);
-        rows.push({ itemId: l.id, code: l.code, mpn: l.mpn, gross, free, toBuy, best, lifecycle, risks });
+        // Onaylı alternatifler (W29): risk varsa veya stok yetmiyorsa, stoğu olan alternatif önerilir.
+        const alts = (await db.query(
+          `select x.id, x.code, x.mpn, x.lifecycle, a.product_id is not null as "productScoped",
+                  greatest(coalesce((select sum(sb.qty) from stock_balances sb join locations lo on lo.id = sb.location_id where sb.item_id = x.id and lo.type = any($3)), 0)
+                         - coalesce((select sum(r.qty) from reservations r where r.item_id = x.id and r.status = 'active'), 0), 0)::float8 as free
+             from item_alternates a join items x on x.id = a.alternate_item_id
+            where a.item_id = $1 and a.status = 'approved' and (a.product_id is null or a.product_id = $2) order by x.code`,
+          [l.id, b.product_id, USABLE_LOCATION_TYPES],
+        )).rows;
+        let suggestion: string | null = null;
+        if (toBuy > 0 && alts.length) {
+          const covering = alts.find((a) => a.free >= toBuy && !["eol", "obsolete"].includes(a.lifecycle ?? ""));
+          if (covering && (risks.length || !best)) suggestion = `Onaylı alternatif ${covering.code} stoktan karşılar (serbest ${covering.free})`;
+          else if (covering) suggestion = `Onaylı alternatif ${covering.code} stokta (serbest ${covering.free}); alım yerine kullanılabilir`;
+        }
+        rows.push({ itemId: l.id, code: l.code, mpn: l.mpn, gross, free, toBuy, best, lifecycle, risks, alternates: alts, suggestion });
       }
       return { qty: q.qty, lines: rows, totals: show ? totals : null, warnings: [...warnings], testData, note: "Kur dönüşümü yapılmaz; tutarlar para birimi bazında. Teklifler önbellekten ve alınma zamanıyla." };
     });

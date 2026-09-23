@@ -20,6 +20,7 @@ import { StationPage } from "./pages/Station";
 import { RoutingPage } from "./pages/Routing";
 import { MeetingPage, MeetingsPage } from "./pages/Meetings";
 import { DistributorsPage } from "./pages/Distributors";
+import { AlternatesPage } from "./pages/Alternates";
 import { CustomerInvoicePage, CustomerInvoicesPage, ReceivablesAgingPage } from "./pages/Receivables";
 import { AgingPage, ApPolicyPage, InvoicePage, InvoicesPage, NewInvoicePage } from "./pages/Payables";
 import { FollowupsPage, PurchaseOrderPage, PurchaseOrdersPage, RfqPage, RfqsPage, SuppliersPage } from "./pages/Procurement";
@@ -174,6 +175,7 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
             <Routes>
               <Route path="/" element={<TodayPage />} />
               <Route path="/products" element={<ProductsPage />} />
+              <Route path="/products/alternates" element={<AlternatesPage />} />
               <Route path="/products/:id" element={<ProductDetailPage />} />
               <Route path="/products/:id/bom-import" element={<BomImportPage />} />
               <Route path="/inventory" element={<InventoryPage />} />
