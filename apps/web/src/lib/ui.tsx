@@ -49,6 +49,12 @@ export function ErrorNotice({ error }: { error: unknown }) {
           ))}
         </ul>
       ) : null}
+      {e.details && typeof e.details === "object" && Array.isArray((e.details as any).escalateToRoles) ? (
+        <div>
+          {(e.details as any).approverLimit && (e.details as any).approverLimit !== "unlimited" ? `Onay limitiniz: ${(e.details as any).approverLimit}. ` : ""}
+          {(e.details as any).escalateToRoles.length ? `Onay yetkisi olan rol: ${(e.details as any).escalateToRoles.join(", ")} — onları bekleyen görev açıldı.` : ""}
+        </div>
+      ) : null}
     </div>
   );
 }

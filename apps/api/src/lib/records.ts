@@ -1,6 +1,7 @@
+import { POLICY_TASK_KIND } from "@apisfactory/shared";
 import type { Db } from "../db/pool";
 
-export type Actor = { companyId: string; userId: string | null; kind?: "human" | "import" | "api" | "automation"; correlationId?: string };
+export type Actor = { companyId: string; userId: string | null; kind?: "human" | "import" | "api" | "automation"; correlationId?: string; onBehalfOf?: string };
 
 /** İş olayı: kim, ne zaman, neyi, önceki/sonraki durum ve gerekçe. Sır içermez. */
 export async function recordEvent(
@@ -9,8 +10,8 @@ export async function recordEvent(
   e: { entityType: string; entityId: string; eventType: string; before?: unknown; after?: unknown; reason?: string; source?: string },
 ) {
   await db.query(
-    `insert into events (company_id, entity_type, entity_id, event_type, actor_user_id, actor_kind, source, before_state, after_state, reason, correlation_id)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    `insert into events (company_id, entity_type, entity_id, event_type, actor_user_id, actor_kind, source, before_state, after_state, reason, correlation_id, on_behalf_of)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
     [
       actor.companyId,
       e.entityType,
@@ -23,6 +24,7 @@ export async function recordEvent(
       e.after === undefined ? null : JSON.stringify(e.after),
       e.reason ?? null,
       actor.correlationId ?? null,
+      actor.onBehalfOf ?? null,
     ],
   );
 }
@@ -32,26 +34,40 @@ export async function enqueue(db: Db, companyId: string, topic: string, payload:
   await db.query("insert into outbox (company_id, topic, payload) values ($1,$2,$3)", [companyId, topic, JSON.stringify(payload)]);
 }
 
-/** Role atanmış görev açar; aynı iş için ikinci kez açılmaz. */
+/**
+ * Role atanmış görev açar; aynı iş için ikinci kez açılmaz. Onay politikasında süre tanımlıysa bitiş zamanı atanır;
+ * süresi geçen görev üst sorumluya yükseltilir (lib/workflow.ts).
+ */
 export async function openTask(
   db: Db,
   companyId: string,
   t: { kind: string; title: string; entityType: string; entityId: string; assigneeRole: string },
 ) {
   await db.query(
-    `insert into tasks (company_id, kind, title, entity_type, entity_id, assignee_role)
-     values ($1,$2,$3,$4,$5,$6)
-     on conflict (company_id, kind, entity_id, assignee_role) where kind <> 'manual' do update set status = 'open', closed_at = null, title = excluded.title`,
-    [companyId, t.kind, t.title, t.entityType, t.entityId, t.assigneeRole],
+    `insert into tasks (company_id, kind, title, entity_type, entity_id, assignee_role, due_at)
+     values ($1, $2, $3, $4, $5, $6,
+             now() + make_interval(hours => (select p.timeout_hours from approval_policies p
+                                               where p.company_id = $1 and p.kind = $7 order by p.version_no desc limit 1)))
+     on conflict (company_id, kind, entity_id, assignee_role) where kind <> 'manual'
+     do update set status = 'open', closed_at = null, title = excluded.title, due_at = excluded.due_at, escalated_at = null, escalation_level = 0`,
+    [companyId, t.kind, t.title, t.entityType, t.entityId, t.assigneeRole, POLICY_TASK_KIND[t.kind] ?? null],
   );
 }
 
 export async function closeTasks(db: Db, companyId: string, kind: string, entityId: string, assigneeRole?: string) {
-  await db.query(
+  const r = await db.query(
     `update tasks set status = 'done', closed_at = now()
-      where company_id = $1 and kind = $2 and entity_id = $3 and status in ('open', 'in_progress', 'blocked') and ($4::text is null or assignee_role = $4)`,
+      where company_id = $1 and kind = $2 and entity_id = $3 and status in ('open', 'in_progress', 'blocked') and ($4::text is null or assignee_role = $4)
+      returning id`,
     [companyId, kind, entityId, assigneeRole ?? null],
   );
+  // Asıl iş kapanınca ona ait yükseltme görevleri de kapanır.
+  if (r.rowCount) {
+    await db.query(
+      `update tasks set status = 'done', closed_at = now() where company_id = $1 and kind = 'escalation' and entity_id = any($2) and status in ('open', 'in_progress', 'blocked')`,
+      [companyId, r.rows.map((x) => x.id)],
+    );
+  }
 }
 
 /** İnsanın okuyacağı sıralı kod (SO-000123). Satır kilidiyle çakışmasız. */

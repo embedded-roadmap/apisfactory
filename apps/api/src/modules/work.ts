@@ -1,9 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { PurchaseRequestDecisionInput } from "@apisfactory/shared";
 import { z } from "zod";
-import { conflict, notFound } from "../lib/errors";
-import { closeTasks, recordEvent } from "../lib/records";
-import { ctxOf, parse, tenant } from "../http/context";
+import { can, ctxOf, tenant } from "../http/context";
 
 /** Satın alma talepleri, günlük işler ve olay geçmişi. */
 export async function workRoutes(app: FastifyInstance) {
@@ -11,32 +8,17 @@ export async function workRoutes(app: FastifyInstance) {
     tenant(req, "purchase.view", async (db) => {
       const r = await db.query(
         `select pr.id, pr.code, pr.status, pr.qty, pr.need_date as "needDate", pr.source_type as "sourceType", pr.source_id as "sourceId",
-                i.id as "itemId", i.code as "itemCode", i.name as "itemName", i.manufacturer, i.mpn, pr.created_at as "createdAt"
-           from purchase_requests pr join items i on i.id = pr.item_id order by pr.created_at desc limit 300`,
+                i.id as "itemId", i.code as "itemCode", i.name as "itemName", i.manufacturer, i.mpn, pr.created_at as "createdAt",
+                pr.note, ru.name as "requestedBy", pr.requested_by as "requestedById", pr.estimated_amount as "estimatedAmount", pr.currency, pr.amount_source as "amountSource",
+                du.name as "decidedBy", pr.decided_at as "decidedAt"
+           from purchase_requests pr join items i on i.id = pr.item_id left join users ru on ru.id = pr.requested_by left join users du on du.id = pr.decided_by
+          order by pr.created_at desc limit 300`,
       );
-      return r.rows;
+      // Tahmini tutar maliyet bilgisidir: alan izni olmayana gönderilmez.
+      const showCost = can(req, "field.cost.view");
+      return r.rows.map((x) => (showCost ? x : { ...x, estimatedAmount: undefined, currency: undefined, amountSource: undefined }));
     }),
   );
-
-  /**
-   * Talep onayı. Onay, tedarikçiye sipariş GÖNDERMEZ; dış gönderim bağlayıcısı ve bütçe/yetki kuralları sonraki fazdadır
-   * (prompt §13). Kendi oluşturduğu talebi onaylama kontrolü talep otomasyonla açıldığı için burada geçerli değil.
-   */
-  app.post("/api/purchase-requests/:id/decision", async (req) => {
-    const { id } = req.params as { id: string };
-    const input = parse(PurchaseRequestDecisionInput, req.body);
-    return tenant(req, "purchase.request.approve", async (db, actor) => {
-      const r = await db.query(`select id, status, code from purchase_requests where id = $1 for update`, [id]);
-      if (!r.rows[0]) throw notFound("Satın alma talebi");
-      if (r.rows[0].status !== "open") throw conflict("invalid_transition", `Talep "${r.rows[0].status}" durumunda`);
-      if (input.decision === "reject" && !input.note) throw conflict("reason_required", "Ret gerekçesi zorunlu");
-      const to = input.decision === "approve" ? "approved" : "rejected";
-      await db.query(`update purchase_requests set status = $2, decided_by = $3, decided_at = now() where id = $1`, [id, to, actor.userId]);
-      await closeTasks(db, actor.companyId, "purchase_request_review", id);
-      await recordEvent(db, actor, { entityType: "purchase_request", entityId: id, eventType: `status.${to}`, before: { status: "open" }, after: { status: to }, reason: input.note });
-      return { id, status: to };
-    });
-  });
 
   app.get("/api/purchase-order-lines", async (req) =>
     tenant(req, "purchase.view", async (db) => {

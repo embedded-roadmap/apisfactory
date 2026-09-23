@@ -1,3 +1,4 @@
+import { approverFromRequest, evaluateApproval } from "../lib/workflow";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { Db } from "../db/pool";
@@ -245,6 +246,8 @@ export async function returnRoutes(app: FastifyInstance) {
     );
     return tenant(req, "rma.decide", async (db, actor) => {
       const rma = await lockRma(db, id);
+      const pol = await evaluateApproval(db, "rma_decision", approverFromRequest(req, "rma.decide"), { requesterId: rma.opened_by, amount: null, currency: null });
+      if (!pol.allowed && pol.code === "self_approval") throw conflict("self_approval", "İadeyi açan kişi kararı veremez (onay politikası)");
       if (rma.status !== "received") throw conflict("invalid_transition", "İnceleme yalnızca teslim alınmış iade için yapılır");
       let crId: string | null = null;
       if (input.openChangeRequest) {
@@ -283,6 +286,8 @@ export async function returnRoutes(app: FastifyInstance) {
     );
     return tenant(req, "rma.decide", async (db, actor) => {
       const rma = await lockRma(db, id);
+      const pol = await evaluateApproval(db, "rma_decision", approverFromRequest(req, "rma.decide"), { requesterId: rma.opened_by, amount: null, currency: null });
+      if (!pol.allowed && pol.code === "self_approval") throw conflict("self_approval", "İadeyi açan kişi kararı veremez (onay politikası)");
       const redecide = rma.status === "decided" && rma.disposition === "repair" && rma.retest_passed === false;
       if (rma.status !== "inspected" && !redecide) throw conflict("invalid_transition", "Karar yalnızca incelenmiş iade için (veya tamiri başarısız iade için yeniden) verilir");
       if (input.creditNote && rma.in_warranty === false) throw conflict("out_of_warranty", `Garanti ${rma.warranty_until} tarihinde bitti; alacak belgesi talebi açılamaz`);

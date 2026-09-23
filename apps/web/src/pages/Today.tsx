@@ -22,6 +22,7 @@ const PRI: Record<string, string> = { low: "Düşük", normal: "Normal", high: "
 export function TodayPage() {
   const { me } = useMe();
   const tasks = useQuery({ queryKey: ["tasks"], queryFn: () => get<({ id: string; title: string; assigneeRole: string | null; entityType: string; entityId: string; createdAt: string } & { kind: string; priority: string; dueDate: string | null; overdue: boolean; milestone: boolean; checklistTotal: number; checklistDone: number; status: string } & Record<string, any>)[]>("/api/tasks/mine") });
+  const delegated = useQuery({ queryKey: ["tasksDelegated"], queryFn: () => get<any[]>("/api/tasks/delegated") });
   const integrations = useQuery({ queryKey: ["integrations"], queryFn: () => get<{ key: string; name: string; mode: string; note: string }[]>("/api/integrations") });
   return (
     <>
@@ -41,13 +42,30 @@ export function TodayPage() {
                   <td>{PRI[t.priority] ?? ""}</td>
                   <td>{t.dueDate ?? "—"} {t.overdue ? <span className="badge bad">gecikti</span> : null}</td>
                   <td className="muted">{fmtDate(t.createdAt)}</td>
-                  <td><Link to={t.kind === "manual" ? `/planning/tasks/${t.id}` : (LINK[t.entityType] ?? (() => "/"))(t.entityId)}>Aç</Link></td>
+                  <td><Link to={t.kind === "escalation" ? "/workflow/monitor" : t.kind === "manual" ? `/planning/tasks/${t.id}` : (LINK[t.entityType] ?? (() => "/"))(t.entityId)}>Aç</Link></td>
                 </tr>
               ))}
             </tbody>
           </table>
         ) : null}
       </section>
+      {delegated.data?.length ? (
+        <section className="card">
+          <h2>Vekâleten bekleyen işler</h2>
+          <p className="muted" style={{ margin: 0 }}>Vekâlet süresince yaptığınız onaylar kimin adına yapıldığıyla birlikte kaydedilir.</p>
+          <table>
+            <tbody>
+              {delegated.data.map((t) => (
+                <tr key={t.id}>
+                  <td>{t.title}</td><td><span className="badge warn">vekâleten: {t.onBehalfOfName}</span></td>
+                  <td>{t.dueAt ? fmtDate(t.dueAt) : "—"} {t.overdue ? <span className="badge bad">gecikti</span> : null}</td>
+                  <td><Link to={(LINK[t.entityType] ?? (() => "/"))(t.entityId)}>Aç</Link></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
       <section className="card">
         <h2>Bağlantı durumu</h2>
         <p className="muted" style={{ margin: 0 }}>Bağlanmamış bir kaynak çalışıyormuş gibi gösterilmez.</p>

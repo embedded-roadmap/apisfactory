@@ -21,6 +21,7 @@ import { ReportsPage } from "./pages/Reports";
 import { DevicePage, ReturnPage, ReturnsPage } from "./pages/Returns";
 import { ShipmentPage, ShipmentPrintPage, ShipmentsPage } from "./pages/Shipping";
 import { ChangePage, ChangesPage } from "./pages/Changes";
+import { DelegationsPage, WorkflowMonitorPage, WorkflowPage } from "./pages/Workflow";
 
 function useAuthState() {
   return useSyncExternalStore(auth.subscribe, auth.get);
@@ -109,6 +110,7 @@ const NAV: { to: string; key: string; perm?: Permission }[] = [
   { to: "/purchasing", key: "nav.purchasing", perm: "purchase.view" },
   { to: "/imports", key: "nav.imports" },
   { to: "/reports", key: "nav.reports", perm: "report.view" },
+  { to: "/workflow", key: "nav.workflow", perm: "task.view" },
   { to: "/events", key: "nav.events", perm: "audit.view" },
   { to: "/admin", key: "nav.admin", perm: "admin.users" },
 ];
@@ -190,6 +192,9 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/quality" element={<QualityPage />} />
               <Route path="/changes" element={<ChangesPage />} />
               <Route path="/changes/:id" element={<ChangePage />} />
+              <Route path="/workflow" element={<WorkflowPage />} />
+              <Route path="/workflow/delegations" element={<DelegationsPage />} />
+              <Route path="/workflow/monitor" element={<WorkflowMonitorPage />} />
               <Route path="/admin" element={<AdminPage />} />
               <Route path="/password" element={<PasswordPage />} />
               <Route path="*" element={<Navigate to="/" />} />

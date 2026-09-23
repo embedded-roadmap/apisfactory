@@ -1,5 +1,5 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
-import type { Permission } from "@apisfactory/shared";
+import { DELEGABLE_PERMISSIONS, type Permission } from "@apisfactory/shared";
 import type { ZodTypeAny, output } from "zod";
 import { withTenant, withUser, type Db } from "../db/pool";
 import { verifyToken } from "../lib/auth";
@@ -12,6 +12,10 @@ export type ReqCtx = {
   companyId: string | null;
   roles: string[];
   permissions: Set<string>;
+  /** Vekâletle gelen izin → vekâlet veren kullanıcı (kendi izni olan eklenmez). */
+  delegated: Record<string, string>;
+  /** Aktif vekâlet verenler ve rolleri (görev listesi ve limit hesabı için). */
+  delegators: { userId: string; roles: string[]; permissions: string[] }[];
 };
 
 declare module "fastify" {
@@ -46,7 +50,7 @@ export async function authenticate(req: FastifyRequest): Promise<ReqCtx> {
 
   const rawCompany = req.headers["x-company-id"];
   const companyId = typeof rawCompany === "string" && UUID.test(rawCompany) ? rawCompany : null;
-  if (!companyId) return { userId, sessionId, companyId: null, roles: [], permissions: new Set() };
+  if (!companyId) return { userId, sessionId, companyId: null, roles: [], permissions: new Set(), delegated: {}, delegators: [] };
 
   const access = await withTenant({ companyId, userId }, async (db) => {
     const m = await db.query(
@@ -61,9 +65,33 @@ export async function authenticate(req: FastifyRequest): Promise<ReqCtx> {
         where mr.membership_id = $1`,
       [m.rows[0].id],
     );
+    const own = new Set(perms.rows.map((r) => r.permission as string).filter(Boolean));
+    // Vekâlet (prompt §5): süreli, kapsamlı; yalnızca vekâlet verenin hâlâ sahip olduğu onay izinleri geçer.
+    const dl = await db.query(
+      `select d.delegator_user_id, d.permissions,
+              array_agg(distinct r.code) filter (where r.code is not null) as roles,
+              array_agg(distinct rp.permission) filter (where rp.permission is not null) as perms
+         from delegations d
+         join memberships m on m.user_id = d.delegator_user_id and m.company_id = app_company_id() and m.status = 'active'
+         left join membership_roles mr on mr.membership_id = m.id left join roles r on r.id = mr.role_id
+         left join role_permissions rp on rp.role_id = r.id
+        where d.delegate_user_id = $1 and d.revoked_at is null and now() >= d.valid_from and now() < d.valid_to
+        group by d.id, d.delegator_user_id, d.permissions`,
+      [userId],
+    );
+    const delegated: Record<string, string> = {};
+    const delegators: { userId: string; roles: string[]; permissions: string[] }[] = [];
+    for (const d of dl.rows) {
+      const granted = (d.permissions as string[]).filter((p) => (d.perms ?? []).includes(p) && (DELEGABLE_PERMISSIONS as readonly string[]).includes(p));
+      if (!granted.length) continue;
+      delegators.push({ userId: d.delegator_user_id, roles: d.roles ?? [], permissions: granted });
+      for (const p of granted) if (!own.has(p) && !delegated[p]) delegated[p] = d.delegator_user_id;
+    }
     return {
       roles: [...new Set(perms.rows.map((r) => r.role as string))],
-      permissions: new Set(perms.rows.map((r) => r.permission as string).filter(Boolean)),
+      permissions: new Set([...own, ...Object.keys(delegated)]),
+      delegated,
+      delegators,
     };
   });
   if (!access) throw forbidden();
@@ -95,7 +123,7 @@ export async function tenant<T>(req: FastifyRequest, perm: Permission | null, fn
   if (perm) need(req, perm);
   const correlationId = typeof req.headers["x-correlation-id"] === "string" && UUID.test(req.headers["x-correlation-id"]) ? req.headers["x-correlation-id"] : undefined;
   return withTenant({ companyId: c.companyId, userId: c.userId }, (db) =>
-    fn(db, { companyId: c.companyId, userId: c.userId, kind: "human", correlationId }),
+    fn(db, { companyId: c.companyId, userId: c.userId, kind: "human", correlationId, onBehalfOf: perm ? c.delegated[perm] : undefined }),
   );
 }
 

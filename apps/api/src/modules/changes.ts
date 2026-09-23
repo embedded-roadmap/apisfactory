@@ -1,3 +1,4 @@
+import { approverFromRequest, evaluateApproval } from "../lib/workflow";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { Db } from "../db/pool";
@@ -116,7 +117,9 @@ export async function changeRoutes(app: FastifyInstance) {
       const cr = c.rows[0];
       if (!cr) throw notFound("Değişiklik talebi");
       if (cr.status !== "open") throw conflict("invalid_transition", `Talep "${cr.status}" durumunda`);
-      if (cr.opened_by === actor.userId) throw conflict("self_approval", "Talebi açan kişi kendi talebine karar veremez");
+      // Kendi talebine karar: onay politikasına göre (varsayılan kapalı; vekâleten kararda vekâlet verenin talebi de sayılır).
+      const pol = await evaluateApproval(db, "change_request", approverFromRequest(req, "change.decide"), { requesterId: cr.opened_by, amount: null, currency: null });
+      if (!pol.allowed && pol.code === "self_approval") throw conflict("self_approval", "Talebi açan kişi kendi talebine karar veremez (onay politikası)");
 
       if (input.decision === "reject") {
         await db.query(`update change_requests set status = 'rejected', decision_note = $2, decided_by = $3, decided_at = now() where id = $1`, [id, input.note, actor.userId]);

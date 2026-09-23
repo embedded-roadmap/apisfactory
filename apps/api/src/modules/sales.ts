@@ -1,3 +1,4 @@
+import { estimatePurchase } from "../lib/workflow";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { CreateCustomerInput, CreateSalesOrderInput, USABLE_LOCATION_TYPES, type ConfirmResult, type SalesOrder } from "@apisfactory/shared";
 import { z } from "zod";
@@ -152,10 +153,11 @@ async function planLine(db: Db, actor: Actor, line: LineRow, requestedDate: stri
     let prId: string | null = null;
     if (write && rem > 0n) {
       const code = await nextCode(db, actor.companyId, "purchase_request", "SAT");
+      const est = await estimatePurchase(db, m.item_id, fromMicro(rem));
       const pr = await db.query(
-        `insert into purchase_requests (company_id, code, item_id, qty, need_date, source_type, source_id)
-         values (app_company_id(), $1, $2, $3, $4, 'production_need', $5) returning id`,
-        [code, m.item_id, fromMicro(rem), requestedDate, needId],
+        `insert into purchase_requests (company_id, code, item_id, qty, need_date, source_type, source_id, requested_by, estimated_amount, currency, amount_source)
+         values (app_company_id(), $1, $2, $3, $4, 'production_need', $5, $6, $7, $8, $9) returning id`,
+        [code, m.item_id, fromMicro(rem), requestedDate, needId, actor.userId, est.amount, est.currency, est.source],
       );
       prId = pr.rows[0].id;
       await openTask(db, actor.companyId, {

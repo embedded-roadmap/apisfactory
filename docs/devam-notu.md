@@ -1,12 +1,12 @@
 # Devam notu
 
-Son güncelleme: 23.09.2026 — oturum 7 (görev, Gantt, organizasyon, ekip performansı)
+Son güncelleme: 23.09.2026 — oturum 8 (akış motoru: onay politikası, limit, vekâlet, zaman aşımı, müdahale)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 76/76 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 87/87 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
@@ -15,6 +15,17 @@ Son güncelleme: 23.09.2026 — oturum 7 (görev, Gantt, organizasyon, ekip perf
 | Playwright uçtan uca (oturum 5) | Satış: seri okut → müşteri/sevk/garanti bulunur → iade aç; depo teslim alır; kalite inceler (üretim hatası) → tamir + alacak belgesi talebi; teknisyen tamir + tekrar test; depo geri gönderir → kapandı; cihaz geçmişi sevk + iade + olaylar; sayfa hatası yok |
 | Playwright uçtan uca (oturum 6) | Yönetici iş emri maliyetini hesaplar → lot maliyeti yok uyarısı; satın alma Depo & Lot ekranından 3 lota fatura maliyeti girer; yeniden hesap v2 (politika v1, birim maliyet); Maliyet & Metrikler: KPI satırı, ilk testte başarı kaynak kayıtları, kârlılık (fiyatsız satır "satış fiyatı yok"), politika sürümleri; sayfa hatası yok |
 | Playwright uçtan uca (oturum 7) | Teknisyen günlük listede DEMO görevini açar → kontrol listesi eksik uyarısı → tedarikçi engeli (dış kaynaklı); yönetici baz planı dondurur, Gantt'ta çubuğu 5 gün sürükler, gerekçeyle kaydeder → ardıl çakışma uyarısı; organizasyonda alt birim ve geçici üye ekler; ekip performansı; sayfa hatası yok |
+| Playwright uçtan uca (oturum 8) | Yönetici satın alma politikası v1 yayımlar (satın alma 1.000 TRY, yönetici sınırsız, 24 saat → yönetici) → kuru çalıştırma "onaylayamaz"; üretim sorumlusuna süreli vekâlet verir; Ar-Ge elle talep açar (tutar bilinmiyor); satın alma onayı `amount_unknown` ile engellenir ve yöneticiye görev açılır; vekil Günlük işler'de "vekâleten" işi görür ve onaylar (olayda adına); izleme ekranında yükseltme taraması; sayfa hatası yok |
+
+## Oturum 8'de eklenenler (W10)
+
+1. **Onay politikası** (`/workflow`, `workflow.manage`: yönetici): satın alma talebi, değişiklik talebi, iade kararı, giriş kalite, cihaz kalite kararı için sürümlü (değişmez) politika — kendi talebini onaylama, süre (saat), süre aşımında yükseltilecek rol, rol bazlı parasal limit (satın alma). Politika yoksa varsayılan: kendi talebini onaylama kapalı, limit yok. Teknik sistem yöneticisine limit/yükseltme verilemez. Kuru çalıştırma kayıt yazmaz.
+2. **Parasal limit**: tahmini tutar = kalemin son lot maliyeti × miktar (yoksa "bilinmiyor", uydurulmaz). Limit aşımı / tutar bilinmiyor / para birimi farkı → onay reddedilir, yetkili üst role "limit üstü onay" görevi açılır, olay yazılır.
+3. **Vekâlet** (`/workflow/delegations`): süreli (en çok 90 gün), kapsamlı (yalnızca devredilebilir onay izinleri ve vekâlet verenin sahip olduğu izinler), gerekçeli, iptal edilebilir. Vekâleten işlem olayda `on_behalf_of` taşır; vekâlet verenin kendi talebi de "kendi talebi" sayılır; limit vekâlet verenin rolünden alınır. Günlük işler'de "Vekâleten bekleyen işler".
+4. **Zaman aşımı ve yükseltme**: sistem görevine politikadaki süreyle bitiş atanır; arka plan her dakika süresi geçenleri bir kez üst role yükseltir (görev + olay + test modunda bildirim kuyruğu). Asıl görev kapanınca yükseltme de kapanır.
+5. **Elle müdahale** (`/workflow/monitor`): süresi geçen onaylar, açık yükseltmeler, görevi başka role aktarma (rolün izni yoksa reddedilir, gerekçeli), çıkış kutusu izleme — başarısız işi tekrar dene; sonucu bilinmeyen işi körlemesine tekrar göndermeden uzlaştır (gerçekleşti/gerçekleşmedi + not).
+6. **Elle satın alma talebi** (Ar-Ge, üretim, kalite, satın alma): kalem, miktar, ihtiyaç tarihi, gerekçe; tekrar korumalı. Liste talep eden, not ve tahmini tutarı (maliyet görme yetkisiyle) gösterir.
+7. Değişiklik talebi ve iade kararındaki "kendi talebini onaylama" kuralı artık politikadan okunur.
 
 ## Oturum 7'de eklenenler (W26)
 
@@ -93,12 +104,13 @@ Son güncelleme: 23.09.2026 — oturum 7 (görev, Gantt, organizasyon, ekip perf
 - Kargo API'si, e-irsaliye/e-fatura yok (W36); belge TASLAK. Çevrimdışı mobil kuyruk yok.
 - İade: tamir sonrası tekrar test yalnızca geçti/kaldı olarak girilir (test planı ölçümleri iade tamirine bağlanmadı). Karantinadaki iade ürününün sonraki analizi ve hurda/yeniden işleme kararı stok ekranından yapılmalı (ayrı akış yok). Geri gönderim sevkiyat listesinde ayrı satır olarak görünmez; iade kaydında izlenir.
 - Paketleme rotada ayrı iş merkezi değil; sevkiyat modülünde yapılır.
-- Planlama: Gantt'ta kaynak kapasitesi ve vardiya yok; iş emri çubukları salt okunur; mesajlaşma/toplantı (W27/W28) yok; vekâlet yok.
+- Planlama: Gantt'ta kaynak kapasitesi ve vardiya yok; iş emri çubukları salt okunur; mesajlaşma/toplantı (W27/W28) yok.
+- Akış: politika yalnızca beş onay türü için; satın alma dışındaki türlerde parasal limit yok. Yükseltme tek seviye (üst rolün de süresi dolarsa ikinci yükseltme yok). Bildirim yalnızca çıkış kutusunda (e-posta/anlık bildirim bağlanmadı). Vekâlet mobilde gösterilmiyor. Tahmini tutar son lot maliyetinden; tedarikçi teklifi/fiyat listesi yok (W18).
 - Maliyet: kur dönüşümü yok (farklı para birimli satır "hesaplanamadı"); dış hizmet (fason) maliyeti yok; iade tamiri ve iade hurdası maliyete yansımıyor; bütçe modülü yok; prototip/pilot/seri ayrımı ve ekip performansı raporu (W26) yok. İşçilik yalnızca operasyon başlat/tamamla süresinden; hızlı tıklanan operasyon süre biriktirmez (uyarı olarak eksik listesine düşer). Mobilde maliyet ekranı yok (ofis işi).
 
 ## Sıradaki uygulanabilir iş
 
-1. W10: genel akış motoru — zaman aşımı, vekâlet (süreli/kapsamlı), üst sorumluya bildirim, kendi talebini onaylama ve parasal limit politikası.
-2. W22: test istasyonu CSV/API adaptörü (test modunda), ölçümün cihaz serisiyle eşleşmesi.
-3. W20: revizyon bazında rota ve standart süre düzenleme; iş merkezi kapasitesinin rotadan okunması.
-4. Politika: devre gönderimde test planı + firmware zorunluluğu (şirket ayarı).
+1. W22: test istasyonu CSV/API adaptörü (test modunda), ölçümün cihaz serisiyle eşleşmesi.
+2. W20: revizyon bazında rota ve standart süre düzenleme; iş merkezi kapasitesinin rotadan okunması.
+3. Politika: devre gönderimde test planı + firmware zorunluluğu (şirket ayarı) — W10 politika altyapısına eklenebilir.
+4. W27/W28: iç mesajlaşma ve toplantı kararlarının göreve dönüşmesi.

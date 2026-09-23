@@ -11,7 +11,7 @@
 | W07 | Ortak veri sözlüğü, kimlikler ve ilişkiler | W01, W05 | Teknik lider | geliştiriliyor | Ortak kimlikler, MPN ayrımı, sabit hassasiyetli miktar |
 | W08 | Dosya/sürüm, arama, indirme ve log altyapısı | W06, W07 | Ar-Ge, yönetim | geliştiriliyor | Olay defteri var; dosya/sürüm deposu ve arama yok |
 | W09 | Import/export, önizleme ve hata dosyası | W06, W07 | Bütün birimler | geliştiriliyor | Önizlemeli CSV import (BOM, açılış stoğu), stok export |
-| W10 | Akış, onay, zaman aşımı, tekrar koruması | W06, W07 | Yönetim | geliştiriliyor | Durum geçişleri sunucuda, idempotency, outbox; genel akış motoru yok |
+| W10 | Akış, onay, zaman aşımı, tekrar koruması | W06, W07 | Yönetim | geliştiriliyor | Sürümlü onay politikası (kendi talebi, rol limiti, süre, yükseltme), süreli vekâlet, zaman aşımı taraması, görev aktarma, outbox uzlaştırma; görsel akış tasarımcısı ve çok seviyeli yükseltme yok |
 | W11 | Ar-Ge proje, bütçe, talep ve gider | W07, W09, W10 | Ar-Ge, muhasebe | geliştiriliyor | Yok (yalnızca ürün/revizyon); proje, bütçe, gider sonraki adım |
 | W12 | Ürün, BOM, varyant, CAD ve fark görünümü | W08, W09 | Ar-Ge | geliştiriliyor | Ürün, BOM sürümü, CSV/Altium/KiCad kolon eşleştirme, fark |
 | W13 | Teknik devir, revizyon ve etki | W10, W12 | Ar-Ge, üretim, kalite | geliştiriliyor | Üç birim devir onayı; ECR, iş emri bekletme, açık iş kararları; firmware kilidi |
