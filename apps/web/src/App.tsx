@@ -21,13 +21,13 @@ import { RoutingPage } from "./pages/Routing";
 import { MeetingPage, MeetingsPage } from "./pages/Meetings";
 import { DistributorsPage } from "./pages/Distributors";
 import { AlternatesPage } from "./pages/Alternates";
-import { CustomerInvoicePage, CustomerInvoicesPage, ReceivablesAgingPage } from "./pages/Receivables";
+import { CustomerInvoicePage, CustomerInvoicesPage, EinvoiceConnectorsPage, ReceivablesAgingPage } from "./pages/Receivables";
 import { AgingPage, ApPolicyPage, InvoicePage, InvoicesPage, NewInvoicePage } from "./pages/Payables";
 import { FollowupsPage, PurchaseOrderPage, PurchaseOrdersPage, RfqPage, RfqsPage, SuppliersPage } from "./pages/Procurement";
 import { GanttPage, OrgPage, PlanningPage, TaskPage, TeamReportPage } from "./pages/Planning";
 import { ReportsPage } from "./pages/Reports";
 import { DevicePage, ReturnPage, ReturnsPage } from "./pages/Returns";
-import { ShipmentPage, ShipmentPrintPage, ShipmentsPage } from "./pages/Shipping";
+import { CargoConnectorsPage, ShipmentPage, ShipmentPrintPage, ShipmentsPage } from "./pages/Shipping";
 import { ChangePage, ChangesPage } from "./pages/Changes";
 import { DelegationsPage, WorkflowMonitorPage, WorkflowPage } from "./pages/Workflow";
 
@@ -192,6 +192,7 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/purchasing/distributors" element={<DistributorsPage />} />
               <Route path="/receivables" element={<CustomerInvoicesPage />} />
               <Route path="/receivables/aging" element={<ReceivablesAgingPage />} />
+              <Route path="/receivables/einvoice-connectors" element={<EinvoiceConnectorsPage />} />
               <Route path="/receivables/:id" element={<CustomerInvoicePage />} />
               <Route path="/payables" element={<InvoicesPage />} />
               <Route path="/payables/new" element={<NewInvoicePage />} />
@@ -204,6 +205,7 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/production/routings" element={<RoutingPage />} />
               <Route path="/production/:id" element={<WorkOrderPage />} />
               <Route path="/shipments" element={<ShipmentsPage />} />
+              <Route path="/shipments/cargo-connectors" element={<CargoConnectorsPage />} />
               <Route path="/shipments/:id" element={<ShipmentPage />} />
               <Route path="/shipments/:id/print" element={<ShipmentPrintPage />} />
               <Route path="/returns" element={<ReturnsPage />} />

@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { Db } from "../db/pool";
-import { AppError, conflict, forbidden, notFound } from "../lib/errors";
+import { AppError, badRequest, conflict, forbidden, notFound } from "../lib/errors";
 import { enqueue, idempotent, nextCode, recordEvent } from "../lib/records";
 import { fromMicro, min, toMicro } from "../lib/decimal";
 import { can, idempotencyKey, parse, tenant } from "../http/context";
@@ -62,13 +62,13 @@ export async function shippableLines(db: Db, orderId: string, excludeShipmentId?
 
 async function loadShipment(db: Db, id: string) {
   const s = await db.query(
-    `select s.id, s.code, s.status, s.document_mode as "documentMode", s.carrier, s.tracking_no as "trackingNo",
+    `select s.id, s.code, s.status, s.document_mode as "documentMode", s.carrier, s.tracking_no as "trackingNo", s.label_ref as "labelRef", cc.name as "cargoConnector",
             s.address_id as "addressId", s.address_snapshot as "addressSnapshot", s.shipped_at as "shippedAt", s.delivered_at as "deliveredAt",
             s.problem_note as "problemNote", s.cancel_reason as "cancelReason", s.created_at as "createdAt",
             so.id as "salesOrderId", so.code as "salesOrderCode", so.allow_partial as "allowPartial", c.name as "customerName", c.code as "customerCode",
             u.name as "createdBy", su.name as "shippedBy"
        from shipments s join sales_orders so on so.id = s.sales_order_id join customers c on c.id = so.customer_id
-       left join users u on u.id = s.created_by left join users su on su.id = s.shipped_by
+       left join users u on u.id = s.created_by left join users su on su.id = s.shipped_by left join cargo_connectors cc on cc.id = s.cargo_connector_id
       where s.id = $1`,
     [id],
   );
@@ -463,12 +463,16 @@ export async function packagingRoutes(app: FastifyInstance) {
    */
   app.post("/api/shipments/:id/ship", async (req) => {
     const { id } = req.params as { id: string };
-    const input = parse(z.object({ carrier: z.string().min(2).max(80), trackingNo: z.string().max(80).optional() }), req.body);
+    const input = parse(z.object({ carrier: z.string().min(2).max(80).optional(), trackingNo: z.string().max(80).optional() }), req.body);
     return tenant(req, "shipment.create", (db, actor) =>
       idempotent(db, actor.companyId, "shipment_ship", idempotencyKey(req), async () => {
         const s = await lockShipment(db, id);
         if (SHIPPED.includes(s.status)) return loadShipment(db, id); // tekrar gelen sevk isteği
         if (s.status !== "packed") throw conflict("invalid_transition", "Paketleme tamamlanmadan sevk edilemez");
+        // Kargo etiketi (W36 test bağlayıcısı) önceden üretildiyse taşıyıcı/takip no oradan gelir; yoksa elle girilir.
+        const carrier = input.carrier ?? s.carrier;
+        if (!carrier) throw badRequest("Taşıyıcı gerekli (elle girin veya önce kargo etiketi üretin)");
+        const trackingNo = input.trackingNo ?? s.tracking_no ?? undefined;
         const a = await db.query(`select ${addressCols} from customer_addresses where id = $1`, [s.address_id]);
         if (!a.rows[0]?.active) throw conflict("address_inactive", "Teslim adresi pasife alınmış; sevkiyat adresini güncelleyin");
         const items = await db.query(
@@ -522,7 +526,7 @@ export async function packagingRoutes(app: FastifyInstance) {
         await db.query(
           `update shipments set status = 'shipped', carrier = $2, tracking_no = $3, address_snapshot = $4, shipped_by = $5, shipped_at = now(),
                   qty = (select sum(qty) from shipment_lines where shipment_id = $1) where id = $1`,
-          [id, input.carrier, input.trackingNo ?? null, JSON.stringify(a.rows[0]), actor.userId],
+          [id, carrier, trackingNo ?? null, JSON.stringify(a.rows[0]), actor.userId],
         );
         // Bütün satırlar tamamen sevk edildiyse sipariş "sevk edildi" olur.
         const state = await shippableLines(db, s.sales_order_id);
@@ -531,7 +535,7 @@ export async function packagingRoutes(app: FastifyInstance) {
           await db.query(`update sales_orders set status = 'shipped' where id = $1`, [s.sales_order_id]);
           await recordEvent(db, actor, { entityType: "sales_order", entityId: s.sales_order_id, eventType: "status.shipped", before: { status: "firm" }, after: { status: "shipped" } });
         }
-        await recordEvent(db, actor, { entityType: "shipment", entityId: id, eventType: "status.shipped", before: { status: "packed" }, after: { status: "shipped", carrier: input.carrier, trackingNo: input.trackingNo, document: "draft" } });
+        await recordEvent(db, actor, { entityType: "shipment", entityId: id, eventType: "status.shipped", before: { status: "packed" }, after: { status: "shipped", carrier, trackingNo, document: s.document_mode } });
         await recordEvent(db, actor, { entityType: "sales_order", entityId: s.sales_order_id, eventType: "shipped", after: { shipment: s.code, partial: !done } });
         await enqueue(db, actor.companyId, "shipment.shipped", { shipmentId: id });
         return loadShipment(db, id);

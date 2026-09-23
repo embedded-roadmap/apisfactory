@@ -37,7 +37,7 @@
 | W33 | MSL, raf ömrü, ambalaj ve koşul | W15, W19 | Depo, kalite | planlandı | — |
 | W34 | İade, saha arızası ve cihaz geçmişi | W21, W23, W24 | Kalite, satış | geliştiriliyor | Seri/lot iadesi, garanti hesabı, iade kabul alanı, inceleme + kök neden + ECR, tamir/değişim/hurda/stoğa al/olduğu gibi iade, geri gönderim, cihaz geçmişi (web + mobil teslim alma); alacak belgesi yalnızca muhasebe görevi |
 | W35 | Senaryo, maliyet/termin kıyası ve uygulama | W16, W25, W29 | Yönetim | planlandı | — |
-| W36 | Muhasebe/e-belge ve kargo adaptörleri | W03, W23, W24 | Muhasebe, depo | entegrasyon bekliyor | Sağlayıcı kararı açık |
+| W36 | Muhasebe/e-belge ve kargo adaptörleri | W03, W23, W24 | Muhasebe, depo | geliştiriliyor | E-belge (6 sağlayıcı) ve kargo (6 firma) bağlayıcı çerçevesi, yalnız TEST modu (sentetik ETTN/takip no, işaretli), kesilmiş faturadan e-belge gönderimi, paketlenmiş sevkiyattan kargo etiketi, değişmez dispatch kaydı; gerçek entegrasyon yok |
 | W37 | Güvenlik, şirket ayrımı, yedek ve kesinti | W05, W06, W08 | Teknik lider | geliştiriliyor | RLS şirket ayrımı, oturum iptali; yedek/kurtarma yok |
 | W38 | Kota, maliyet, izleme ve operasyon panoları | W17, W28, W29, W30 | Teknik lider | planlandı | — |
 | W39 | Tarihsel veri geçişi, uzlaşma ve pilot | W09, W20, W25, W37 | Pilot şirket | planlandı | — |

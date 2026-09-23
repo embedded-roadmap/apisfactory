@@ -1,12 +1,12 @@
 # Devam notu
 
-Son güncelleme: 23.09.2026 — oturum 17 (W29: onaylı alternatif parça — kural tabanlı aday, Ar-Ge + üretim onayı, iş emrinde alternatif çıkışı, tedarik önerisi)
+Son güncelleme: 23.09.2026 — oturum 18 (W36: e-fatura/e-arşiv ve kargo bağlayıcıları — yalnız TEST modu, sağlayıcı kararı açık)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 130/130 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6, payables 5, receivables 4, distributors 5, alternates 6), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 135/135 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6, payables 5, receivables 4, distributors 5, alternates 6, dispatch 5), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
@@ -25,6 +25,15 @@ Son güncelleme: 23.09.2026 — oturum 17 (W29: onaylı alternatif parça — ku
 | Playwright uçtan uca (oturum 15) | Muhasebe sevk edilmiş sevkiyattan taslak fatura (4 × 250 + %20) → 45 gün önceki tarihle keser (vadesi geçti) → kredi limiti 5.000 ve gecikme sınırı 7 gün tanımlar (müşteri "engelli"); satış yeni siparişi kesinleştiremez (`credit_blocked`, 15 gün gecikme); yönetici gerekçeyle serbest bırakır, satış kesinleştirir; muhasebe banka referansıyla tahsilat kaydı girer → "tahsil edildi"; sayfa hatası yok |
 | Playwright uçtan uca (oturum 16) | Satın alma DigiKey'i TEST moduna alıp DEMO tedarikçiye bağlar, Mouser'ı fiyat dosyası moduna alıp CSV yükler; RFQ sayfasında distribütör teklifleri (TEST VERİSİ rozeti, alınma zamanı) ve "otomatik teklif" → DigiKey teklifi eklenir, Mouser atlanır (tedarikçiye bağlı değil); Ar-Ge BOM tedarik görünümünü hesaplar; sayfa hatası yok |
 | Playwright uçtan uca (oturum 17) | Satın alma CMP-CAP-01 için kural tabanlı adaylardan CMP-CAP-02'yi seçip kanıtla önerir; Ar-Ge notsuz onayda "kanıt eksik" uyarısı alır, notla onaylar; üretim onaylayınca durum Onaylı; kalite gerekçeyle geri alır; sayfa hatası yok |
+| Playwright uçtan uca (oturum 18) | Muhasebe e-belge bağlayıcısını (Uyumsoft) TEST moduna alır; depo kargo bağlayıcısını (Yurtiçi Kargo) TEST moduna alır; sayfa hatası yok |
+
+## Oturum 18'de eklenenler (W36)
+
+1. **E-fatura/e-arşiv bağlayıcıları** (`/receivables/einvoice-connectors`; ayar `receivable.manage`): GİB e-Belge Portalı, Uyumsoft, Foriba, Logo, Paraşüt, Nesbilgi — varsayılan **BAĞLANMADI** (resmi gönderim bir GİB özel entegratör sözleşmesi gerektirir; sağlayıcı seçimi şirketin ticari kararıdır, burada taslak listelenmiştir). Yalnız **TEST** modu var: sentetik ETTN üretir, hiçbir şey GİB'e gönderilmez.
+2. **E-belge gönder**: kesilmiş (issued) müşteri faturası için tür (e-Fatura / e-Arşiv) elle seçilir (mükellef sorgusu yok), bağlayıcı TEST değilse reddedilir; gönderilince belge modu **TEST** olur ve sabitlenir (bir kez), ETTN ve sağlayıcı görünür.
+3. **Kargo bağlayıcıları** (`/shipments/cargo-connectors`; ayar `shipment.create`): Yurtiçi, Aras, MNG, PTT, Sürat, UPS — varsayılan BAĞLANMADI, yalnız TEST modu. Paketlenmiş sevkiyat için sentetik takip no + etiket referansı üretir (bağlayıcı + sevkiyat koduna göre deterministik); gerçek kargo firmasına iletilmez.
+4. **Sevk entegrasyonu**: kargo etiketi üretildiyse "sevk et" adımında taşıyıcı/takip no elle girilmez, etiketten alınır (elle giriş de hâlâ mümkün). Aynı sevkiyata iki kez etiket üretilemez.
+5. Tüm gönderimler değişmez `document_dispatches` kaydına düşer.
 
 ## Oturum 17'de eklenenler (W29)
 
@@ -200,7 +209,7 @@ Son güncelleme: 23.09.2026 — oturum 17 (W29: onaylı alternatif parça — ku
 
 ## Sıradaki uygulanabilir iş
 
-1. W36: e-fatura/e-arşiv ve kargo adaptörleri (test modu, sağlayıcı kararı gerekli).
-2. W27 devamı: konuşmaya dosya/fotoğraf eki (W08 depolama), grup kanalları.
-3. W38: bağlayıcı kotası, önbellek isabeti ve hata panosu (çağrı kayıtları hazır).
-4. W29 devamı: alternatif kanıtına datasheet eki, mobilde alternatif lot seçimi, gerçek AI önerisi (W30 sonrası).
+1. W27 devamı: konuşmaya dosya/fotoğraf eki (W08 depolama), grup kanalları.
+2. W38: bağlayıcı kotası, önbellek isabeti ve hata panosu (çağrı kayıtları hazır; e-belge/kargo dispatch kayıtları da eklenebilir).
+3. W29 devamı: alternatif kanıtına datasheet eki, mobilde alternatif lot seçimi, gerçek AI önerisi (W30 sonrası).
+4. W36 devamı: gerçek entegratör/kargo firması sözleşmesi imzalanınca canlı bağlanma (sağlayıcı kararı şirkete ait).

@@ -11,11 +11,63 @@ const today = () => new Date().toISOString().slice(0, 10);
 const money = (n: number | null | undefined, c?: string) => (n === null || n === undefined ? "—" : `${fmt(String(n))}${c ? ` ${c}` : ""}`);
 
 function Tabs() {
+  const can = useCan();
   return (
     <div className="row tabs" role="tablist">
       <NavLink to="/receivables" end>Müşteri faturaları</NavLink>
       <NavLink to="/receivables/aging">Yaşlandırma & kredi</NavLink>
+      {can("receivable.manage") ? <NavLink to="/receivables/einvoice-connectors">E-belge bağlayıcıları</NavLink> : null}
     </div>
+  );
+}
+
+/** W36 — e-fatura/e-arşiv bağlayıcıları: sağlayıcı seçimi şirket kararı, varsayılan BAĞLANMADI; TEST modu sentetik ETTN üretir. */
+export function EinvoiceConnectorsPage() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["einvoiceConnectors"], queryFn: () => get<any[]>("/api/einvoice-connectors") });
+  const [edit, setEdit] = useState<any | null>(null);
+  const save = useMutation({
+    mutationFn: () => post(`/api/einvoice-connectors/${edit.id}`, { mode: edit.mode, note: edit.note || null, reason: edit.reason }),
+    onSuccess: () => { setEdit(null); qc.invalidateQueries({ queryKey: ["einvoiceConnectors"] }); },
+  });
+  return (
+    <>
+      <Header />
+      <section className="card">
+        <h2>E-belge bağlayıcıları</h2>
+        <p className="muted" style={{ margin: 0 }}>Gerçek entegrasyon yok: resmi e-fatura/e-arşiv gönderimi bir GİB özel entegratör sözleşmesi gerektirir — sağlayıcı seçimi şirket kararıdır. TEST modu sentetik ETTN üretir, GİB'e hiçbir şey gönderilmez.</p>
+        <table>
+          <thead><tr><th>Sağlayıcı</th><th>Mod</th><th>Not</th><th /></tr></thead>
+          <tbody>{q.data?.map((c: any) => (
+            <tr key={c.id}>
+              <td>{c.name}</td>
+              <td><span className={`badge ${c.mode === "test" ? "warn" : ""}`}>{c.mode === "test" ? "TEST" : "BAĞLANMADI"}</span></td>
+              <td className="muted">{c.note ?? "—"}</td>
+              <td><button onClick={() => setEdit({ ...c, reason: "" })}>Ayarla</button></td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </section>
+      {q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />}
+      {edit ? (
+        <section className="card">
+          <h3>{edit.name}</h3>
+          <ErrorNotice error={save.error} />
+          <div className="row" style={{ alignItems: "flex-end" }}>
+            <label className="field">Mod
+              <select aria-label="Bağlayıcı modu" value={edit.mode} onChange={(e) => setEdit({ ...edit, mode: e.target.value })}>
+                <option value="not_connected">BAĞLANMADI</option>
+                <option value="test">TEST</option>
+              </select>
+            </label>
+            <label className="field" style={{ flex: 1 }}>Not<input value={edit.note ?? ""} onChange={(e) => setEdit({ ...edit, note: e.target.value })} /></label>
+            <label className="field" style={{ flex: 1 }}>Gerekçe<input aria-label="Bağlayıcı gerekçesi" value={edit.reason} onChange={(e) => setEdit({ ...edit, reason: e.target.value })} /></label>
+            <button className="primary" disabled={edit.reason.trim().length < 3 || save.isPending} onClick={() => save.mutate()}>Kaydet</button>
+            <button onClick={() => setEdit(null)}>Vazgeç</button>
+          </div>
+        </section>
+      ) : null}
+    </>
   );
 }
 const Header = () => (
@@ -90,14 +142,42 @@ export function CustomerInvoicePage() {
   const [date, setDate] = useState(today());
   const [tax, setTax] = useState<string | null>(null);
   const [cancel, setCancel] = useState("");
+  const [connectorId, setConnectorId] = useState("");
+  const [kind, setKind] = useState<"e_fatura" | "e_arsiv">("e_arsiv");
   const i = q.data;
-  if (!i) return q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />;
   const manage = can("receivable.manage");
+  const einvoiceQ = useQuery({ queryKey: ["einvoiceConnectors"], queryFn: () => get<any[]>("/api/einvoice-connectors"), enabled: manage && i?.status === "issued" && !i?.einvoiceSentAt });
+  if (!i) return q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />;
   return (
     <>
       <PageHeader title={`${i.code} — ${i.customerName}`} sub={<>sipariş <Link to={`/sales/${i.salesOrderId}`}>{i.salesOrderCode}</Link>{i.shipmentId ? <> · sevkiyat <Link to={`/shipments/${i.shipmentId}`}>{i.shipmentCode}</Link></> : null} · hazırlayan {i.createdBy} · <Link to="/receivables">← Faturalar</Link></>}
         actions={<span className={`badge ${ST[i.status]![1]}`}>{ST[i.status]![0]}</span>} />
-      <div className="notice info">Belge modu <span className="badge mode warn">TASLAK</span>: resmi e-fatura/e-arşiv oluşturulmadı ve GİB'e gönderilmedi (W36).</div>
+      {i.documentMode === "test" ? (
+        <div className="notice warn">Belge modu <span className="badge mode warn">TEST</span>: {i.einvoiceKind === "e_fatura" ? "e-Fatura" : "e-Arşiv"} olarak {i.einvoiceConnector} üzerinden sentetik gönderildi (ETTN {i.einvoiceEttn}) — resmi değildir, GİB'e iletilmedi.</div>
+      ) : (
+        <div className="notice info">Belge modu <span className="badge mode warn">TASLAK</span>: resmi e-fatura/e-arşiv oluşturulmadı ve GİB'e gönderilmedi.</div>
+      )}
+      {manage && i.status === "issued" && !i.einvoiceSentAt ? (
+        <section className="card">
+          <h3>E-belge gönder (test)</h3>
+          <p className="muted" style={{ margin: 0 }}>Gerçek gönderim yok; sağlayıcı seçimi şirket kararıdır (<Link to="/receivables/einvoice-connectors">bağlayıcılar</Link>). TEST modundaki bir bağlayıcı seçilince sentetik ETTN üretilir.</p>
+          <div className="row" style={{ alignItems: "flex-end" }}>
+            <label className="field">Sağlayıcı
+              <select aria-label="E-belge bağlayıcısı" value={connectorId} onChange={(e) => setConnectorId(e.target.value)}>
+                <option value="">Seçin…</option>
+                {einvoiceQ.data?.map((c: any) => <option key={c.id} value={c.id}>{c.name}{c.mode !== "test" ? " (BAĞLANMADI)" : ""}</option>)}
+              </select>
+            </label>
+            <label className="field">Tür
+              <select aria-label="E-belge türü" value={kind} onChange={(e) => setKind(e.target.value as any)}>
+                <option value="e_arsiv">e-Arşiv</option>
+                <option value="e_fatura">e-Fatura</option>
+              </select>
+            </label>
+            <button className="primary" disabled={!connectorId || act.isPending} onClick={() => act.mutate(() => post(`/api/customer-invoices/${id}/send-einvoice`, { connectorId, kind }))}>Gönder</button>
+          </div>
+        </section>
+      ) : null}
       <ErrorNotice error={act.error} />
       {i.overdue ? <div className="notice warn">Vadesi geçti ({i.dueDate}).</div> : null}
       {i.cancelReason ? <div className="notice">İptal: {i.cancelReason}</div> : null}

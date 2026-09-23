@@ -128,15 +128,19 @@ function AddressForm({ customerId, onDone }: { customerId: string; onDone: () =>
 
 export function ShipmentsPage() {
   const nav = useNavigate();
+  const can = useCan();
   const [status, setStatus] = useState("");
   const q = useQuery({ queryKey: ["allShipments", status], queryFn: () => get<any[]>(`/api/shipments${status ? `?status=${status}` : ""}`) });
   return (
     <>
       <PageHeader title="Sevkiyat" sub="Hazırlık → paketleme (okutma ve kontrol listesi) → sevk → teslim. Kargo firmasına istek gönderilmez; irsaliye TASLAK." actions={
-        <select aria-label="Durum filtresi" value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">Tümü</option>
-          {["preparing", "packed", "shipped", "delivered", "problem", "cancelled"].map((s) => <option key={s} value={s}>{SH_LABEL[s]}</option>)}
-        </select>
+        <>
+          {can("shipment.create") ? <Link className="btn" to="/shipments/cargo-connectors">Kargo bağlayıcıları</Link> : null}
+          <select aria-label="Durum filtresi" value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="">Tümü</option>
+            {["preparing", "packed", "shipped", "delivered", "problem", "cancelled"].map((s) => <option key={s} value={s}>{SH_LABEL[s]}</option>)}
+          </select>
+        </>
       } />
       <section className="card">
         {q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />}
@@ -161,6 +165,56 @@ export function ShipmentsPage() {
 
 export const SH_LABEL: Record<string, string> = { preparing: "Hazırlanıyor", packed: "Paketlendi", shipped: "Sevk edildi", delivered: "Teslim edildi", problem: "Teslim sorunu", cancelled: "İptal" };
 
+/** W36 — kargo bağlayıcıları: sağlayıcı seçimi şirket kararı, varsayılan BAĞLANMADI; TEST modu sentetik takip no üretir. */
+export function CargoConnectorsPage() {
+  const can = useCan();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["cargoConnectors"], queryFn: () => get<any[]>("/api/cargo-connectors") });
+  const [edit, setEdit] = useState<any | null>(null);
+  const save = useMutation({
+    mutationFn: () => post(`/api/cargo-connectors/${edit.id}`, { mode: edit.mode, note: edit.note || null, reason: edit.reason }),
+    onSuccess: () => { setEdit(null); qc.invalidateQueries({ queryKey: ["cargoConnectors"] }); },
+  });
+  return (
+    <>
+      <PageHeader title="Kargo bağlayıcıları" sub="Gerçek kargo firması entegrasyonu yok; sağlayıcı seçimi şirket kararıdır. TEST modu sentetik takip no/etiket üretir, gerçek kargo firmasına hiçbir şey iletilmez." />
+      <p style={{ marginTop: 0 }}><Link to="/shipments">← Sevkiyat</Link></p>
+      <section className="card">
+        <table>
+          <thead><tr><th>Kargo firması</th><th>Mod</th><th>Not</th><th /></tr></thead>
+          <tbody>{q.data?.map((c: any) => (
+            <tr key={c.id}>
+              <td>{c.name}</td>
+              <td><span className={`badge ${c.mode === "test" ? "warn" : ""}`}>{c.mode === "test" ? "TEST" : "BAĞLANMADI"}</span></td>
+              <td className="muted">{c.note ?? "—"}</td>
+              <td>{can("shipment.create") ? <button onClick={() => setEdit({ ...c, reason: "" })}>Ayarla</button> : null}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </section>
+      {q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />}
+      {edit ? (
+        <section className="card">
+          <h3>{edit.name}</h3>
+          <ErrorNotice error={save.error} />
+          <div className="row" style={{ alignItems: "flex-end" }}>
+            <label className="field">Mod
+              <select aria-label="Bağlayıcı modu" value={edit.mode} onChange={(e) => setEdit({ ...edit, mode: e.target.value })}>
+                <option value="not_connected">BAĞLANMADI</option>
+                <option value="test">TEST</option>
+              </select>
+            </label>
+            <label className="field" style={{ flex: 1 }}>Not<input value={edit.note ?? ""} onChange={(e) => setEdit({ ...edit, note: e.target.value })} /></label>
+            <label className="field" style={{ flex: 1 }}>Gerekçe<input aria-label="Bağlayıcı gerekçesi" value={edit.reason} onChange={(e) => setEdit({ ...edit, reason: e.target.value })} /></label>
+            <button className="primary" disabled={edit.reason.trim().length < 3 || save.isPending} onClick={() => save.mutate()}>Kaydet</button>
+            <button onClick={() => setEdit(null)}>Vazgeç</button>
+          </div>
+        </section>
+      ) : null}
+    </>
+  );
+}
+
 export function ShipmentPage() {
   const { id } = useParams();
   const can = useCan();
@@ -173,6 +227,9 @@ export function ShipmentPage() {
   const [reason, setReason] = useState("");
   const [problem, setProblem] = useState({ kind: "damage", note: "" });
   const [tracking, setTracking] = useState("");
+  const [cargoConnectorId, setCargoConnectorId] = useState("");
+  const needsLabel = can("shipment.create") && !q.data?.trackingNo && ["preparing", "packed"].includes(q.data?.status);
+  const cargoQ = useQuery({ queryKey: ["cargoConnectors"], queryFn: () => get<any[]>("/api/cargo-connectors"), enabled: needsLabel });
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorNotice error={q.error} />;
   const s = q.data;
@@ -188,7 +245,7 @@ export function ShipmentPage() {
       <section className="card">
         <div className="grid4">
           <div className="stat"><small>Teslim adresi {s.addressSnapshot ? "(sevk anındaki)" : ""}</small><b style={{ fontSize: 15 }}>{s.address?.label}</b><small>{addressText(s.address)}</small></div>
-          <div className="stat"><small>Kargo / takip</small><b style={{ fontSize: 15 }}>{s.carrier ?? "—"}</b><small className="mono">{s.trackingNo ?? ""}</small></div>
+          <div className="stat"><small>Kargo / takip</small><b style={{ fontSize: 15 }}>{s.carrier ?? "—"}</b><small className="mono">{s.trackingNo ?? ""}{s.labelRef ? <span className="badge mode warn" style={{ marginLeft: 6 }}>TEST</span> : null}</small></div>
           <div className="stat"><small>Sevk</small><b style={{ fontSize: 15 }}>{fmtDate(s.shippedAt)}</b><small>{s.shippedBy ?? ""}</small></div>
           <div className="stat"><small>Teslim</small><b style={{ fontSize: 15 }}>{fmtDate(s.deliveredAt)}</b><small>{s.problemNote ?? ""}</small></div>
         </div>
@@ -221,15 +278,29 @@ export function ShipmentPage() {
         {s.packages.map((p: any) => <PackageCard key={p.id} p={p} edit={edit} onDone={refresh} />)}
       </section>
 
+      {needsLabel ? (
+        <section className="card">
+          <h2>Kargo etiketi (W36)</h2>
+          <p className="muted" style={{ margin: 0 }}>Sağlayıcı seçimi şirket kararıdır; varsayılan <b>BAĞLANMADI</b>. TEST modundaki bir bağlayıcı seçilirse sentetik takip no üretilir (gerçek kargo firmasına iletilmez); istenirse taşıyıcı aşağıda elle de girilebilir.</p>
+          <div className="row">
+            <select aria-label="Kargo bağlayıcısı" value={cargoConnectorId} onChange={(e) => setCargoConnectorId(e.target.value)}>
+              <option value="">Seçin…</option>
+              {cargoQ.data?.map((c: any) => <option key={c.id} value={c.id}>{c.name}{c.mode !== "test" ? " (BAĞLANMADI)" : ""}</option>)}
+            </select>
+            <button disabled={!cargoConnectorId || act.isPending} onClick={() => act.mutate(() => post(`/api/shipments/${id}/cargo-label`, { connectorId: cargoConnectorId }))}>Etiket üret</button>
+          </div>
+        </section>
+      ) : null}
+
       {can("shipment.create") && s.status === "packed" ? (
         <section className="card">
           <h2>Sevk et</h2>
-          <form className="row" onSubmit={(e) => { e.preventDefault(); act.mutate(() => post(`/api/shipments/${id}/ship`, { carrier: shipForm.carrier, trackingNo: shipForm.trackingNo || undefined }, { "idempotency-key": shipKey })); }}>
-            <label className="field">Kargo / taşıyıcı<input required minLength={2} value={shipForm.carrier} onChange={(e) => setShipForm({ ...shipForm, carrier: e.target.value })} /></label>
-            <label className="field">Takip no (isteğe bağlı)<input value={shipForm.trackingNo} onChange={(e) => setShipForm({ ...shipForm, trackingNo: e.target.value })} /></label>
+          <form className="row" onSubmit={(e) => { e.preventDefault(); act.mutate(() => post(`/api/shipments/${id}/ship`, { carrier: shipForm.carrier || undefined, trackingNo: shipForm.trackingNo || undefined }, { "idempotency-key": shipKey })); }}>
+            <label className="field">Kargo / taşıyıcı{s.carrier ? <input value={s.carrier} disabled /> : <input required minLength={2} value={shipForm.carrier} onChange={(e) => setShipForm({ ...shipForm, carrier: e.target.value })} />}</label>
+            <label className="field">Takip no (isteğe bağlı){s.trackingNo ? <input value={s.trackingNo} disabled /> : <input value={shipForm.trackingNo} onChange={(e) => setShipForm({ ...shipForm, trackingNo: e.target.value })} />}</label>
             <button className="primary" style={{ alignSelf: "flex-end" }}>Sevk et</button>
           </form>
-          <p className="muted" style={{ margin: 0 }}>Kargo bağlayıcısı <b>BAĞLANMADI</b>: etiket ve takip numarası kargo firmasından alınıp elle girilir. Adres kontrolü sevk anında yapılır ve belgeye kopyalanır.</p>
+          {!s.carrier ? <p className="muted" style={{ margin: 0 }}>Kargo etiketi üretilmediyse taşıyıcı elle girilir. Adres kontrolü sevk anında yapılır ve belgeye kopyalanır.</p> : null}
         </section>
       ) : null}
 
