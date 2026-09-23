@@ -7,16 +7,9 @@ import { fromMicro, min, mul, toMicro } from "../lib/decimal";
 import { idempotencyKey, parse, tenant } from "../http/context";
 import { RuleRejection, withRejectionLog } from "../lib/rejection";
 import { activeTestPlan, loadTestPlan } from "./quality";
+import { routeFor } from "../lib/routing";
 
-/** Varsayılan rota. Yayımda iş emrine kopyalanır; sonradan rota değişikliği açık işi etkilemez. */
-export const DEFAULT_ROUTE: { wc: string; name: string; gate?: boolean }[] = [
-  { wc: "HAZ", name: "Malzeme hazırlama" },
-  { wc: "SMT", name: "Dizgi (SMT)" },
-  { wc: "LEH", name: "Lehim / THT" },
-  { wc: "PRG", name: "Programlama" },
-  { wc: "TST", name: "Fonksiyon testi", gate: true },
-  { wc: "MON", name: "Mekanik montaj" },
-];
+export { DEFAULT_ROUTE } from "../lib/routing";
 
 type WoRow = {
   id: string; code: string; status: string; qty: string; bom_version_id: string; product_revision_id: string; production_need_id: string | null;
@@ -86,8 +79,8 @@ export async function loadWorkOrder(db: Db, id: string) {
             w.production_need_id as "productionNeedId", w.released_at as "releasedAt", w.completed_at as "completedAt",
             p.code as "productCode", p.name as "productName", pr.rev, b.version_no as "bomVersionNo",
             so.code as "salesOrderCode", w.hold_reason as "holdReason", w.firmware_version as "firmwareVersion",
-            w.firmware_sha256 as "firmwareSha256", w.test_plan_id as "testPlanId"
-       from work_orders w join product_revisions pr on pr.id = w.product_revision_id join products p on p.id = pr.product_id
+            w.firmware_sha256 as "firmwareSha256", w.test_plan_id as "testPlanId", w.routing_id as "routingId", rt.version_no as "routingVersionNo"
+       from work_orders w left join routings rt on rt.id = w.routing_id join product_revisions pr on pr.id = w.product_revision_id join products p on p.id = pr.product_id
        join bom_versions b on b.id = w.bom_version_id
        left join production_needs pn on pn.id = w.production_need_id
        left join sales_order_lines sol on sol.id = pn.sales_order_line_id
@@ -98,7 +91,8 @@ export async function loadWorkOrder(db: Db, id: string) {
   if (!w.rows[0]) throw notFound("İş emri");
   const ops = await db.query(
     `select o.id, o.seq, o.name, o.status, o.is_quality_gate as "isQualityGate", o.started_at as "startedAt", o.finished_at as "finishedAt",
-            o.worked_seconds as "workedSeconds", wc.code as "workCenter"
+            o.worked_seconds as "workedSeconds", wc.code as "workCenter", o.instructions,
+            round(coalesce(o.planned_setup_minutes, 0) + coalesce(o.planned_minutes_per_unit, 0) * (select qty from work_orders where id = o.work_order_id), 1)::float8 as "plannedMinutes"
        from work_order_operations o left join work_centers wc on wc.id = o.work_center_id
       where o.work_order_id = $1 order by o.seq`,
     [id],
@@ -293,14 +287,19 @@ export async function productionRoutes(app: FastifyInstance) {
         await db.query(`update production_needs set status = 'released' where id = $1`, [input.productionNeedId]);
         await closeTasks(db, actor.companyId, "production_planning", input.productionNeedId);
       }
-      for (const [i, op] of DEFAULT_ROUTE.entries()) {
+      // Rota ve standart süreler iş emri açıldığı andaki sürümle kopyalanır; sonraki rota sürümü açık işi değiştirmez.
+      const route = await routeFor(db, revisionId);
+      const missingWc = route.ops.filter((o) => !o.workCenterId).map((o) => o.workCenter);
+      if (missingWc.length) throw conflict("work_center_missing", `İş merkezi tanımlı değil: ${missingWc.join(", ")}`);
+      await db.query(`update work_orders set routing_id = $2 where id = $1`, [w.rows[0].id, route.routingId]);
+      for (const op of route.ops) {
         await db.query(
-          `insert into work_order_operations (company_id, work_order_id, seq, name, work_center_id, is_quality_gate)
-           values (app_company_id(), $1, $2, $3, (select id from work_centers where code = $4), $5)`,
-          [w.rows[0].id, (i + 1) * 10, op.name, op.wc, !!op.gate],
+          `insert into work_order_operations (company_id, work_order_id, seq, name, work_center_id, is_quality_gate, planned_setup_minutes, planned_minutes_per_unit, instructions)
+           values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8)`,
+          [w.rows[0].id, op.seq, op.name, op.workCenterId, op.isQualityGate, op.setupMinutes, op.minutesPerUnit, op.instructions],
         );
       }
-      await recordEvent(db, actor, { entityType: "work_order", entityId: w.rows[0].id, eventType: "created", after: { code, qty, revisionId, bomVersionId, testPlanId, firmwareVersion: rev.rows[0].firmware_version } });
+      await recordEvent(db, actor, { entityType: "work_order", entityId: w.rows[0].id, eventType: "created", after: { code, qty, revisionId, bomVersionId, testPlanId, firmwareVersion: rev.rows[0].firmware_version, routingVersion: route.versionNo, routeSource: route.source } });
       return loadWorkOrder(db, w.rows[0].id);
     });
   });

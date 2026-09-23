@@ -60,7 +60,7 @@ export async function call(
   app: FastifyInstance,
   as: string,
   companyId: string,
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PUT",
   url: string,
   payload?: unknown,
   headers: Record<string, string> = {},

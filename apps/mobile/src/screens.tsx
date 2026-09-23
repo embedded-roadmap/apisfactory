@@ -465,6 +465,8 @@ function WorkOrderScreen({ id, perms, onBack }: { id: string; perms: Set<string>
               </Text>
               <Text style={{ color: o.status === "done" ? c.ok : o.status === "pending" ? c.muted : c.warn, fontWeight: "700" }}>{OP_LABEL[o.status]}</Text>
             </View>
+            {o.instructions ? <Text style={[s.text, { color: c.muted }]}>Talimat: {o.instructions}</Text> : null}
+            {o.plannedMinutes != null ? <Text style={{ color: c.muted }}>Planlanan: {Math.round(o.plannedMinutes)} dk</Text> : null}
             {perms.has("production.execute") && ["pending", "paused"].includes(o.status) && wo.status !== "on_hold" ? (
               <Button title="Başla" onPress={() => act.mutate(() => api("POST", `/api/work-orders/${id}/operations/${o.id}/start`, {}))} />
             ) : null}

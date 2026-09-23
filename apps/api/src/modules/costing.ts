@@ -93,9 +93,10 @@ export async function computeWorkOrderCost(db: Db, woId: string, today = new Dat
   if (!issues.rows.length) gaps.push("Malzeme çıkışı yok");
 
   const ops = await db.query(
-    `select o.seq, o.name, o.status, wc.code as work_center, o.worked_seconds
+    `select o.seq, o.name, o.status, wc.code as work_center, o.worked_seconds,
+            coalesce(o.planned_setup_minutes, 0) + coalesce(o.planned_minutes_per_unit, 0) * $2::numeric as planned_minutes
        from work_order_operations o left join work_centers wc on wc.id = o.work_center_id where o.work_order_id = $1 order by o.seq`,
-    [woId],
+    [woId, wo.qty],
   );
   const seconds = ops.rows.reduce((a, o) => a + Number(o.worked_seconds), 0);
   const hours = toMicro((seconds / 3600).toFixed(6));
@@ -122,8 +123,9 @@ export async function computeWorkOrderCost(db: Db, woId: string, today = new Dat
     policy: policy ? { id: policy.id, versionNo: policy.versionNo, validFrom: policy.validFrom, currency: policy.currency, laborRatePerHour: fromMicro(toMicro(policy.laborRatePerHour)), overheadPerLaborHour: fromMicro(toMicro(policy.overheadPerLaborHour)), overheadPctOfMaterial: fromMicro(toMicro(policy.overheadPctOfMaterial)) } : null,
     currency,
     materials,
-    operations: ops.rows.map((o) => ({ seq: o.seq, name: o.name, workCenter: o.work_center, status: o.status, hours: (Number(o.worked_seconds) / 3600).toFixed(6).replace(/\.?0+$/, "") })),
+    operations: ops.rows.map((o) => ({ seq: o.seq, name: o.name, workCenter: o.work_center, status: o.status, hours: (Number(o.worked_seconds) / 3600).toFixed(6).replace(/\.?0+$/, ""), plannedHours: (Number(o.planned_minutes) / 60).toFixed(2) })),
     laborHours: money(hours),
+    plannedLaborHours: (ops.rows.reduce((a, o) => a + Number(o.planned_minutes), 0) / 60).toFixed(2),
     totals: { material: money(material), labor: money(labor), overhead: money(overhead), external: money(external), total: money(total) },
     externalNote: "Dış hizmet (fason) kaydı yok — W32",
     devices: dev,

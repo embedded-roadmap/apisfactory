@@ -1,12 +1,12 @@
 # Devam notu
 
-Son güncelleme: 23.09.2026 — oturum 9 (test istasyonu adaptörü: CSV + istasyon API'si, TEST modu)
+Son güncelleme: 23.09.2026 — oturum 10 (revizyon bazında sürümlü rota ve standart süre)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 91/91 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 95/95 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
@@ -17,6 +17,16 @@ Son güncelleme: 23.09.2026 — oturum 9 (test istasyonu adaptörü: CSV + istas
 | Playwright uçtan uca (oturum 7) | Teknisyen günlük listede DEMO görevini açar → kontrol listesi eksik uyarısı → tedarikçi engeli (dış kaynaklı); yönetici baz planı dondurur, Gantt'ta çubuğu 5 gün sürükler, gerekçeyle kaydeder → ardıl çakışma uyarısı; organizasyonda alt birim ve geçici üye ekler; ekip performansı; sayfa hatası yok |
 | Playwright uçtan uca (oturum 8) | Yönetici satın alma politikası v1 yayımlar (satın alma 1.000 TRY, yönetici sınırsız, 24 saat → yönetici) → kuru çalıştırma "onaylayamaz"; üretim sorumlusuna süreli vekâlet verir; Ar-Ge elle talep açar (tutar bilinmiyor); satın alma onayı `amount_unknown` ile engellenir ve yöneticiye görev açılır; vekil Günlük işler'de "vekâleten" işi görür ve onaylar (olayda adına); izleme ekranında yükseltme taraması; sayfa hatası yok |
 | Playwright uçtan uca (oturum 9) | Kalite TST-01'e bağlayıcı tanımlar (Türkçe sütun adları, virgüllü ondalık, `SN:` öneki, mV/mA → V/A ölçek) ve API belirteci üretir; teknisyen CSV yükler → önizleme: 2 kaydedilecek (biri limit dışı kaldı), yanlış firmware reddi, bilinmeyen seri → onay; aynı dosya tekrar yüklenince mevcut yükleme açılır; istasyon API'si belirteçle üçüncü cihazı kaydeder; cihaz geçmişinde "istasyon CSV/API" kaynağı ve olayda `api` aktörü; sayfa hatası yok |
+| Playwright uçtan uca (oturum 10) | Üretim sorumlusu Rotalar ekranında revizyon seçer (varsayılan şablon + 50 adet süre özeti) → taslak v1: THT operasyonunu siler, SMT birim süresini ve montaj talimatını girer, kaydeder, gerekçeyle yayımlar; açılan iş emri "rota v1 (sabit)", plan/gerçek süre ve talimatı gösterir; v2 (SMT yavaş) yayımlanınca v1 arşive geçer, açık iş emri v1'de kalır; sayfa hatası yok |
+
+## Oturum 10'da eklenenler (W20)
+
+1. **Sürümlü rota** (`/production/routings`, düzenleme `capacity.manage`: yönetici, üretim): revizyon başına taslak → yayım (gerekçe zorunlu) → önceki sürüm arşiv. Operasyon: sıra, ad, iş merkezi, hazırlık dk, birim dk/adet, kalite kapısı, talimat. Yayımlanan rota veri tabanı tetikleyicisiyle de değişmez; revizyon başına tek taslak; taslaktan vazgeçilebilir; herhangi bir sürümden kopya.
+2. **Kural**: en az bir operasyon, benzersiz sıra, tam olarak bir kalite kapısı (test ve son kalite akışı buna bağlı). Hatalar taslakta canlı gösterilir, yayım reddedilir.
+3. **İş emri** açıldığında en son yayımlanan rotayı (yoksa varsayılan şablon + iş merkezi süreleri) kopyalar: operasyon, planlı hazırlık/birim süre, talimat, rota sürümü. Yeni sürüm açık işi değiştirmez; eski iş emirlerine migration ile o anki iş merkezi süreleri yazıldı.
+4. **Termin**: kapasite yükü satırın revizyon rotasından; kuyruk açık iş emirlerine kopyalanan planlı sürelerden. Varsayımlarda hangi rota sürümünün kullanıldığı yazılır.
+5. **Plan / gerçek**: iş emri operasyonlarında planlanan dk / gerçekleşen dk ve talimat (web + mobil); maliyet özetinde "rota planı … saat".
+6. Süre özeti: adet için operasyon dakikası, kapasiteye göre gün, en uzun operasyon.
 
 ## Oturum 9'da eklenenler (W22)
 
@@ -109,7 +119,7 @@ Son güncelleme: 23.09.2026 — oturum 9 (test istasyonu adaptörü: CSV + istas
 - Termin: vardiya, paralel hat, operasyonların örtüşmesi yok; kesin siparişte malzeme durumu onay anındaki ayırmadan okunur.
 - Test planı olmayan iş emrinde sonuç elle seçilir (geriye uyumluluk). Devir için test planı zorunlu değil — politika kararı gerekir.
 - Test istasyonu: yalnızca düz CSV ve JSON satır biçimi (istasyona özgü log/XML ayrıştırıcı yok); klasör izleme/otomatik çekme yok (istasyon API'ye göndermeli ya da dosya elle yüklenmeli); istasyon operatörü kullanıcıyla eşlenmiyor; bağlayıcı eşlemesi sürümlü değil (değişiklik olayda before/after ile). Belirteç için oran sınırı yok.
-- Rota şablonu sabit; revizyon bazında rota düzenleme yok.
+- Rota: operasyonlar sıralı (paralel operasyon, örtüşme, alternatif iş merkezi yok); süreler elle girilir (gerçekleşen süreden öneri yok); rota revizyon devrinde zorunlu değil (yoksa varsayılan şablon). Kapasite takvimi iş merkezi bazında günlük dakika; vardiya yok.
 - Kargo API'si, e-irsaliye/e-fatura yok (W36); belge TASLAK. Çevrimdışı mobil kuyruk yok.
 - İade: tamir sonrası tekrar test yalnızca geçti/kaldı olarak girilir (test planı ölçümleri iade tamirine bağlanmadı). Karantinadaki iade ürününün sonraki analizi ve hurda/yeniden işleme kararı stok ekranından yapılmalı (ayrı akış yok). Geri gönderim sevkiyat listesinde ayrı satır olarak görünmez; iade kaydında izlenir.
 - Paketleme rotada ayrı iş merkezi değil; sevkiyat modülünde yapılır.
@@ -119,7 +129,7 @@ Son güncelleme: 23.09.2026 — oturum 9 (test istasyonu adaptörü: CSV + istas
 
 ## Sıradaki uygulanabilir iş
 
-1. W20: revizyon bazında rota ve standart süre düzenleme; iş merkezi kapasitesinin rotadan okunması.
-2. Politika: devre gönderimde test planı + firmware zorunluluğu (şirket ayarı) — W10 politika altyapısına eklenebilir.
-3. W27/W28: iç mesajlaşma ve toplantı kararlarının göreve dönüşmesi.
-4. W22 devamı: mobilde istasyon yüklemesi görüntüleme, klasör izleyen küçük ajan (istasyon PC'si), istasyon operatörü eşlemesi.
+1. Politika: devre gönderimde test planı + firmware (+ yayımlanmış rota) zorunluluğu (şirket ayarı) — W10 politika altyapısına eklenebilir.
+2. W27/W28: iç mesajlaşma ve toplantı kararlarının göreve dönüşmesi.
+3. W20 devamı: gerçekleşen operasyon sürelerinden standart süre önerisi (sapma raporu), paralel operasyon.
+4. W22 devamı: istasyon PC'si için klasör izleyen küçük ajan, operatör eşlemesi.

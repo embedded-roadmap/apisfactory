@@ -21,7 +21,7 @@
 | W17 | Distribütör veri adaptörleri ve güncellik | W03, W12 | Satın alma | entegrasyon bekliyor | Bağlayıcı durumu BAĞLANMADI olarak gösteriliyor |
 | W18 | Teklif, alım, teyit ve gecikme | W10, W15, W17 | Satın alma | geliştiriliyor | Talep onayı; teklif, sipariş gönderimi, teyit yok |
 | W19 | Mal kabul, karantina, kontrol ve iade | W15, W18 | Depo, kalite | geliştiriliyor | Mal kabul, giriş kalite, karantina; iade yok |
-| W20 | İş emri, rota, teknisyen ve tüketim | W13, W16, W19 | Üretim | geliştiriliyor | İş emri, rota, sıra, malzeme çıkışı (yanlış parça, karantina, başka işe ayrılmış engeli), teknisyen web+mobil, tüketim |
+| W20 | İş emri, rota, teknisyen ve tüketim | W13, W16, W19 | Üretim | geliştiriliyor | İş emri, revizyon bazında sürümlü rota + standart süre (iş emrine sabitlenir, termin/kuyruk bundan), sıra, malzeme çıkışı (yanlış parça, karantina, başka işe ayrılmış engeli), teknisyen web+mobil, plan/gerçek süre, tüketim |
 | W21 | Kalite reçetesi, uygunsuzluk ve yeniden işleme | W19, W20 | Kalite | geliştiriliyor | Sürümlü test planı, sunucu kararı, uygunsuzluk, yeniden işleme/hurda, son kalite; ara kontrol listesi yok |
 | W22 | Test istasyonu ve ekipman uygunluğu | W13, W21 | Kalite, Ar-Ge | geliştiriliyor | Ekipman, kalibrasyon, engel + olay, etkilenen testler; istasyon adaptörü (CSV önizle/onayla + belirteçli API, TEST modu), seri eşleme, ölçek, tekrar koruması |
 | W23 | Paketleme, etiket, sevkiyat ve adres | W14, W20, W21 | Depo, satış | doğrulandı | Adres, hazırlık, okutmalı paketleme + kontrol listesi, kısmi sevk, takip no, teslim/sorun, taslak irsaliye ve Code128 etiket (web + mobil) |

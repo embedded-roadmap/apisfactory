@@ -19,7 +19,7 @@ export function ProductionPage() {
   const open = needs.data?.filter((n) => n.status === "planned") ?? [];
   return (
     <>
-      <PageHeader title="Üretim" sub="İş emri yayımlanmış ürün sürümünü ve BOM'u sabitler; sonraki revizyon açık işi değiştirmez." />
+      <PageHeader title="Üretim" sub="İş emri yayımlanmış ürün sürümünü, BOM'u ve rotayı sabitler; sonraki revizyon veya rota sürümü açık işi değiştirmez." actions={<Link to="/production/routings">Rotalar & standart süreler</Link>} />
       <ErrorNotice error={create.error} />
       <section className="card">
         <h2>Planlanacak üretim ihtiyaçları</h2>
@@ -79,7 +79,7 @@ export function WorkOrderPage() {
     <>
       <PageHeader
         title={`İş emri ${wo.code}`}
-        sub={<>{wo.productCode} Rev.{wo.rev} · BOM v{wo.bomVersionNo} (sabit) · firmware {wo.firmwareVersion ?? "tanımsız"} · test planı {wo.testPlan ? `v${wo.testPlan.versionNo}` : "yok"} · {wo.salesOrderCode ? `sipariş ${wo.salesOrderCode}` : "stok için"} · <Link to="/production">← Üretim</Link></>}
+        sub={<>{wo.productCode} Rev.{wo.rev} · BOM v{wo.bomVersionNo} (sabit) · rota {wo.routingVersionNo ? `v${wo.routingVersionNo}` : "varsayılan şablon"} (sabit) · firmware {wo.firmwareVersion ?? "tanımsız"} · test planı {wo.testPlan ? `v${wo.testPlan.versionNo}` : "yok"} · {wo.salesOrderCode ? `sipariş ${wo.salesOrderCode}` : "stok için"} · <Link to="/production">← Üretim</Link></>}
         actions={
           <div className="row">
             <StateBadge value={wo.status} prefix="wo" />
@@ -117,15 +117,15 @@ export function WorkOrderPage() {
           <input aria-label="Duraklatma nedeni" placeholder="Duraklatma nedeni" value={pauseReason} onChange={(e) => setPauseReason(e.target.value)} style={{ maxWidth: 320 }} />
         </div>
         <table>
-          <thead><tr><th>#</th><th>Operasyon</th><th>İstasyon</th><th>Durum</th><th>Süre</th><th /></tr></thead>
+          <thead><tr><th>#</th><th>Operasyon</th><th>İstasyon</th><th>Durum</th><th>Plan / gerçek</th><th /></tr></thead>
           <tbody>
             {wo.operations.map((o: any) => (
               <tr key={o.id}>
                 <td>{o.seq}</td>
-                <td>{o.name} {o.isQualityGate ? <span className="badge warn">Kalite kapısı</span> : null}</td>
+                <td>{o.name} {o.isQualityGate ? <span className="badge warn">Kalite kapısı</span> : null}{o.instructions ? <div className="muted" style={{ fontSize: 13 }}>{o.instructions}</div> : null}</td>
                 <td className="mono">{o.workCenter}</td>
                 <td><StateBadge value={o.status} prefix="op" /></td>
-                <td className="muted">{o.workedSeconds ? `${Math.round(o.workedSeconds / 60)} dk` : "—"}</td>
+                <td className="muted">{o.plannedMinutes != null ? `${Math.round(o.plannedMinutes)} dk` : "—"} / {o.workedSeconds ? `${Math.round(o.workedSeconds / 60)} dk` : "—"}</td>
                 <td className="row">
                   {can("production.execute") && ["pending", "paused"].includes(o.status) && ["released", "in_progress"].includes(wo.status) ? <button onClick={() => act.mutate(() => post(`/api/work-orders/${id}/operations/${o.id}/start`))}>Başla</button> : null}
                   {can("production.execute") && o.status === "in_progress" && wo.status !== "on_hold" ? (

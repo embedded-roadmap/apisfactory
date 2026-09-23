@@ -182,7 +182,7 @@ export function WorkOrderCost({ woId }: { woId: string }) {
           <div className="kpis">
             <div className="kpi"><small>Toplam {r.currency ?? ""}</small><b>{fmt(r.totals.total)}</b><span className="muted">malzeme {fmt(r.totals.material)} · işçilik {fmt(r.totals.labor)} · genel {fmt(r.totals.overhead)}</span></div>
             <div className="kpi"><small>Birim maliyet</small><b>{r.unitCost === null ? "Hesaplanamaz" : fmt(r.unitCost)}</b><span className="muted">{r.unitCostNote}</span></div>
-            <div className="kpi"><small>Sağlam / hurda / başlanan</small><b>{r.devices.good} / {r.devices.scrapped} / {r.devices.started}</b><span className="muted">işçilik {fmt(r.laborHours)} saat</span></div>
+            <div className="kpi"><small>Sağlam / hurda / başlanan</small><b>{r.devices.good} / {r.devices.scrapped} / {r.devices.started}</b><span className="muted">işçilik {fmt(r.laborHours)} saat · rota planı {fmt(r.plannedLaborHours)} saat</span></div>
             <div className="kpi"><small>Durum</small><b>{r.complete ? "Tamam" : "Eksik"}</b><span className="muted">v{cur.versionNo} · politika {r.policy ? `v${r.policy.versionNo}` : "yok"}</span></div>
           </div>
           {r.gaps.length ? <div className="notice warn"><b>Eksik:</b> {r.gaps.join(" · ")}</div> : null}

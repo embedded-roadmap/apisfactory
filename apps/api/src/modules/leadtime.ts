@@ -6,7 +6,7 @@ import { conflict, notFound } from "../lib/errors";
 import { recordEvent } from "../lib/records";
 import { fromMicro, max, min, mul, toMicro } from "../lib/decimal";
 import { parse, tenant } from "../http/context";
-import { DEFAULT_ROUTE } from "./production";
+import { routeFor } from "../lib/routing";
 
 const USABLE = USABLE_LOCATION_TYPES as readonly string[];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -78,6 +78,8 @@ export async function computeEstimate(db: Db, orderId: string, today = iso(new D
   let produceQty = 0n;
   const firm = o.rows[0].status === "firm";
   const takenStock = new Map<string, bigint>();
+  const ownByWc = new Map<string, number>(); // ekleme sırası = rota sırası
+  const routeNotes = new Set<string>();
 
   for (const l of lines.rows) {
     // Bitmiş ürün: kesin siparişte zaten rezervasyonla ayrılmıştır; taslakta serbest stoktan düşülür.
@@ -100,6 +102,14 @@ export async function computeEstimate(db: Db, orderId: string, today = iso(new D
     }
     if (remaining <= 0n) continue;
     produceQty += remaining;
+    // Kapasite yükü satırın revizyon rotasından (yayımlanmış rota veya varsayılan şablon) hesaplanır.
+    const route = await routeFor(db, l.product_revision_id);
+    const lineQty = Number(fromMicro(remaining));
+    for (const op of route.ops) {
+      const cur = ownByWc.get(op.workCenter) ?? 0;
+      ownByWc.set(op.workCenter, cur + op.setupMinutes + lineQty * op.minutesPerUnit);
+    }
+    if (route.source === "routing") routeNotes.add(`${l.code}: rota v${route.versionNo}`);
     if (!l.bom_version_id) {
       unknown = true;
       reasons.push(`${l.code}: BOM sürümü yok`);
@@ -178,11 +188,12 @@ export async function computeEstimate(db: Db, orderId: string, today = iso(new D
   }
 
   // Kapasite: kendi işimiz + aynı merkezlerdeki açık işlerin kalan yükü.
-  const wcs = await db.query(`select id, code, daily_minutes, setup_minutes, minutes_per_unit from work_centers`);
+  const wcs = await db.query(`select id, code, daily_minutes from work_centers`);
   const byCode = new Map(wcs.rows.map((w) => [w.code as string, w]));
   const qtyNum = Number(fromMicro(produceQty));
+  // Kuyruk: açık iş emirlerinin kalan operasyonları, iş emrine kopyalanan planlı sürelerle.
   const queue = await db.query(
-    `select wc.code, sum(wc.setup_minutes + w.qty * wc.minutes_per_unit)::float8 as minutes
+    `select wc.code, sum(coalesce(op.planned_setup_minutes, wc.setup_minutes) + w.qty * coalesce(op.planned_minutes_per_unit, wc.minutes_per_unit))::float8 as minutes
        from work_order_operations op join work_orders w on w.id = op.work_order_id join work_centers wc on wc.id = op.work_center_id
       where op.status <> 'done' and w.status in ('planned', 'released', 'in_progress', 'on_hold')
       group by wc.code`,
@@ -193,23 +204,22 @@ export async function computeEstimate(db: Db, orderId: string, today = iso(new D
   let queueDays = 0;
   let bottleneck: string | null = null;
   if (qtyNum > 0) {
-    for (const op of DEFAULT_ROUTE) {
-      const wc = byCode.get(op.wc);
+    for (const [code, own] of ownByWc) {
+      const wc = byCode.get(code);
       if (!wc) {
         unknown = true;
-        reasons.push(`İş merkezi tanımlı değil: ${op.wc}`);
+        reasons.push(`İş merkezi tanımlı değil: ${code}`);
         continue;
       }
-      const own = Number(wc.setup_minutes) + qtyNum * Number(wc.minutes_per_unit);
-      const q = queueBy.get(op.wc) ?? 0;
+      const q = queueBy.get(code) ?? 0;
       const daily = Number(wc.daily_minutes);
       productionDays += Math.max(1, Math.ceil(own / daily));
       const qd = Math.ceil(q / daily);
       if (qd > queueDays) {
         queueDays = qd;
-        bottleneck = op.wc;
+        bottleneck = code;
       }
-      workCenters.push({ code: op.wc, ownMinutes: Math.round(own), queueMinutes: Math.round(q), dailyMinutes: daily });
+      workCenters.push({ code, ownMinutes: Math.round(own), queueMinutes: Math.round(q), dailyMinutes: daily });
     }
   }
 
@@ -234,6 +244,7 @@ export async function computeEstimate(db: Db, orderId: string, today = iso(new D
     workCenters,
     assumptions: [
       "Operasyonlar sıralı; bir operasyon en az bir çalışma günü sürer.",
+      routeNotes.size ? `Standart süreler revizyon rotasından: ${[...routeNotes].join(", ")}; diğerleri varsayılan şablon + iş merkezi süresi.` : "Standart süreler varsayılan rota şablonu ve iş merkezi süresinden.",
       "Hafta sonu ve tanımlı tatiller çalışılmaz.",
       "Kuyruk: aynı iş merkezlerindeki açık iş emirlerinin kalan yükü; en yoğun merkez üst sınırı belirler.",
       "Yeni alımlarda tedarikçi temin süresi takvim günüdür.",
@@ -295,7 +306,7 @@ export async function leadTimeRoutes(app: FastifyInstance) {
   app.get("/api/work-centers", async (req) =>
     tenant(req, "production.view", async (db) => {
       const r = await db.query(
-        `select code, name, kind, daily_minutes as "dailyMinutes", setup_minutes as "setupMinutes", minutes_per_unit::float8 as "minutesPerUnit" from work_centers order by code`,
+        `select id, code, name, kind, daily_minutes as "dailyMinutes", setup_minutes as "setupMinutes", minutes_per_unit::float8 as "minutesPerUnit" from work_centers order by code`,
       );
       return r.rows;
     }),
