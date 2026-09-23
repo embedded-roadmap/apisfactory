@@ -10,7 +10,7 @@ Gerçekte ne çalıştığı ve ne kaldığı `docs/devam-notu.md` ve `docs/kaps
 |---|---|
 | `apps/api` | Fastify + TypeScript API, PostgreSQL migration'ları, kabul testleri |
 | `apps/web` | Masaüstü web uygulaması (React + Vite) |
-| `apps/mobile` | Mobil uygulama (Expo / React Native): işlerim, barkodlu mal kabul, giriş kalite, stok sorgu |
+| `apps/mobile` | Mobil uygulama (Expo / React Native): işlerim, üretim (operasyon, barkodlu çıkış, test), mal kabul, giriş kalite, stok sorgu |
 | `packages/shared` | Ortak tipler, izinler, durum makineleri, doğrulama şemaları, TR/EN metinler |
 | `docs` | Kapsam izleme, iş paketleri, kabul testleri, mimari, kararlar, devam notu |
 
@@ -71,12 +71,17 @@ Demo verisi sentetiktir ve **DEMO** olarak işaretlidir; parça kodları gerçek
 4. **Kalite** ile Mal kabul → *Karar ver* (ör. 70 kabul / 30 ret) → kabul edilen kullanılabilir, reddedilen karantinada.
 5. **Satış** ile sipariş taslağı (1000 adet) → uygunluk önizlemesi → *Kesinleştir* → rezervasyon, üretim ihtiyacı ve net satın alma talepleri oluşur.
 6. **Satın alma** ile talepleri onayla/reddet. Tedarikçiye gönderim bu fazda **bağlı değildir**.
+7. **Üretim** ile Üretim → ihtiyaçtan *İş emri aç* → *Yayımla* (seri numaraları oluşur).
+8. **Depo** ile iş emrinde her malzeme için *Çıkış yap* (yalnızca kullanılabilir ve başka işe ayrılmamış stok).
+9. **Teknisyen** ile operasyonları sırayla başlat/tamamla; fonksiyon testinde cihazlara Geçti/Kaldı gir (mobilde seri okutarak).
+10. **Kalite** ile başarısız cihaz için *Yeniden işle* veya *Hurda*; test kapısı kapanınca *Son kalite: serbest bırak*.
+11. **Üretim** ile *İş emrini kapat*; **Depo** ile sipariş sayfasından *Sevk et* (belge TASLAK).
 
 ## Test
 
 ```bash
 # PostgreSQL'de apisfactory_test veri tabanı olmalı (scripts/db-init.sql)
-pnpm test          # 16 kabul testi: T01, T02, T03, T04, T05, T13, T18 ve ek kurallar
+pnpm test          # 26 test: T01–T06, T09, T10, T13, T18, yanlış parça ve ek kurallar
 pnpm typecheck
 ```
 

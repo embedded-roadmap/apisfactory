@@ -17,10 +17,20 @@ export const PERMISSIONS = [
   "inventory.receive",
   "inventory.import",
   "quality.incoming.decide",
-  // Satış
+  // Satış ve sevkiyat
   "sales.view",
   "sales.create",
   "sales.confirm",
+  "sales.cancel",
+  "shipment.view",
+  "shipment.create",
+  // Üretim ve son kalite
+  "production.view",
+  "production.plan",
+  "production.execute",
+  "production.test.record",
+  "quality.final.release",
+  "inventory.issue",
   // Satın alma
   "purchase.view",
   "purchase.request.approve",
@@ -62,7 +72,7 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
   manager: {
     name: { tr: "Yönetici", en: "Manager" },
     permissions: [
-      "product.view", "bom.view", "inventory.view", "sales.view", "purchase.view",
+      "product.view", "bom.view", "inventory.view", "sales.view", "purchase.view", "production.view", "shipment.view",
       "task.view", "audit.view", "export.run", "field.cost.view", "field.price.view",
     ],
   },
@@ -75,24 +85,24 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
   },
   production: {
     name: { tr: "Üretim sorumlusu", en: "Production lead" },
-    permissions: ["product.view", "product.approve.production", "bom.view", "inventory.view", "sales.view", "purchase.view", "task.view"],
+    permissions: ["product.view", "product.approve.production", "bom.view", "inventory.view", "sales.view", "purchase.view", "task.view", "production.view", "production.plan", "production.execute"],
   },
   technician: {
     name: { tr: "Teknisyen / operatör", en: "Technician / operator" },
     // Ticari ve mali alanlar varsayılan kapalı.
-    permissions: ["product.view", "bom.view", "inventory.view", "task.view"],
+    permissions: ["product.view", "bom.view", "inventory.view", "task.view", "production.view", "production.execute", "production.test.record"],
   },
   quality: {
     name: { tr: "Kalite", en: "Quality" },
-    permissions: ["product.view", "product.approve.quality", "bom.view", "inventory.view", "quality.incoming.decide", "task.view"],
+    permissions: ["product.view", "product.approve.quality", "bom.view", "inventory.view", "quality.incoming.decide", "task.view", "production.view", "production.test.record", "quality.final.release"],
   },
   warehouse: {
     name: { tr: "Depo", en: "Warehouse" },
-    permissions: ["product.view", "inventory.view", "inventory.receive", "inventory.import", "task.view"],
+    permissions: ["product.view", "inventory.view", "inventory.receive", "inventory.import", "task.view", "production.view", "inventory.issue", "sales.view", "shipment.create", "shipment.view"],
   },
   sales: {
     name: { tr: "Satış", en: "Sales" },
-    permissions: ["product.view", "inventory.view", "sales.view", "sales.create", "sales.confirm", "task.view", "field.price.view"],
+    permissions: ["product.view", "inventory.view", "sales.view", "sales.create", "sales.confirm", "sales.cancel", "shipment.view", "task.view", "field.price.view"],
   },
   purchasing: {
     name: { tr: "Satın alma", en: "Purchasing" },

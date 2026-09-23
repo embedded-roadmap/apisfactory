@@ -1,56 +1,57 @@
 # Devam notu
 
-Son güncelleme: 23.09.2026 — oturum 1 (F0/F1 + ilk dikey akış)
+Son güncelleme: 23.09.2026 — oturum 2 (üretim, son kalite, sevkiyat, iptal, kullanıcı yönetimi)
 
 ## Son doğrulanan durum
 
-Aşağıdaki komutlar bu oturumda gerçekten çalıştırıldı ve geçti:
+Bu oturumda gerçekten çalıştırılıp geçen komutlar:
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm --filter @apisfactory/api test` | 16/16 test geçti (gerçek PostgreSQL 16, HTTP katmanı üzerinden) |
+| `pnpm test` (api) | 26/26 test geçti (acceptance 16, production 10), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
-| `expo export --platform android` (mobile) | Android paketi derlendi (cihazda çalıştırılmadı) |
-| Playwright uçtan uca akış (web) | Ar-Ge BOM içe aktarım → devir onayları → açılış stoğu → mal kabul → kısmi kalite kararı → satış kesinleştirme → satın alma listesi; hatasız tamamlandı |
+| `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
+| Playwright uçtan uca (web) | Ar-Ge devri → stok → satış → iş emri → malzeme çıkışı → operasyonlar → test (1 kaldı, yeniden işleme, tekrar test) → son kalite → kapanış → sevkiyat; hatasız |
 
 ## Gerçekten çalışan iş akışı
 
-1. Giriş, oturum iptali, şirket seçimi; X-Company-Id üyeliği sunucuda doğrulanır.
-2. Ürün → BOM CSV içe aktarım (kolon eşleştirme, önizleme, belirsiz MPN çözümü) → BOM yayımı → revizyon → Ar-Ge/üretim/kalite devir onayı → otomatik yayım.
-3. Devir onaysız revizyona kesin sipariş sunucuda reddedilir (taslak korunur).
-4. Açılış stoğu içe aktarımı (hareket olarak, tekrar dosya reddi).
-5. Mal kabul → giriş kontrol konumu → kalite kararı (kabul/ret/kısmi) → kullanılabilir / karantina.
-6. Satış siparişi → uygunluk önizlemesi → kesinleştirme: bitmiş stok rezervasyonu, üretim ihtiyacı (BOM sürümü sabit), net malzeme (stok + teyitli açık alım düşülerek), satın alma talebi, görevler.
-7. Satın alma talebi onay/ret (dış gönderim yok).
-8. Günlük iş listesi, kayıt geçmişi, olay defteri, stok CSV dışa aktarımı.
-9. Mobil: işlerim, barkodlu mal kabul, giriş kalite kararı, lot/MPN stok sorgusu.
+Oturum 1'dekilere ek olarak:
 
-## Tamamlanan / ilerleyen kodlar
-
-- Doğrulandı (testli): T01, T02, T03, T04, T05, T13, T18 ve ek kontroller (yayımlanmış BOM değişmezliği, negatif stok engeli, olay defteri değişmezliği, alan izni, oturum iptali, BOM farkı, belirsiz MPN).
-- Geliştiriliyor: W06, W07, W08 (kısmi), W09 (kısmi), W10 (kısmi), W11 (kısmi), W12, W13 (kısmi), W14, W15, W16 (kısmi), W18 (kısmi), W19 (kısmi), W26 (yalnızca görev listesi).
-- Ayrıntı: `docs/kapsam-izleme.md`, `docs/is-paketleri.md`, `docs/kabul-testleri.md`.
+1. Kesin siparişin üretim ihtiyacından iş emri; revizyon ve BOM sürümü sabit; 6 adımlı rota (HAZ, SMT, LEH, PRG, TST kalite kapısı, MON).
+2. Yayımda seri numaraları (`IE-000001-00001`), depo ve teknisyen görevleri.
+3. Malzeme çıkışı: yalnızca sabit BOM kalemi, yalnızca kullanılabilir stoktaki lot, başka işe ayrılmamış miktar, ihtiyaç kadar. Rezervasyon tüketilir.
+4. Operasyonlar: sıra zorunlu, duraklatma nedeni zorunlu, hazırlık malzeme tamamlanmadan kapanmaz, kalite kapısı açık cihaz varken kapanmaz.
+5. Test: ölçüm değerleri, limit dışı "geçti" engeli, istasyon çalışma kimliğiyle tekrar ayıklama, başarısızlıkta uygunsuzluk + kalite görevi; yeniden işleme / hurda kararı; FPY ilk testten.
+6. Son kalite serbest bırakma → revizyonlu bitmiş ürün lotu → satış satırına rezervasyon.
+7. Sevkiyat: yalnızca satıra ayrılmış ve serbest bırakılmış stoktan; belge TASLAK.
+8. İş emri kapanışı: çıkılan malzeme tüketim hareketiyle düşülür.
+9. Sipariş iptali: rezervasyon bırakma, başlamamış ihtiyaç ve açık talep iptali, etki özeti.
+10. Kullanıcı ekleme (geçici parola bir kez), rol atama, askıya alma, parola değiştirme; kendine yetki verme engeli.
+11. Cihaz geçmişi: seri → iş emri, BOM sürümü, gerçek lotlar, test çalışmaları.
+12. Mobil: Üretim sekmesi (iş emri, operasyon başlat/duraklat/tamamla, barkodla lot çıkışı, seri okutup test).
 
 ## Demo veya test modunda olanlar
 
-- Bütün dış bağlayıcılar **BAĞLANMADI**: DigiKey, Mouser, Farnell, Nexar, e-Fatura/e-İrsaliye, kargo, test istasyonu, toplantı.
-- Outbox işleyicisi yalnızca **test** modunda (konsola yazar, dışarı göndermez).
-- Mobil uygulama Android paketi derlendi; gerçek cihaz/Expo Go denemesi yapılmadı.
+- Dış bağlayıcıların hepsi **BAĞLANMADI** (distribütör, e-belge, kargo, test istasyonu, toplantı).
+- Sevkiyat belgesi **TASLAK**; resmî irsaliye/fatura yok.
+- Kullanıcı daveti e-postası yok; geçici parola ekranda bir kez gösterilir.
+- Outbox işleyicisi yalnızca test modunda.
 
 ## Bilinen sorunlar ve sınırlar
 
-- Termin hesabı (kapasite, vardiya, tatil, test payı) yok; yalnızca malzeme ve stok değerlendirmesi var.
-- Rezervasyon serbest bırakma, sipariş değişikliği/iptali akışı yok.
-- Çevrimdışı mobil kuyruk yok; bağlantı yoksa işlem kaydedilmez ve kullanıcıya söylenir.
-- Kullanıcı daveti/rol yönetimi ekranı yok (seed ile kuruluyor).
-- MFA, anahtar rotasyonu, dosya depolama, arama altyapısı yok.
-- Stok CSV dışa aktarımı var; diğer modüllerin export'u yok.
+- Termin hesabı (kapasite, vardiya, tatil) yok.
+- Rota şablonu sabit; revizyon bazında rota düzenleme ekranı yok.
+- Kontrol planı / test limit sürümü yönetimi yok; limitler test kaydıyla gelir (web ve mobilde örnek 3V3 3,2–3,4 V).
+- Yanlış firmware ve süresi geçmiş test ekipmanı kontrolü (T12'nin kalanı) yok.
+- Paketleme, etiket, adres, kısmi teslim, müşteri iadesi yok.
+- Çevrimdışı mobil kuyruk yok.
+- Kullanıcı ekranında askıya alma gerekçesi tarayıcı istemiyle alınıyor; satır içi alana çevrilmeli.
 
 ## Sıradaki uygulanabilir iş
 
-1. W10: akış motorunu genelleştir (zaman aşımı, vekil, üst sorumluya bildirim, kuru çalıştırma).
-2. W16: termin hesabı (iş merkezi, vardiya, tatil) ve müşteriye taahhüt tarihi akışı; rezervasyon bırakma ve sipariş değişikliği.
-3. W06: kullanıcı daveti, rol/izin ekranı, vekâlet, MFA.
-4. W20: iş emri, rota ve teknisyen ekranı (mobil) — gerçek lot tüketimi.
-5. W03/W17: distribütör API erişim ve lisans denemeleri (karar listesindeki açık kalemlere bağlı).
+1. W16: termin hesabı (iş merkezi kapasitesi, vardiya, tatil) ve müşteriye taahhüt tarihi.
+2. W21/W22: kontrol planı ve test limit sürümü, ekipman kalibrasyonu, yanlış firmware kontrolü (T12'nin tamamı).
+3. W13: mühendislik değişiklik talebi (ECR) ve açık işler için kontrollü geçiş kararı.
+4. W23: paketleme operasyonu, teslim adresi, kısmi sevk, etiket.
+5. W10: genel akış motoru (zaman aşımı, vekil, üst sorumluya bildirim).

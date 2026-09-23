@@ -25,6 +25,9 @@ export async function createCompany(client: pg.Client, input: { code: string; na
   for (const [code, name] of [["SAT", "Satış"], ["MUH", "Muhasebe"], ["SAL", "Satın alma"], ["URT", "Üretim"], ["ARG", "Ar-Ge"], ["KAL", "Kalite"], ["DEP", "Depo"]]) {
     await client.query(`insert into departments (company_id, code, name) values ($1, $2, $3)`, [companyId, code, name]);
   }
+  for (const [code, name, kind] of [["HAZ", "Malzeme hazırlama", "prep"], ["SMT", "Dizgi hattı", "smt"], ["LEH", "Lehim / THT", "manual"], ["PRG", "Programlama", "programming"], ["TST", "Fonksiyon testi", "test"], ["MON", "Mekanik montaj", "assembly"]]) {
+    await client.query(`insert into work_centers (company_id, code, name, kind) values ($1, $2, $3, $4)`, [companyId, code, name, kind]);
+  }
   const locations: Record<string, string> = {};
   for (const [code, name, type] of [
     ["STK", "Ana depo", "stock"],

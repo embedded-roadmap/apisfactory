@@ -141,8 +141,71 @@ export function SalesOrderPage() {
           <p className="muted" style={{ margin: 0 }}>Termin hesabı (kapasite, vardiya, test) bu fazda yok; müşteriye taahhüt tarihi ayrıca girilecek (W16).</p>
         </section>
       ) : o.status === "draft" ? <Loading /> : null}
+      {o.status === "firm" ? <Shipments order={o} /> : null}
+      {can("sales.cancel") && ["draft", "firm"].includes(o.status) ? <CancelOrder id={o.id} /> : null}
       <History entityType="sales_order" id={o.id} />
     </>
+  );
+}
+
+function Shipments({ order }: { order: SalesOrder }) {
+  const can = useCan();
+  const qc = useQueryClient();
+  const list = useQuery({ queryKey: ["shipments", order.id], queryFn: () => get<any[]>(`/api/sales-orders/${order.id}/shipments`), enabled: can("shipment.view") });
+  const [qty, setQty] = useState("");
+  const [key, setKey] = useState(newKey());
+  const line = order.lines[0]!;
+  const ship = useMutation({
+    mutationFn: () => post(`/api/sales-orders/${order.id}/ship`, { lineId: line.id, qty }, { "idempotency-key": key }),
+    onSuccess: () => { setQty(""); setKey(newKey()); qc.invalidateQueries({ queryKey: ["shipments", order.id] }); qc.invalidateQueries({ queryKey: ["history"] }); },
+  });
+  return (
+    <section className="card">
+      <h2>Sevkiyat</h2>
+      <p className="muted" style={{ margin: 0 }}>Yalnızca bu satıra ayrılmış ve son kaliteden geçmiş bitmiş ürün sevk edilir. İrsaliye/fatura sağlayıcısı bağlı değil; belge <span className="badge mode">TASLAK</span> olarak işaretlenir.</p>
+      {can("shipment.create") ? (
+        <div className="row">
+          <label className="field">Miktar ({line.productCode} Rev.{line.rev})<input inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value)} /></label>
+          <button className="primary" style={{ alignSelf: "flex-end" }} disabled={!qty || ship.isPending} onClick={() => ship.mutate()}>Sevk et</button>
+        </div>
+      ) : null}
+      <ErrorNotice error={ship.error} />
+      {list.data?.length === 0 ? <Empty>Henüz sevkiyat yok.</Empty> : null}
+      <table>
+        <tbody>
+          {list.data?.map((s) => <tr key={s.id}><td className="mono">{s.code}</td><td className="num">{fmt(s.qty)}</td><td><span className="badge mode">{s.documentMode === "draft" ? "TASLAK BELGE" : s.documentMode}</span></td><td className="muted">{fmtDate(s.shippedAt)} · {s.shippedBy}</td></tr>)}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function CancelOrder({ id }: { id: string }) {
+  const qc = useQueryClient();
+  const [reason, setReason] = useState("");
+  const cancel = useMutation({
+    mutationFn: () => post<any>(`/api/sales-orders/${id}/cancel`, { reason }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["order", id] }); qc.invalidateQueries({ queryKey: ["history"] }); },
+  });
+  const impact = cancel.data?.impact;
+  return (
+    <section className="card">
+      <h2>Siparişi iptal et</h2>
+      <p className="muted" style={{ margin: 0 }}>Rezervasyonlar bırakılır; başlamamış üretim ihtiyacı ve açık satın alma talepleri iptal edilir. Başlamış iş emri ve onaylanmış talepler için ayrı karar gerekir.</p>
+      <ErrorNotice error={cancel.error} />
+      {impact ? (
+        <div className="notice warn">
+          İptal edildi. Bırakılan rezervasyon: {impact.releasedReservations} · iptal edilen ihtiyaç: {impact.cancelledNeeds} · iptal edilen talep: {impact.cancelledPurchaseRequests}
+          {impact.workOrdersInProgress.length ? ` · devam eden iş emri: ${impact.workOrdersInProgress.join(", ")}` : ""}
+          {impact.approvedPurchaseRequests.length ? ` · tedarikçi iptali değerlendirilecek: ${impact.approvedPurchaseRequests.join(", ")}` : ""}
+        </div>
+      ) : (
+        <div className="row">
+          <input aria-label="İptal gerekçesi" placeholder="Gerekçe (zorunlu)" value={reason} onChange={(e) => setReason(e.target.value)} style={{ flex: 1 }} />
+          <button className="danger" disabled={reason.length < 3 || cancel.isPending} onClick={() => cancel.mutate()}>İptal et</button>
+        </div>
+      )}
+    </section>
   );
 }
 

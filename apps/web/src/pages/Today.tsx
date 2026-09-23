@@ -8,7 +8,9 @@ const LINK: Record<string, (id: string) => string> = {
   product_revision: () => "/products",
   goods_receipt_line: () => "/receiving",
   purchase_request: () => "/purchasing",
-  production_need: () => "/sales",
+  production_need: () => "/production",
+  work_order: (id) => `/production/${id}`,
+  device: () => "/production",
 };
 
 /** Kullanıcının bütün rollerinden gelen açık işler tek listede (prompt §20, §25 "Günlük işler"). */

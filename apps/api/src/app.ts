@@ -8,8 +8,10 @@ import { authRoutes } from "./modules/auth";
 import { productRoutes } from "./modules/products";
 import { importRoutes } from "./modules/imports";
 import { inventoryRoutes } from "./modules/inventory";
-import { salesRoutes } from "./modules/sales";
+import { salesRoutes, shippingRoutes } from "./modules/sales";
 import { workRoutes } from "./modules/work";
+import { productionRoutes } from "./modules/production";
+import { adminRoutes } from "./modules/admin";
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 8 * 1024 * 1024 });
@@ -39,5 +41,8 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(inventoryRoutes);
   await app.register(salesRoutes);
   await app.register(workRoutes);
+  await app.register(productionRoutes);
+  await app.register(shippingRoutes);
+  await app.register(adminRoutes);
   return app;
 }

@@ -5,7 +5,7 @@ import { StatusBar } from "expo-status-bar";
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Me } from "@apisfactory/shared";
 import { api, store } from "./src/api";
-import { CompanyScreen, InspectScreen, LoginScreen, LookupScreen, ReceiveScreen, TasksScreen } from "./src/screens";
+import { CompanyScreen, InspectScreen, LoginScreen, LookupScreen, ProductionScreen, ReceiveScreen, TasksScreen } from "./src/screens";
 import { ErrorBox, Button } from "./src/ui";
 import { c, s } from "./src/theme";
 
@@ -37,6 +37,7 @@ function Root() {
 
 const TABS = [
   { key: "tasks", label: "İşlerim", perm: "task.view" },
+  { key: "production", label: "Üretim", perm: "production.view" },
   { key: "receive", label: "Mal kabul", perm: "inventory.receive" },
   { key: "inspect", label: "Kalite", perm: "inventory.view" },
   { key: "lookup", label: "Stok", perm: "inventory.view" },
@@ -69,6 +70,7 @@ function Main() {
       </View>
       <View style={{ flex: 1 }}>
         {tab === "tasks" ? <TasksScreen go={setTab} /> : null}
+        {tab === "production" ? <ProductionScreen perms={perms} /> : null}
         {tab === "receive" ? <ReceiveScreen /> : null}
         {tab === "inspect" ? <InspectScreen canDecide={perms.has("quality.incoming.decide")} /> : null}
         {tab === "lookup" ? <LookupScreen /> : null}

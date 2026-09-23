@@ -13,6 +13,8 @@ import { SalesPage, SalesOrderPage } from "./pages/Sales";
 import { PurchasingPage } from "./pages/Purchasing";
 import { ImportsPage } from "./pages/Imports";
 import { EventsPage } from "./pages/Events";
+import { ProductionPage, WorkOrderPage } from "./pages/Production";
+import { AdminPage, PasswordPage } from "./pages/Admin";
 
 function useAuthState() {
   return useSyncExternalStore(auth.subscribe, auth.get);
@@ -90,10 +92,12 @@ const NAV: { to: string; key: string; perm?: Permission }[] = [
   { to: "/products", key: "nav.products", perm: "product.view" },
   { to: "/inventory", key: "nav.inventory", perm: "inventory.view" },
   { to: "/receiving", key: "nav.receiving", perm: "inventory.view" },
+  { to: "/production", key: "nav.production", perm: "production.view" },
   { to: "/sales", key: "nav.sales", perm: "sales.view" },
   { to: "/purchasing", key: "nav.purchasing", perm: "purchase.view" },
   { to: "/imports", key: "nav.imports" },
   { to: "/events", key: "nav.events", perm: "audit.view" },
+  { to: "/admin", key: "nav.admin", perm: "admin.users" },
 ];
 
 function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) => void }) {
@@ -138,6 +142,7 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
                 <option value="tr">TR</option>
                 <option value="en">EN</option>
               </select>
+              <NavLink className="btn" to="/password">Parola</NavLink>
               <button onClick={logout}>Çıkış</button>
             </div>
           </header>
@@ -154,6 +159,10 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/purchasing" element={<PurchasingPage />} />
               <Route path="/imports" element={<ImportsPage />} />
               <Route path="/events" element={<EventsPage />} />
+              <Route path="/production" element={<ProductionPage />} />
+              <Route path="/production/:id" element={<WorkOrderPage />} />
+              <Route path="/admin" element={<AdminPage />} />
+              <Route path="/password" element={<PasswordPage />} />
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>
           </main>
