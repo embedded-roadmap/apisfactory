@@ -135,6 +135,95 @@ async function locationId(db: Db, type: string) {
   return r.rows[0].id as string;
 }
 
+export const testInputSchema = z.object({
+    result: z.enum(["pass", "fail"]).optional(),
+    measurements: z.array(z.object({ name: z.string(), value: z.number(), unit: z.string().optional(), low: z.number().optional(), high: z.number().optional() })).default([]),
+    station: z.string().max(80).optional(),
+    equipmentId: z.string().uuid().optional(),
+    firmwareVersion: z.string().max(80).optional(),
+    externalRunId: z.string().max(120).optional(),
+  });
+export type TestInput = z.infer<typeof testInputSchema>;
+export type TestSource = { kind: "manual" | "station_csv" | "station_api"; measuredAt?: string | null; batchId?: string | null };
+
+/**
+ * Test sonucu kaydı — elle giriş, CSV ve istasyon API'si aynı kurallardan geçer.
+ * İş emrinin sabitlediği test planı varsa karar sunucuda verilir: zorunlu ölçüm eksikse reddedilir,
+ * limit dışı ölçüm "başarısız"dır. Firmware iş emrinin sabitlediği sürümle, ekipman kalibrasyonla doğrulanır (T12).
+ * Kural ihlali RuleRejection olarak fırlatılır. İlk test sonucu hiçbir zaman değişmez (T09).
+ */
+export async function recordDeviceTest(db: Db, actor: Actor, serial: string, input: TestInput, source: TestSource = { kind: "manual" }) {
+  const d = await db.query(`select * from devices where serial = $1 for update`, [serial]);
+  const dev = d.rows[0];
+  if (!dev) throw notFound("Cihaz");
+  if (input.externalRunId) {
+    const dup = await db.query(`select id, run_no, result from test_runs where external_run_id = $1`, [input.externalRunId]);
+    if (dup.rows[0]) return { serial, duplicate: true, runNo: dup.rows[0].run_no, result: dup.rows[0].result, status: dev.status };
+  }
+  const wo = (await db.query(`select * from work_orders where id = $1`, [dev.work_order_id])).rows[0] as WoRow;
+  const reject = (code: string, message: string, details?: Record<string, unknown>) =>
+    new RuleRejection(new AppError(409, code, message, details), { entityType: "device", entityId: dev.id, eventType: `test.rejected.${code}`, after: { serial, ...details } });
+  if (wo.status === "on_hold") throw conflict("work_order_on_hold", `İş emri beklemede: ${wo.hold_reason ?? ""}`);
+  if (!["in_process", "rework"].includes(dev.status)) throw conflict("invalid_transition", `Cihaz "${dev.status}" durumunda; test kaydı alınamaz`);
+  const gate = await db.query(`select status from work_order_operations where work_order_id = $1 and is_quality_gate order by seq limit 1`, [dev.work_order_id]);
+  if (gate.rows[0]?.status !== "in_progress") throw conflict("sequence", "Test operasyonu işlemde değil");
+
+  // Firmware: iş emrinin sabitlediği sürüm dışında yüklenmiş cihaz geçemez.
+  if (wo.firmware_version) {
+    if (!input.firmwareVersion) throw reject("firmware_required", `Firmware sürümü girilmeli (beklenen ${wo.firmware_version})`, { expected: wo.firmware_version });
+    if (input.firmwareVersion !== wo.firmware_version) {
+      throw reject("wrong_firmware", `Yanlış firmware: ${input.firmwareVersion}; bu iş emri ${wo.firmware_version} ister`, { expected: wo.firmware_version, actual: input.firmwareVersion });
+    }
+  }
+
+  // Ekipman: plan varsa zorunlu; hizmet dışı veya kalibrasyonu geçmiş ekipmanla test kaydı alınmaz.
+  if (wo.test_plan_id && !input.equipmentId) throw reject("equipment_required", "Test planlı iş emrinde test ekipmanı seçilmeli");
+  if (input.equipmentId) {
+    const e = await db.query(`select code, status, calibration_due, calibration_due < current_date as expired from equipment where id = $1`, [input.equipmentId]);
+    const eq = e.rows[0];
+    if (!eq) throw notFound("Ekipman");
+    if (eq.status !== "active") throw reject("equipment_out_of_service", `${eq.code} hizmet dışı`, { equipment: eq.code });
+    if (eq.expired) throw reject("calibration_expired", `${eq.code} kalibrasyonu ${eq.calibration_due} tarihinde doldu`, { equipment: eq.code, calibrationDue: eq.calibration_due });
+  }
+
+  // Karar: planlı işte limitler plandan gelir, istemcinin gönderdiği limit dikkate alınmaz.
+  let measurements = input.measurements;
+  let computed: "pass" | "fail";
+  if (wo.test_plan_id) {
+    const plan = await loadTestPlan(db, wo.test_plan_id);
+    const byName = new Map(input.measurements.map((m) => [m.name, m]));
+    const missing = plan.limits.filter((l: { name: string; required: boolean }) => l.required && !byName.has(l.name)).map((l: { name: string }) => l.name);
+    if (missing.length) throw reject("measurement_missing", `Zorunlu ölçüm eksik: ${missing.join(", ")}`, { missing });
+    measurements = plan.limits
+      .filter((l: { name: string }) => byName.has(l.name))
+      .map((l: { name: string; unit: string | null; low: number | null; high: number | null }) => ({
+        name: l.name, value: byName.get(l.name)!.value, unit: l.unit ?? undefined, low: l.low ?? undefined, high: l.high ?? undefined,
+      }));
+  }
+  const outOfLimit = measurements.filter((m) => (m.low !== undefined && m.value < m.low) || (m.high !== undefined && m.value > m.high));
+  computed = outOfLimit.length ? "fail" : wo.test_plan_id ? "pass" : (input.result ?? "pass");
+  if (!wo.test_plan_id && !input.result) throw badRequest("Test planı olmayan iş emrinde sonuç (geçti/kaldı) girilmeli");
+  if (input.result === "pass" && computed === "fail") {
+    throw reject("measurement_out_of_limit", "Limit dışı ölçümle geçti sonucu kaydedilemez", { measurements: outOfLimit.map((m) => m.name) });
+  }
+  const result = input.result === "fail" ? "fail" : computed;
+
+  const runNo = (await db.query(`select coalesce(max(run_no), 0) + 1 as n from test_runs where device_id = $1`, [dev.id])).rows[0].n;
+  const tr = await db.query(
+    `insert into test_runs (company_id, device_id, run_no, external_run_id, result, measurements, station, firmware_version, operator_id, test_plan_id, equipment_id, source, measured_at, station_batch_id)
+     values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) returning id`,
+    [dev.id, runNo, input.externalRunId ?? null, result, JSON.stringify(measurements), input.station ?? null, input.firmwareVersion ?? null, actor.userId, wo.test_plan_id, input.equipmentId ?? null, source.kind, source.measuredAt ?? null, source.batchId ?? null],
+  );
+  const next = result === "pass" ? "passed" : "test_failed";
+  await db.query(`update devices set status = $2 where id = $1`, [dev.id, next]);
+  if (result === "fail") {
+    await db.query(`insert into nonconformances (company_id, device_id, test_run_id) values (app_company_id(), $1, $2)`, [dev.id, tr.rows[0].id]);
+    await openTask(db, actor.companyId, { kind: "device_disposition", title: `Test başarısız — ${serial}: yeniden işleme / hurda kararı`, entityType: "device", entityId: dev.id, assigneeRole: "quality" });
+  }
+  await recordEvent(db, actor, { entityType: "device", entityId: dev.id, eventType: `test.${result}`, after: { serial, runNo, station: input.station, measurements, testPlanId: wo.test_plan_id, equipmentId: input.equipmentId, source: source.kind, measuredAt: source.measuredAt } });
+  return { serial, duplicate: false, runNo, result, status: next, outOfLimit: outOfLimit.map((m) => m.name), testRunId: tr.rows[0].id as string, deviceId: dev.id as string };
+}
+
 export async function productionRoutes(app: FastifyInstance) {
   app.get("/api/production-needs", async (req) =>
     tenant(req, "production.view", async (db) => {
@@ -368,92 +457,11 @@ export async function productionRoutes(app: FastifyInstance) {
    * limit dışı ölçüm "başarısız"dır. Firmware iş emrinin sabitlediği sürümle, ekipman kalibrasyonla doğrulanır (T12).
    * Engellenen deneme ayrı işlemde olay olarak kaydedilir. İlk test sonucu hiçbir zaman değişmez (T09).
    */
+  /** Test sonucu (elle / mobil). Kurallar recordDeviceTest içinde; engellenen deneme ayrı işlemde olay olarak kaydedilir. */
   app.post("/api/devices/:serial/test", async (req) => {
     const { serial } = req.params as { serial: string };
-    const input = parse(
-      z.object({
-        result: z.enum(["pass", "fail"]).optional(),
-        measurements: z.array(z.object({ name: z.string(), value: z.number(), unit: z.string().optional(), low: z.number().optional(), high: z.number().optional() })).default([]),
-        station: z.string().max(80).optional(),
-        equipmentId: z.string().uuid().optional(),
-        firmwareVersion: z.string().max(80).optional(),
-        externalRunId: z.string().max(120).optional(),
-      }),
-      req.body,
-    );
-    return withRejectionLog(req, () =>
-      tenant(req, "production.test.record", async (db, actor) => {
-        const d = await db.query(`select * from devices where serial = $1 for update`, [serial]);
-        const dev = d.rows[0];
-        if (!dev) throw notFound("Cihaz");
-        if (input.externalRunId) {
-          const dup = await db.query(`select id, run_no, result from test_runs where external_run_id = $1`, [input.externalRunId]);
-          if (dup.rows[0]) return { serial, duplicate: true, runNo: dup.rows[0].run_no, result: dup.rows[0].result, status: dev.status };
-        }
-        const wo = (await db.query(`select * from work_orders where id = $1`, [dev.work_order_id])).rows[0] as WoRow;
-        const reject = (code: string, message: string, details?: Record<string, unknown>) =>
-          new RuleRejection(new AppError(409, code, message, details), { entityType: "device", entityId: dev.id, eventType: `test.rejected.${code}`, after: { serial, ...details } });
-        if (wo.status === "on_hold") throw conflict("work_order_on_hold", `İş emri beklemede: ${wo.hold_reason ?? ""}`);
-        if (!["in_process", "rework"].includes(dev.status)) throw conflict("invalid_transition", `Cihaz "${dev.status}" durumunda; test kaydı alınamaz`);
-        const gate = await db.query(`select status from work_order_operations where work_order_id = $1 and is_quality_gate order by seq limit 1`, [dev.work_order_id]);
-        if (gate.rows[0]?.status !== "in_progress") throw conflict("sequence", "Test operasyonu işlemde değil");
-
-        // Firmware: iş emrinin sabitlediği sürüm dışında yüklenmiş cihaz geçemez.
-        if (wo.firmware_version) {
-          if (!input.firmwareVersion) throw reject("firmware_required", `Firmware sürümü girilmeli (beklenen ${wo.firmware_version})`, { expected: wo.firmware_version });
-          if (input.firmwareVersion !== wo.firmware_version) {
-            throw reject("wrong_firmware", `Yanlış firmware: ${input.firmwareVersion}; bu iş emri ${wo.firmware_version} ister`, { expected: wo.firmware_version, actual: input.firmwareVersion });
-          }
-        }
-
-        // Ekipman: plan varsa zorunlu; hizmet dışı veya kalibrasyonu geçmiş ekipmanla test kaydı alınmaz.
-        if (wo.test_plan_id && !input.equipmentId) throw reject("equipment_required", "Test planlı iş emrinde test ekipmanı seçilmeli");
-        if (input.equipmentId) {
-          const e = await db.query(`select code, status, calibration_due, calibration_due < current_date as expired from equipment where id = $1`, [input.equipmentId]);
-          const eq = e.rows[0];
-          if (!eq) throw notFound("Ekipman");
-          if (eq.status !== "active") throw reject("equipment_out_of_service", `${eq.code} hizmet dışı`, { equipment: eq.code });
-          if (eq.expired) throw reject("calibration_expired", `${eq.code} kalibrasyonu ${eq.calibration_due} tarihinde doldu`, { equipment: eq.code, calibrationDue: eq.calibration_due });
-        }
-
-        // Karar: planlı işte limitler plandan gelir, istemcinin gönderdiği limit dikkate alınmaz.
-        let measurements = input.measurements;
-        let computed: "pass" | "fail";
-        if (wo.test_plan_id) {
-          const plan = await loadTestPlan(db, wo.test_plan_id);
-          const byName = new Map(input.measurements.map((m) => [m.name, m]));
-          const missing = plan.limits.filter((l: { name: string; required: boolean }) => l.required && !byName.has(l.name)).map((l: { name: string }) => l.name);
-          if (missing.length) throw reject("measurement_missing", `Zorunlu ölçüm eksik: ${missing.join(", ")}`, { missing });
-          measurements = plan.limits
-            .filter((l: { name: string }) => byName.has(l.name))
-            .map((l: { name: string; unit: string | null; low: number | null; high: number | null }) => ({
-              name: l.name, value: byName.get(l.name)!.value, unit: l.unit ?? undefined, low: l.low ?? undefined, high: l.high ?? undefined,
-            }));
-        }
-        const outOfLimit = measurements.filter((m) => (m.low !== undefined && m.value < m.low) || (m.high !== undefined && m.value > m.high));
-        computed = outOfLimit.length ? "fail" : wo.test_plan_id ? "pass" : (input.result ?? "pass");
-        if (!wo.test_plan_id && !input.result) throw badRequest("Test planı olmayan iş emrinde sonuç (geçti/kaldı) girilmeli");
-        if (input.result === "pass" && computed === "fail") {
-          throw reject("measurement_out_of_limit", "Limit dışı ölçümle geçti sonucu kaydedilemez", { measurements: outOfLimit.map((m) => m.name) });
-        }
-        const result = input.result === "fail" ? "fail" : computed;
-
-        const runNo = (await db.query(`select coalesce(max(run_no), 0) + 1 as n from test_runs where device_id = $1`, [dev.id])).rows[0].n;
-        const tr = await db.query(
-          `insert into test_runs (company_id, device_id, run_no, external_run_id, result, measurements, station, firmware_version, operator_id, test_plan_id, equipment_id)
-           values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id`,
-          [dev.id, runNo, input.externalRunId ?? null, result, JSON.stringify(measurements), input.station ?? null, input.firmwareVersion ?? null, actor.userId, wo.test_plan_id, input.equipmentId ?? null],
-        );
-        const next = result === "pass" ? "passed" : "test_failed";
-        await db.query(`update devices set status = $2 where id = $1`, [dev.id, next]);
-        if (result === "fail") {
-          await db.query(`insert into nonconformances (company_id, device_id, test_run_id) values (app_company_id(), $1, $2)`, [dev.id, tr.rows[0].id]);
-          await openTask(db, actor.companyId, { kind: "device_disposition", title: `Test başarısız — ${serial}: yeniden işleme / hurda kararı`, entityType: "device", entityId: dev.id, assigneeRole: "quality" });
-        }
-        await recordEvent(db, actor, { entityType: "device", entityId: dev.id, eventType: `test.${result}`, after: { serial, runNo, station: input.station, measurements, testPlanId: wo.test_plan_id, equipmentId: input.equipmentId } });
-        return { serial, duplicate: false, runNo, result, status: next, outOfLimit: outOfLimit.map((m) => m.name) };
-      }),
-    );
+    const input = parse(testInputSchema, req.body);
+    return withRejectionLog(req, () => tenant(req, "production.test.record", (db, actor) => recordDeviceTest(db, actor, serial, input)));
   });
 
   /** Başarısız cihaz için kalite kararı: yeniden işleme (tekrar test gerekir) veya hurda. Gerekçe zorunlu. */
@@ -558,7 +566,7 @@ export async function productionRoutes(app: FastifyInstance) {
       if (!d.rows[0]) throw notFound("Cihaz");
       const runs = await db.query(
         `select t.run_no as "runNo", t.result, t.measurements, t.station, t.firmware_version as "firmwareVersion", u.name as operator, t.created_at as "createdAt",
-                e.code as "equipmentCode", tp.version_no as "testPlanVersion"
+                e.code as "equipmentCode", tp.version_no as "testPlanVersion", t.source, t.measured_at as "measuredAt", t.external_run_id as "externalRunId"
            from test_runs t left join users u on u.id = t.operator_id left join equipment e on e.id = t.equipment_id
            left join test_plans tp on tp.id = t.test_plan_id where t.device_id = $1 order by t.run_no`,
         [d.rows[0].id],

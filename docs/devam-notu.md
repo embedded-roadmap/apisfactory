@@ -1,12 +1,12 @@
 # Devam notu
 
-Son güncelleme: 23.09.2026 — oturum 8 (akış motoru: onay politikası, limit, vekâlet, zaman aşımı, müdahale)
+Son güncelleme: 23.09.2026 — oturum 9 (test istasyonu adaptörü: CSV + istasyon API'si, TEST modu)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 87/87 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 91/91 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
@@ -16,6 +16,15 @@ Son güncelleme: 23.09.2026 — oturum 8 (akış motoru: onay politikası, limit
 | Playwright uçtan uca (oturum 6) | Yönetici iş emri maliyetini hesaplar → lot maliyeti yok uyarısı; satın alma Depo & Lot ekranından 3 lota fatura maliyeti girer; yeniden hesap v2 (politika v1, birim maliyet); Maliyet & Metrikler: KPI satırı, ilk testte başarı kaynak kayıtları, kârlılık (fiyatsız satır "satış fiyatı yok"), politika sürümleri; sayfa hatası yok |
 | Playwright uçtan uca (oturum 7) | Teknisyen günlük listede DEMO görevini açar → kontrol listesi eksik uyarısı → tedarikçi engeli (dış kaynaklı); yönetici baz planı dondurur, Gantt'ta çubuğu 5 gün sürükler, gerekçeyle kaydeder → ardıl çakışma uyarısı; organizasyonda alt birim ve geçici üye ekler; ekip performansı; sayfa hatası yok |
 | Playwright uçtan uca (oturum 8) | Yönetici satın alma politikası v1 yayımlar (satın alma 1.000 TRY, yönetici sınırsız, 24 saat → yönetici) → kuru çalıştırma "onaylayamaz"; üretim sorumlusuna süreli vekâlet verir; Ar-Ge elle talep açar (tutar bilinmiyor); satın alma onayı `amount_unknown` ile engellenir ve yöneticiye görev açılır; vekil Günlük işler'de "vekâleten" işi görür ve onaylar (olayda adına); izleme ekranında yükseltme taraması; sayfa hatası yok |
+| Playwright uçtan uca (oturum 9) | Kalite TST-01'e bağlayıcı tanımlar (Türkçe sütun adları, virgüllü ondalık, `SN:` öneki, mV/mA → V/A ölçek) ve API belirteci üretir; teknisyen CSV yükler → önizleme: 2 kaydedilecek (biri limit dışı kaldı), yanlış firmware reddi, bilinmeyen seri → onay; aynı dosya tekrar yüklenince mevcut yükleme açılır; istasyon API'si belirteçle üçüncü cihazı kaydeder; cihaz geçmişinde "istasyon CSV/API" kaynağı ve olayda `api` aktörü; sayfa hatası yok |
+
+## Oturum 9'da eklenenler (W22)
+
+1. **Test istasyonu bağlayıcısı** (`/quality/station`, tanım `equipment.manage`): yalnızca "test istasyonu" türündeki ekipmana bağlanır; sütun eşlemesi (seri, çalışma kimliği, zaman, sonuç, firmware), ondalık ayırıcı, seri öneki silme, saat farkı, ölçüm sütunu → test planı limit adı + ölçek (mV → V). Mod **TEST** (gerçek istasyonla doğrulanmadı). Devre dışı bırakma gerekçeli ve olay kayıtlı.
+2. **CSV yükleme** (`production.test.record`): önizleme gerçek kurallarla, işlem içinde çalıştırılıp geri alınarak hesaplanır (aynı dosyada aynı cihazın ikinci satırı dahil) — kaydedilecek / zaten kayıtlı / seri bulunamadı / okunamadı / reddedildi. Onayda satırlar güncel durumla yeniden değerlendirilir; reddedilen satır cihaz olay defterine yazılır. Aynı dosya (içerik özeti) ikinci kez yeni yükleme açmaz.
+3. **İstasyon API'si** (`POST /api/station/runs`, `x-station-token`): kullanıcı oturumu yok; belirteç yalnızca bir kez gösterilir, özeti RLS'siz ayrı tabloda, uygulama rolü okuyamaz (dar kapsamlı fonksiyon). Yenisi eskisini geçersiz kılar. Aynı gönderim tekrarında yeni kayıt yok; aynı çalışma kimliği "zaten kayıtlı". Olay aktörü `api`.
+4. **Ortak kural**: elle giriş, CSV ve API aynı `recordDeviceTest` fonksiyonundan geçer — firmware sabitleme, ekipman kalibrasyonu/hizmet durumu, plan limitleri (istasyonun kendi limiti dikkate alınmaz; istasyon "geçti" deyip plan limiti dışındaysa reddedilir), ilk test sonucu değişmez.
+5. Test kaydı kaynağı (elle / istasyon CSV / istasyon API), istasyon ölçüm zamanı ve çalışma kimliği; cihaz geçmişinde rozet. Bağlantı durumunda test istasyonu "TEST".
 
 ## Oturum 8'de eklenenler (W10)
 
@@ -91,7 +100,7 @@ Son güncelleme: 23.09.2026 — oturum 8 (akış motoru: onay politikası, limit
 
 ## Demo veya test modunda olanlar
 
-- Dış bağlayıcıların hepsi **BAĞLANMADI** (distribütör, e-belge, kargo, test istasyonu, toplantı).
+- Dış bağlayıcıların hepsi **BAĞLANMADI** (distribütör, e-belge, kargo, toplantı). Test istasyonu adaptörü **TEST** modunda (gerçek istasyon çıktısıyla doğrulanmadı).
 - Sevkiyat belgesi **TASLAK**. Kullanıcı daveti e-postası yok. Outbox yalnızca test modunda.
 - Demo ekipman: TST-01 (geçerli), DMM-01 (kalibrasyonu geçmiş). Demo komponent temin süresi 21 gün.
 
@@ -99,7 +108,7 @@ Son güncelleme: 23.09.2026 — oturum 8 (akış motoru: onay politikası, limit
 
 - Termin: vardiya, paralel hat, operasyonların örtüşmesi yok; kesin siparişte malzeme durumu onay anındaki ayırmadan okunur.
 - Test planı olmayan iş emrinde sonuç elle seçilir (geriye uyumluluk). Devir için test planı zorunlu değil — politika kararı gerekir.
-- Test istasyonu API/CSV adaptörü yok; ölçüm elle veya mobil formdan girilir.
+- Test istasyonu: yalnızca düz CSV ve JSON satır biçimi (istasyona özgü log/XML ayrıştırıcı yok); klasör izleme/otomatik çekme yok (istasyon API'ye göndermeli ya da dosya elle yüklenmeli); istasyon operatörü kullanıcıyla eşlenmiyor; bağlayıcı eşlemesi sürümlü değil (değişiklik olayda before/after ile). Belirteç için oran sınırı yok.
 - Rota şablonu sabit; revizyon bazında rota düzenleme yok.
 - Kargo API'si, e-irsaliye/e-fatura yok (W36); belge TASLAK. Çevrimdışı mobil kuyruk yok.
 - İade: tamir sonrası tekrar test yalnızca geçti/kaldı olarak girilir (test planı ölçümleri iade tamirine bağlanmadı). Karantinadaki iade ürününün sonraki analizi ve hurda/yeniden işleme kararı stok ekranından yapılmalı (ayrı akış yok). Geri gönderim sevkiyat listesinde ayrı satır olarak görünmez; iade kaydında izlenir.
@@ -110,7 +119,7 @@ Son güncelleme: 23.09.2026 — oturum 8 (akış motoru: onay politikası, limit
 
 ## Sıradaki uygulanabilir iş
 
-1. W22: test istasyonu CSV/API adaptörü (test modunda), ölçümün cihaz serisiyle eşleşmesi.
-2. W20: revizyon bazında rota ve standart süre düzenleme; iş merkezi kapasitesinin rotadan okunması.
-3. Politika: devre gönderimde test planı + firmware zorunluluğu (şirket ayarı) — W10 politika altyapısına eklenebilir.
-4. W27/W28: iç mesajlaşma ve toplantı kararlarının göreve dönüşmesi.
+1. W20: revizyon bazında rota ve standart süre düzenleme; iş merkezi kapasitesinin rotadan okunması.
+2. Politika: devre gönderimde test planı + firmware zorunluluğu (şirket ayarı) — W10 politika altyapısına eklenebilir.
+3. W27/W28: iç mesajlaşma ve toplantı kararlarının göreve dönüşmesi.
+4. W22 devamı: mobilde istasyon yüklemesi görüntüleme, klasör izleyen küçük ajan (istasyon PC'si), istasyon operatörü eşlemesi.

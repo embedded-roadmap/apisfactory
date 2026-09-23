@@ -23,7 +23,7 @@
 | W19 | Mal kabul, karantina, kontrol ve iade | W15, W18 | Depo, kalite | geliştiriliyor | Mal kabul, giriş kalite, karantina; iade yok |
 | W20 | İş emri, rota, teknisyen ve tüketim | W13, W16, W19 | Üretim | geliştiriliyor | İş emri, rota, sıra, malzeme çıkışı (yanlış parça, karantina, başka işe ayrılmış engeli), teknisyen web+mobil, tüketim |
 | W21 | Kalite reçetesi, uygunsuzluk ve yeniden işleme | W19, W20 | Kalite | geliştiriliyor | Sürümlü test planı, sunucu kararı, uygunsuzluk, yeniden işleme/hurda, son kalite; ara kontrol listesi yok |
-| W22 | Test istasyonu ve ekipman uygunluğu | W13, W21 | Kalite, Ar-Ge | geliştiriliyor | Ekipman, kalibrasyon, engel + olay, etkilenen testler; istasyon adaptörü yok |
+| W22 | Test istasyonu ve ekipman uygunluğu | W13, W21 | Kalite, Ar-Ge | geliştiriliyor | Ekipman, kalibrasyon, engel + olay, etkilenen testler; istasyon adaptörü (CSV önizle/onayla + belirteçli API, TEST modu), seri eşleme, ölçek, tekrar koruması |
 | W23 | Paketleme, etiket, sevkiyat ve adres | W14, W20, W21 | Depo, satış | doğrulandı | Adres, hazırlık, okutmalı paketleme + kontrol listesi, kısmi sevk, takip no, teslim/sorun, taslak irsaliye ve Code128 etiket (web + mobil) |
 | W24 | Fatura eşleştirme, ödeme, tahsilat ve vade | W18, W19, W23 | Muhasebe | planlandı | — |
 | W25 | Tarihsel maliyet, marj ve metrik sözlüğü | W11, W20, W21, W24 | Muhasebe, yönetim | geliştiriliyor | Lot maliyeti, sürümlü politika ve maliyet hesabı, kârlılık, metrik sözlüğü + kaynaklar; bütçe, kur, dış hizmet yok |

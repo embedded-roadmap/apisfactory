@@ -1,4 +1,5 @@
 import { workflowRoutes } from "./modules/workflow";
+import { stationRoutes } from "./modules/station";
 import { planningRoutes } from "./modules/planning";
 import { costingRoutes } from "./modules/costing";
 import { returnRoutes } from "./modules/returns";
@@ -60,5 +61,6 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(costingRoutes);
   await app.register(planningRoutes);
   await app.register(workflowRoutes);
+  await app.register(stationRoutes);
   return app;
 }

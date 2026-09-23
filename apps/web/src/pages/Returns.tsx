@@ -273,7 +273,7 @@ export function DevicePage() {
                 <tbody>{d.testRuns.map((t: any) => (
                   <tr key={t.runNo}><td>{t.runNo}</td><td>{t.result === "pass" ? <span className="badge ok">geçti</span> : <span className="badge bad">kaldı</span>}</td><td>{t.testPlanVersion ? `v${t.testPlanVersion}` : "—"}</td>
                     <td className="mono">{t.equipmentCode ?? "—"}</td><td className="mono">{t.firmwareVersion ?? "—"}</td>
-                    <td className="mono" style={{ fontSize: 12 }}>{(t.measurements ?? []).map((m: any) => `${m.name}=${m.value}${m.unit ?? ""}`).join(" ")}</td><td>{t.operator}</td><td className="muted">{fmtDate(t.createdAt)}</td></tr>
+                    <td className="mono" style={{ fontSize: 12 }}>{(t.measurements ?? []).map((m: any) => `${m.name}=${m.value}${m.unit ?? ""}`).join(" ")}</td><td>{t.source && t.source !== "manual" ? <span className="badge">{t.source === "station_api" ? "istasyon API" : "istasyon CSV"}</span> : null} {t.operator ?? ""}</td><td className="muted">{fmtDate(t.measuredAt ?? t.createdAt)}</td></tr>
                 ))}</tbody></table>
             )}
           </section>

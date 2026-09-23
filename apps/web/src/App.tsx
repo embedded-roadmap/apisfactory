@@ -16,6 +16,7 @@ import { EventsPage } from "./pages/Events";
 import { ProductionPage, WorkOrderPage } from "./pages/Production";
 import { AdminPage, PasswordPage } from "./pages/Admin";
 import { QualityPage } from "./pages/Quality";
+import { StationPage } from "./pages/Station";
 import { GanttPage, OrgPage, PlanningPage, TaskPage, TeamReportPage } from "./pages/Planning";
 import { ReportsPage } from "./pages/Reports";
 import { DevicePage, ReturnPage, ReturnsPage } from "./pages/Returns";
@@ -190,6 +191,7 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/planning/org" element={<OrgPage />} />
               <Route path="/planning/team" element={<TeamReportPage />} />
               <Route path="/quality" element={<QualityPage />} />
+              <Route path="/quality/station" element={<StationPage />} />
               <Route path="/changes" element={<ChangesPage />} />
               <Route path="/changes/:id" element={<ChangePage />} />
               <Route path="/workflow" element={<WorkflowPage />} />

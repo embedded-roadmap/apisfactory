@@ -83,13 +83,18 @@ export async function workRoutes(app: FastifyInstance) {
 
   /** Entegrasyon durumu: bu fazda hiçbir dış sağlayıcı bağlı değil; ekran bunu açıkça gösterir (prompt §2.9). */
   app.get("/api/integrations", async (req) =>
-    tenant(req, null, async () => [
+    tenant(req, null, async (db) => [
       { key: "digikey", name: "DigiKey", mode: "not_connected", note: "W17 — lisans/erişim doğrulaması bekliyor" },
       { key: "mouser", name: "Mouser", mode: "not_connected", note: "W17" },
       { key: "farnell", name: "Farnell", mode: "not_connected", note: "W17" },
       { key: "nexar", name: "Nexar / Octopart", mode: "not_connected", note: "W17" },
       { key: "einvoice", name: "e-Fatura / e-İrsaliye", mode: "not_connected", note: "W36 — sağlayıcı kararı açık" },
-      { key: "test_station", name: "Test istasyonu", mode: "not_connected", note: "W22" },
+      await (async () => {
+        const n = (await db.query(`select count(*)::int as n from test_station_connectors where status = 'active'`)).rows[0].n as number;
+        return n
+          ? { key: "test_station", name: "Test istasyonu", mode: "test", note: `${n} bağlayıcı (CSV + istasyon API'si); adaptör gerçek istasyonla doğrulanmadı` }
+          : { key: "test_station", name: "Test istasyonu", mode: "not_connected", note: "Kalite > Test istasyonu ekranından bağlayıcı tanımlanır" };
+      })(),
       { key: "notifications", name: "Bildirim (outbox test bağlayıcısı)", mode: "test", note: "Olaylar yalnızca yerel kayda yazılır" },
     ]),
   );

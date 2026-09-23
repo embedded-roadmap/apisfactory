@@ -45,7 +45,7 @@ Durumlar: planlandı · geliştiriliyor · doğrulandı · entegrasyon bekliyor 
 | R38 | Sade teknisyen ve depo ekranları | W04, W19, W20 | geliştiriliyor | Mobil: işlerim, üretim (operasyon, barkodlu çıkış, test), mal kabul, kalite, stok sorgu | — | Android paketi derlendi | Cihazda kullanıcı testi yapılmadı |
 | R39 | Hazır akışlarla hızlı şirket kurulumu | W10, W39 | planlandı | Seed ile varsayılan şirket şablonu | — | — | Kurulum sihirbazı yok |
 | R40 | Fason üretici portalı ve dosya teyidi | W32 | planlandı | — | — | — | — |
-| R41 | Otomatik test verisi ve ekipman uygunluğu | W22 | geliştiriliyor | Ölçüm, plan limitleri, tekrar ayıklama; ekipman + değişmez kalibrasyon kaydı; hizmet dışı/süresi geçmiş ekipmanla test engeli ve olay; ekipmandan etkilenen testler listesi | test_runs, equipment, calibration_records | T12, quality.test.ts | Test istasyonu API/CSV adaptörü yok |
+| R41 | Otomatik test verisi ve ekipman uygunluğu | W22 | geliştiriliyor | Ölçüm, plan limitleri, tekrar ayıklama; ekipman + değişmez kalibrasyon kaydı; hizmet dışı/süresi geçmiş ekipmanla test engeli ve olay; ekipmandan etkilenen testler listesi | test_runs, equipment, calibration_records, test_station_connectors/batches/rows | T12, quality.test.ts, station.test.ts, e2e | Adaptör TEST modunda; istasyona özgü biçimler ve klasör izleme yok |
 | R42 | Üretim miktarı ve tedarik senaryoları | W35 | planlandı | — | — | — | — |
 | R43 | MSL, raf ömrü, makara ve sahiplik | W33 | planlandı | Lot ve lot zinciri alanı (parent_lot_id) var | lots | — | MSL, raf ömrü, makara yok (W33) |
 | R44 | Saha hatasının seri, lot ve revizyona bağlanması | W34 | planlandı | Cihaz geçmişi: seri → BOM sürümü, gerçek lotlar, testler | devices, material_issues | Üretim testi | Saha arızası kaydı yok (W34) |
