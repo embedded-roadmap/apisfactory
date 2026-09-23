@@ -81,7 +81,7 @@ Demo verisi sentetiktir ve **DEMO** olarak işaretlidir; parça kodları gerçek
 
 ```bash
 # PostgreSQL'de apisfactory_test veri tabanı olmalı (scripts/db-init.sql)
-pnpm test          # 61 test: T01–T06, T09, T10, T12, T13, T18, test planı, ECR, termin, paketleme/sevkiyat, iade ve ek kurallar
+pnpm test          # 70 test: T01–T06, T09, T10, T12, T13, T18, test planı, ECR, termin, paketleme/sevkiyat, iade, maliyet/metrik ve ek kurallar
 pnpm typecheck
 ```
 

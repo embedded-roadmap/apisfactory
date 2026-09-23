@@ -14,9 +14,10 @@ import { conflict, forbidden, notFound } from "../lib/errors";
 import { normalizeDecimal, parseCsv, parseFlag, sha256 } from "../lib/csv";
 import { recordEvent } from "../lib/records";
 import { can, parse, tenant } from "../http/context";
+import { recordLotCost } from "./costing";
 
 type BomRowValues = { mpn: string; manufacturer: string; qty: string; refdes: string; description: string; dnp: string; internalCode: string; itemId?: string };
-type StockRowValues = { itemCode: string; qty: string; lotNo: string; locationCode: string; rev: string; itemId?: string; locationId?: string; revisionId?: string };
+type StockRowValues = { itemCode: string; qty: string; lotNo: string; locationCode: string; rev: string; unitCost?: string; currency?: string; itemId?: string; locationId?: string; revisionId?: string };
 
 async function existingCommitted(db: Db, kind: string, targetId: string | null, hash: string) {
   const r = await db.query(
@@ -164,6 +165,18 @@ export async function importRoutes(app: FastifyInstance) {
           rev: m.rev ? (raw[m.rev] ?? "").trim() : "",
         };
         const messages: string[] = [];
+        if (m.unitCost) {
+          const rawCost = (raw[m.unitCost] ?? "").trim();
+          if (rawCost) {
+            if (!can(req, "lot.cost.record")) messages.push("Birim maliyet sütunu için maliyet kayıt yetkisi gerekir");
+            const cost = normalizeDecimal(rawCost, input.decimalSeparator);
+            if (!cost || Number(cost) < 0) messages.push(`Birim maliyet geçersiz: "${rawCost}"`);
+            else {
+              v.unitCost = cost;
+              v.currency = input.currency;
+            }
+          }
+        }
         const qty = normalizeDecimal(v.qty, input.decimalSeparator);
         if (!qty || Number(qty) <= 0) messages.push(`Miktar geçersiz: "${v.qty}"`);
         else v.qty = qty;
@@ -265,6 +278,7 @@ export async function importRoutes(app: FastifyInstance) {
              values (app_company_id(), $1, $2, $3, $4, 'opening', 'import_job', $5, $6, $7)`,
             [v.itemId, lot.rows[0].id, v.locationId, v.qty, id, `import:${id}:${r.row}`, actor.userId],
           );
+          if (v.unitCost) await recordLotCost(db, importActor, lot.rows[0].id, { unitCost: v.unitCost, currency: v.currency ?? "TRY", source: "opening", reference: `açılış içe aktarımı ${job.file_name}` });
           moves++;
         }
         result = { moves };

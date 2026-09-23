@@ -248,10 +248,12 @@ export function DevicePage() {
   return (
     <>
       <PageHeader title="Cihaz geçmişi" sub="Seri numarasından üretim, test, sevkiyat ve iade kaydı." />
-      <form className="row card" onSubmit={(e) => { e.preventDefault(); if (code.trim()) nav(`/devices/${encodeURIComponent(code.trim())}`); }}>
-        <label className="field" style={{ flex: 1 }}>Seri numarası<input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Okutun veya yazın" /></label>
-        <button className="primary" style={{ alignSelf: "flex-end" }}>Göster</button>
-      </form>
+      <section className="card">
+        <form className="row" onSubmit={(e) => { e.preventDefault(); if (code.trim()) nav(`/devices/${encodeURIComponent(code.trim())}`); }}>
+          <label className="field" style={{ flex: 1 }}>Seri numarası<input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Okutun veya yazın" /></label>
+          <button className="primary" style={{ alignSelf: "flex-end" }}>Göster</button>
+        </form>
+      </section>
       {q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />}
       {d ? (
         <>

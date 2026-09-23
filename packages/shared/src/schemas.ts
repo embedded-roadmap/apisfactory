@@ -57,7 +57,9 @@ export const BomImportPreviewInput = z.object({
 export const StockImportPreviewInput = z.object({
   fileName: z.string().min(1),
   content: z.string().min(1).max(5_000_000),
-  mapping: z.object({ itemCode: z.string(), qty: z.string(), lotNo: z.string(), locationCode: z.string(), rev: z.string().optional() }),
+  mapping: z.object({ itemCode: z.string(), qty: z.string(), lotNo: z.string(), locationCode: z.string(), rev: z.string().optional(), unitCost: z.string().optional() }),
+  /** Birim maliyet sütunu eşlenirse para birimi (şirket varsayılanı). */
+  currency: z.string().regex(/^[A-Z]{3}$/).default("TRY"),
   decimalSeparator: z.enum([".", ","]).default("."),
 });
 
@@ -71,6 +73,9 @@ export const GoodsReceiptInput = z.object({
         qty: PositiveDecimal,
         lotNo: z.string().min(1).max(80),
         dateCode: z.string().max(40).optional(),
+        /** Tedarikçi birim fiyatı (maliyet yetkisi gerekir); geç gelen fatura ayrıca yeni kayıt olarak girilir. */
+        unitCost: z.string().regex(/^\d+(\.\d{1,6})?$/).optional(),
+        currency: z.string().regex(/^[A-Z]{3}$/).optional(),
       }),
     )
     .min(1),

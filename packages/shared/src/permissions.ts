@@ -29,6 +29,9 @@ export const PERMISSIONS = [
   "rma.view",
   "rma.create",
   "rma.decide",
+  "cost.manage",
+  "lot.cost.record",
+  "report.view",
   // Üretim ve son kalite
   "production.view",
   "production.plan",
@@ -86,7 +89,7 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
     name: { tr: "Yönetici", en: "Manager" },
     permissions: [
       "product.view", "bom.view", "inventory.view", "sales.view", "purchase.view", "production.view", "shipment.view",
-      "task.view", "audit.view", "export.run", "field.cost.view", "field.price.view", "change.view", "rma.view",
+      "task.view", "audit.view", "export.run", "field.cost.view", "field.price.view", "change.view", "rma.view", "cost.manage", "report.view",
     ],
   },
   rd: {
@@ -99,7 +102,7 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
   },
   production: {
     name: { tr: "Üretim sorumlusu", en: "Production lead" },
-    permissions: ["product.view", "product.approve.production", "bom.view", "inventory.view", "sales.view", "purchase.view", "task.view", "production.view", "production.plan", "production.execute", "change.view", "change.create", "capacity.manage"],
+    permissions: ["product.view", "product.approve.production", "bom.view", "inventory.view", "sales.view", "purchase.view", "task.view", "production.view", "production.plan", "production.execute", "change.view", "change.create", "capacity.manage", "report.view"],
   },
   technician: {
     name: { tr: "Teknisyen / operatör", en: "Technician / operator" },
@@ -108,7 +111,7 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
   },
   quality: {
     name: { tr: "Kalite", en: "Quality" },
-    permissions: ["product.view", "product.approve.quality", "bom.view", "inventory.view", "quality.incoming.decide", "task.view", "production.view", "production.test.record", "quality.final.release", "quality.plan.manage", "equipment.manage", "change.view", "change.create", "rma.view", "rma.create", "rma.decide"],
+    permissions: ["product.view", "product.approve.quality", "bom.view", "inventory.view", "quality.incoming.decide", "task.view", "production.view", "production.test.record", "quality.final.release", "quality.plan.manage", "equipment.manage", "change.view", "change.create", "rma.view", "rma.create", "rma.decide", "report.view"],
   },
   warehouse: {
     name: { tr: "Depo", en: "Warehouse" },
@@ -116,14 +119,14 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
   },
   sales: {
     name: { tr: "Satış", en: "Sales" },
-    permissions: ["product.view", "inventory.view", "sales.view", "sales.create", "sales.confirm", "sales.cancel", "shipment.view", "task.view", "field.price.view", "sales.promise", "customer.address.manage", "shipment.deliver", "rma.view", "rma.create"],
+    permissions: ["product.view", "inventory.view", "sales.view", "sales.create", "sales.confirm", "sales.cancel", "shipment.view", "task.view", "field.price.view", "sales.promise", "customer.address.manage", "shipment.deliver", "rma.view", "rma.create", "report.view"],
   },
   purchasing: {
     name: { tr: "Satın alma", en: "Purchasing" },
-    permissions: ["product.view", "bom.view", "inventory.view", "purchase.view", "purchase.request.approve", "task.view", "field.cost.view"],
+    permissions: ["product.view", "bom.view", "inventory.view", "purchase.view", "purchase.request.approve", "task.view", "field.cost.view", "lot.cost.record"],
   },
   accounting: {
     name: { tr: "Muhasebe", en: "Accounting" },
-    permissions: ["product.view", "sales.view", "purchase.view", "task.view", "export.run", "field.cost.view", "field.price.view", "rma.view"],
+    permissions: ["product.view", "sales.view", "purchase.view", "task.view", "export.run", "field.cost.view", "field.price.view", "rma.view", "cost.manage", "lot.cost.record", "report.view"],
   },
 };

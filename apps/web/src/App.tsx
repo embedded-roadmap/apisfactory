@@ -16,6 +16,7 @@ import { EventsPage } from "./pages/Events";
 import { ProductionPage, WorkOrderPage } from "./pages/Production";
 import { AdminPage, PasswordPage } from "./pages/Admin";
 import { QualityPage } from "./pages/Quality";
+import { ReportsPage } from "./pages/Reports";
 import { DevicePage, ReturnPage, ReturnsPage } from "./pages/Returns";
 import { ShipmentPage, ShipmentPrintPage, ShipmentsPage } from "./pages/Shipping";
 import { ChangePage, ChangesPage } from "./pages/Changes";
@@ -105,6 +106,7 @@ const NAV: { to: string; key: string; perm?: Permission }[] = [
   { to: "/devices", key: "nav.devices", perm: "production.view" },
   { to: "/purchasing", key: "nav.purchasing", perm: "purchase.view" },
   { to: "/imports", key: "nav.imports" },
+  { to: "/reports", key: "nav.reports", perm: "report.view" },
   { to: "/events", key: "nav.events", perm: "audit.view" },
   { to: "/admin", key: "nav.admin", perm: "admin.users" },
 ];
@@ -177,6 +179,7 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/returns/:id" element={<ReturnPage />} />
               <Route path="/devices" element={<DevicePage />} />
               <Route path="/devices/:serial" element={<DevicePage />} />
+              <Route path="/reports" element={<ReportsPage />} />
               <Route path="/quality" element={<QualityPage />} />
               <Route path="/changes" element={<ChangesPage />} />
               <Route path="/changes/:id" element={<ChangePage />} />

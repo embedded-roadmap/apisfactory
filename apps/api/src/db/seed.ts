@@ -127,6 +127,12 @@ async function seedDemo() {
     // Örnek ekipman ve tatil (DEMO)
     await client.query(`insert into equipment (company_id, code, name, kind, calibration_due) values ($1,'TST-01','Fonksiyon test istasyonu 1 (DEMO)','test_station', current_date + 180), ($1,'DMM-01','Multimetre (DEMO)','measuring', current_date - 5)`, [a.companyId]);
     await client.query(`update items set lead_time_days = 21 where company_id = $1 and kind = 'component'`, [a.companyId]);
+    // Örnek maliyet politikası (DEMO değerleri; gerçek muhasebe politikası değildir)
+    await client.query(
+      `insert into cost_policies (company_id, version_no, valid_from, currency, labor_rate_per_hour, overhead_per_labor_hour, overhead_pct_of_material, note)
+       values ($1, 1, date_trunc('year', current_date), 'TRY', 600, 150, 10, 'DEMO politika: işçilik 600 TL/saat, genel gider 150 TL/saat + malzemenin %10''u')`,
+      [a.companyId],
+    );
 
     const b = await createCompany(client, { code: "DEMO-IKI", name: "DEMO İkinci Şirket (izolasyon testi)", isDemo: true });
     await createUser(client, { email: "yonetici@ikinci.demo.apisfactory.com", name: "İkinci Şirket Yöneticisi", password: DEMO_PASSWORD, companyId: b.companyId, roles: ["manager", "rd", "sales", "warehouse"], roleIds: b.roleIds });

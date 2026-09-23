@@ -123,3 +123,13 @@ tr.click:hover td { background: var(--surface-2); }
   body { background: #fff; }
   .sheet { border: none; page-break-after: always; }
 }
+
+/* KPI satırı: metrik kutuları (değer metin rengiyle; renk tek başına anlam taşımaz) */
+.kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.kpi { background: var(--surface-2); border: 1px solid transparent; border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; min-height: 0; font-weight: 400; }
+.kpi b { font-family: var(--font-display); font-size: 26px; color: var(--text); }
+.kpi small { color: var(--muted); font-size: 12px; font-weight: 600; }
+.kpi .muted { font-size: 12px; }
+button.kpi:hover { border-color: var(--muted); }
+button.kpi.active { border-color: var(--accent); }
+button.kpi:disabled { cursor: default; opacity: 1; }

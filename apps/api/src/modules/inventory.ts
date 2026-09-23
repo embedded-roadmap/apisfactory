@@ -2,11 +2,12 @@ import type { FastifyInstance } from "fastify";
 import { GoodsReceiptInput, InspectionInput, type ItemAvailability, USABLE_LOCATION_TYPES } from "@apisfactory/shared";
 import { z } from "zod";
 import type { Db } from "../db/pool";
-import { badRequest, conflict, notFound } from "../lib/errors";
+import { badRequest, conflict, forbidden, notFound } from "../lib/errors";
 import { closeTasks, idempotent, nextCode, openTask, recordEvent } from "../lib/records";
 import { safeCell } from "../lib/csv";
 import { fromMicro, toMicro } from "../lib/decimal";
-import { idempotencyKey, parse, tenant } from "../http/context";
+import { can, idempotencyKey, parse, tenant } from "../http/context";
+import { recordLotCost } from "./costing";
 
 const USABLE = USABLE_LOCATION_TYPES as readonly string[];
 
@@ -143,6 +144,10 @@ export async function inventoryRoutes(app: FastifyInstance) {
             entityId: line.rows[0].id,
             assigneeRole: "quality",
           });
+          if (l.unitCost) {
+            if (!can(req, "lot.cost.record")) throw forbidden("lot.cost.record");
+            await recordLotCost(db, actor, lot.rows[0].id, { unitCost: l.unitCost, currency: l.currency ?? "TRY", source: "receipt", reference: `${code} / ${input.supplierName}` });
+          }
           lines.push({ id: line.rows[0].id, lotId: lot.rows[0].id, itemId: l.itemId, qty: l.qty, lotNo: l.lotNo });
         }
         await recordEvent(db, actor, { entityType: "goods_receipt", entityId: gr.rows[0].id, eventType: "received", after: { code, lines } });

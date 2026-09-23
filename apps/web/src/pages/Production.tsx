@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, newKey, post } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, fmtDate, useCan } from "../lib/ui";
 import { History } from "./Sales";
+import { WorkOrderCost } from "./Reports";
 
 export function ProductionPage() {
   const can = useCan();
@@ -167,6 +168,7 @@ export function WorkOrderPage() {
           </tbody>
         </table>
       </section>
+      {can("field.cost.view") ? <WorkOrderCost woId={wo.id} /> : null}
       <History entityType="work_order" id={wo.id} />
     </>
   );

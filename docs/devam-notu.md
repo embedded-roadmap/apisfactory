@@ -1,18 +1,29 @@
 # Devam notu
 
-Son güncelleme: 23.09.2026 — oturum 5 (müşteri iadesi, garanti, saha arızası, cihaz geçmişi)
+Son güncelleme: 23.09.2026 — oturum 6 (maliyet, kârlılık, metrik sözlüğü)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 61/61 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 70/70 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
 | Playwright uçtan uca (oturum 3) | Firmware girişi → test planı oluştur/yayımla → devir → iş emri → yanlış firmware engeli → planla test (geçti/kaldı) → ECR ile iş emri bekletme → Ar-Ge kararı → satış termini (hesaplanamadı → temin süresi → aralık) → taahhüt risk uyarısı; sayfa hatası yok |
 | Playwright uçtan uca (oturum 4) | Satış → iş emri → test → son kalite → sipariş ekranından sevkiyat hazırlığı → yanlış kod okutma engeli → 2 seri okutma → kontrol listesiyle paket kapatma → paketleme tamam → taşıyıcı + takip no ile sevk → irsaliye taslağı ve Code128 etiket; sipariş kısmi sevkte açık kalır; sayfa hatası yok |
 | Playwright uçtan uca (oturum 5) | Satış: seri okut → müşteri/sevk/garanti bulunur → iade aç; depo teslim alır; kalite inceler (üretim hatası) → tamir + alacak belgesi talebi; teknisyen tamir + tekrar test; depo geri gönderir → kapandı; cihaz geçmişi sevk + iade + olaylar; sayfa hatası yok |
+| Playwright uçtan uca (oturum 6) | Yönetici iş emri maliyetini hesaplar → lot maliyeti yok uyarısı; satın alma Depo & Lot ekranından 3 lota fatura maliyeti girer; yeniden hesap v2 (politika v1, birim maliyet); Maliyet & Metrikler: KPI satırı, ilk testte başarı kaynak kayıtları, kârlılık (fiyatsız satır "satış fiyatı yok"), politika sürümleri; sayfa hatası yok |
+
+## Oturum 6'da eklenenler (W25)
+
+1. **Lot maliyet defteri** (değişmez): açılış içe aktarımı (maliyet sütunu, yetkiyle), mal kabul (yetkiyle), fatura/elle giriş (satın alma, muhasebe), üretim (iş emri maliyetinden). Güncel değer en son kayıt; geçmiş üzerine yazılmaz.
+2. **Maliyet politikası** (değişmez sürümler, geçerlilik tarihi): para birimi, işçilik saat ücreti, saat başı genel gider, malzemenin %'si genel gider; değerleme lot bazında gerçek maliyet; hurda sağlam adetlere yüklenir. Gelecek tarihli sürüm bugünkü hesabı etkilemez.
+3. **İş emri maliyeti** (sürümlü, deterministik): malzeme (çıkılan lot × güncel lot maliyeti) + işçilik (operasyon süresi × ücret) + genel gider + dış hizmet (yok). Birim maliyet = toplam / sağlam adet; sağlam 0 ise hesaplanamaz + toplam kayıp. Eksikler (politika, lot maliyeti, kur, süre kaydı, tamamlanmamış iş) listelenir ve "Eksik" işaretlenir. Aynı girdi yeni sürüm açmaz; geç gelen fatura yeni sürüm açar, eski sürüm değişmez. Yalnızca eksiksiz hesap bitmiş ürün lotuna maliyet yazar.
+4. **Satış kârlılığı**: yalnızca sevk edilen miktar; gelir = adet × sipariş fiyatı; SMM = sevk edilen lotun güncel maliyeti; brüt kâr/marj, para birimi bazında toplam; eksik satır sayısı; iadeler ayrı gösterilir (resmî alacak kaydı yok). `field.cost.view` + `field.price.view` gerekir.
+5. **Metrik sözlüğü v1** (`/api/metrics/definitions`): hurda, ilk testte başarı, yeniden işleme, komponent firesi, zamanında teslim, iade oranı, bütçe sapması. Her değer pay/payda/tanım/kapsamla; payda sıfırsa "hesaplanamaz"; kaynak kayıtlar `/api/metrics/:key/sources`.
+6. Web: **Maliyet & Metrikler** sayfası (KPI satırı + kaynaklar, kârlılık, politika), iş emrinde Maliyet paneli (sürüm seçimi, kalemler, eksikler), Depo & Lot'ta lot maliyet geçmişi ve giriş.
+7. Yeni izinler: `cost.manage` (muhasebe, yönetici), `lot.cost.record` (satın alma, muhasebe), `report.view` (yönetici, muhasebe, üretim, kalite, satış). DEMO şirkette örnek politika v1.
 
 ## Oturum 5'te eklenenler (W34)
 
@@ -69,10 +80,11 @@ Son güncelleme: 23.09.2026 — oturum 5 (müşteri iadesi, garanti, saha arıza
 - Kargo API'si, e-irsaliye/e-fatura yok (W36); belge TASLAK. Çevrimdışı mobil kuyruk yok.
 - İade: tamir sonrası tekrar test yalnızca geçti/kaldı olarak girilir (test planı ölçümleri iade tamirine bağlanmadı). Karantinadaki iade ürününün sonraki analizi ve hurda/yeniden işleme kararı stok ekranından yapılmalı (ayrı akış yok). Geri gönderim sevkiyat listesinde ayrı satır olarak görünmez; iade kaydında izlenir.
 - Paketleme rotada ayrı iş merkezi değil; sevkiyat modülünde yapılır.
+- Maliyet: kur dönüşümü yok (farklı para birimli satır "hesaplanamadı"); dış hizmet (fason) maliyeti yok; iade tamiri ve iade hurdası maliyete yansımıyor; bütçe modülü yok; prototip/pilot/seri ayrımı ve ekip performansı raporu (W26) yok. İşçilik yalnızca operasyon başlat/tamamla süresinden; hızlı tıklanan operasyon süre biriktirmez (uyarı olarak eksik listesine düşer). Mobilde maliyet ekranı yok (ofis işi).
 
 ## Sıradaki uygulanabilir iş
 
-1. W25: tarihsel maliyet, marj ve metrik sözlüğü (hurda, FPY, yeniden işleme, iade oranı; formüller §18).
+1. W26: görev, takvim ve ekip performansı raporları (haftalık/aylık; tedarikçi gecikmesi teknisyene yazılmaz, mesaj sayısı puan değildir).
 2. W22: test istasyonu CSV/API adaptörü (test modunda), ölçümün cihaz serisiyle eşleşmesi.
 3. W10: genel akış motoru (zaman aşımı, vekil, üst sorumluya bildirim).
 4. W20: revizyon bazında rota ve standart süre düzenleme; iş merkezi kapasitesinin rotadan okunması.

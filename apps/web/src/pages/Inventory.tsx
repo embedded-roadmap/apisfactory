@@ -3,11 +3,13 @@ import { useQuery } from "@tanstack/react-query";
 import type { ItemAvailability, StockBalance } from "@apisfactory/shared";
 import { auth, get } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, useCan } from "../lib/ui";
+import { LotCosts } from "./Reports";
 
 export function InventoryPage() {
   const can = useCan();
   const [q, setQ] = useState("");
   const [item, setItem] = useState<{ id: string; code: string } | null>(null);
+  const [lot, setLot] = useState<{ id: string; no: string } | null>(null);
   const list = useQuery({ queryKey: ["balances", q], queryFn: () => get<(StockBalance & { inspectionStatus: string })[]>(`/api/stock/balances${q ? `?q=${encodeURIComponent(q)}` : ""}`) });
   const avail = useQuery({ enabled: !!item, queryKey: ["avail", item?.id], queryFn: () => get<ItemAvailability>(`/api/stock/availability/${item!.id}`) });
 
@@ -48,13 +50,19 @@ export function InventoryPage() {
           ) : null}
         </section>
       ) : null}
+      {lot ? (
+        <section className="card">
+          <div className="row between"><span /><button onClick={() => setLot(null)}>Kapat</button></div>
+          <LotCosts lotId={lot.id} lotNo={lot.no} />
+        </section>
+      ) : null}
       <section className="card">
         <input aria-label="Ara" placeholder="Kod, MPN veya lot ara" value={q} onChange={(e) => setQ(e.target.value)} />
         {list.isLoading ? <Loading /> : <ErrorNotice error={list.error} />}
         {list.data?.length === 0 ? <Empty>Stok hareketi yok.</Empty> : null}
         {list.data && list.data.length > 0 ? (
           <table>
-            <thead><tr><th>Kalem</th><th>Lot</th><th>Konum</th><th>Konum tipi</th><th>Giriş kalite</th><th className="num">Miktar</th></tr></thead>
+            <thead><tr><th>Kalem</th><th>Lot</th><th>Konum</th><th>Konum tipi</th><th>Giriş kalite</th><th className="num">Miktar</th>{can("field.cost.view") ? <th /> : null}</tr></thead>
             <tbody>
               {list.data.map((b) => (
                 <tr key={b.lotId + b.locationId} className="click" onClick={() => setItem({ id: b.itemId, code: b.itemCode })}>
@@ -64,6 +72,7 @@ export function InventoryPage() {
                   <td><StateBadge value={b.locationType} prefix="loc" /></td>
                   <td>{b.inspectionStatus === "not_required" ? "—" : <StateBadge value={b.inspectionStatus} prefix="insp" />}</td>
                   <td className="num">{fmt(b.qty)}</td>
+                  {can("field.cost.view") ? <td><button onClick={(e) => { e.stopPropagation(); setLot({ id: b.lotId, no: b.lotNo }); }}>Maliyet</button></td> : null}
                 </tr>
               ))}
             </tbody>

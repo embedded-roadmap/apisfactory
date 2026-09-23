@@ -26,7 +26,7 @@ Durumlar: planlandı · geliştiriliyor · doğrulandı · entegrasyon bekliyor 
 | R19 | Kaliteden paketleme ve depoya devir | W20, W23 | doğrulandı | Son kalite → bitmiş lot → satıra rezervasyon; seri/lot okutarak paketleme; kutu/aksesuar/etiket/son kontrol listesi; hazır bitmiş stoktan satış aynı kontrollerden geçer | devices, lots, packages, package_items | T10, shipping.test.ts, e2e | Paketleme iş merkezi olarak rotada değil |
 | R20 | Adres, kargo etiketi, irsaliye ve fatura | W23, W24, W36 | geliştiriliyor | Müşteri teslim adresleri (düzenlenmez, pasife alınır), sevk anında adres kopyası, taşıyıcı ve takip no, tekrar korumalı sevk, irsaliye TASLAĞI ve Code128 koli/seri etiketi | customer_addresses, shipments | shipping.test.ts, e2e | Kargo API'si, e-irsaliye/e-fatura yok (W36) |
 | R21 | Vadeli tahsilat ve müşteri/muhasebe hatırlatması | W24 | planlandı | — | — | — | — |
-| R22 | Ürün maliyeti ve satış kârlılığı | W25 | planlandı | — | — | — | — |
+| R22 | Ürün maliyeti ve satış kârlılığı | W25 | geliştiriliyor | Lot maliyet defteri (açılış/mal kabul/fatura/elle/üretim), sürümlü politika, sürümlü ve deterministik iş emri maliyeti (malzeme + işçilik + genel gider), birim maliyet sağlam adede, sevk edilen satırda gelir/SMM/brüt kâr/marj | lot_costs, cost_policies, cost_runs | costing.test.ts, e2e | Dış hizmet (W32), kur (W24), resmî fatura/alacak kaydı yok |
 | R23 | Kısmi teslim, iptal, iade, hurda ve karantina | W18–W24, W34 | geliştiriliyor | Kısmi kalite reddi, karantina, hurda, sipariş iptali; sipariş bazında kısmi teslim izni, sevkiyat iptali, teslim teyidi ve teslim sorunu | stock_moves, reservations, shipments | T05, iptal testi, shipping.test.ts, returns.test.ts | Müşteri iadesi var (W34); iade faturası/alacak belgesi resmî değil (W24/W36) |
 | R24 | Geçmiş üretimlerin sisteme alınması | W09, W39 | geliştiriliyor | Açılış stoğu içe aktarımı dış etki üretmez, tekrar dosya reddedilir | import_jobs | T13 | Geçmiş üretim aktarımı yok (W39) |
 | R25 | Birebir, grup ve kayıt bazlı mesajlaşma | W27 | planlandı | — | — | — | — |
@@ -36,7 +36,7 @@ Durumlar: planlandı · geliştiriliyor · doğrulandı · entegrasyon bekliyor 
 | R29 | Görev, Gantt, bağımlılık ve kapasite | W16, W26 | planlandı | — | — | — | — |
 | R30 | Bütün birimlerde import/export ve rapor çıktısı | W09 ve bütün modüller | geliştiriliyor | BOM ve açılış stoğu import; stok CSV export (formül kaçışlı) | import_jobs | T13, BOM testi | Diğer modüller |
 | R31 | Revizyon, üretim, işlem ve onay logları | W08, W13, W20 | geliştiriliyor | Değişmez olay defteri; revizyon, stok, onay, operasyon, test, yetki olayları | events, stock_moves, test_runs | Değişmezlik testi | Dosya/sürüm logu yok |
-| R32 | Fire, yeniden işleme ve kâr analizi | W25, W30 | planlandı | — | — | — | — |
+| R32 | Fire, yeniden işleme ve kâr analizi | W25, W30 | geliştiriliyor | Metrik sözlüğü v1: hurda, ilk testte başarı, yeniden işleme, komponent firesi, zamanında teslim, iade oranı; pay/payda/tanım/kapsam ve kaynak kayıtlar | — | costing.test.ts, e2e | Bütçe sapması (bütçe modülü yok), prototip/pilot/seri ayrımı yok |
 | R33 | Her yönetici raporunda stratejik AI bölümü | W30 | planlandı | — | — | — | — |
 | R34 | Haftalık, aylık, yıllık ekip performansı | W26, W25, W30 | planlandı | — | — | — | — |
 | R35 | AI önerisi onayı ve gerçekleşen etki takibi | W31 | planlandı | — | — | — | — |
