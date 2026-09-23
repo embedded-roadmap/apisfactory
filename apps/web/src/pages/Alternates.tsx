@@ -98,7 +98,7 @@ function AlternateCard({ a, onDone }: { a: any; onDone: () => void }) {
   );
 }
 
-function ItemPicker({ label, value, onChange }: { label: string; value: any | null; onChange: (i: any | null) => void }) {
+export function ItemPicker({ label, value, onChange }: { label: string; value: any | null; onChange: (i: any | null) => void }) {
   const [text, setText] = useState("");
   const q = useQuery({ queryKey: ["items", text], queryFn: () => get<any[]>(`/api/items?q=${encodeURIComponent(text)}`), enabled: text.length >= 2 && !value });
   if (value) return <div className="field">{label}<div><b className="mono">{value.code}</b> {value.name} <button type="button" className="link" onClick={() => onChange(null)}>değiştir</button></div></div>;
