@@ -107,7 +107,12 @@ async function seedDemo() {
       await createUser(client, { email, name, password: DEMO_PASSWORD, companyId: a.companyId, roles, roleIds: a.roleIds });
     }
     await client.query(`select set_config('app.company_id', $1, false)`, [a.companyId]);
-    await client.query(`insert into customers (company_id, code, name) values ($1, 'MUS-001', 'DEMO Müşteri Otomasyon Ltd.')`, [a.companyId]);
+    const cust = await client.query(`insert into customers (company_id, code, name) values ($1, 'MUS-001', 'DEMO Müşteri Otomasyon Ltd.') returning id`, [a.companyId]);
+    // Sentetik teslim adresi (gerçek kişi/firma verisi değildir)
+    await client.query(
+      `insert into customer_addresses (company_id, customer_id, label, recipient, line1, district, city, is_default) values ($1, $2, 'Merkez depo (DEMO)', 'Demo Teslim Alan', 'Örnek OSB 1. Cad. No:1', 'Tuzla', 'İstanbul', true)`,
+      [a.companyId, cust.rows[0].id],
+    );
     // Sentetik komponentler: gerçek MPN'ler hakkında uyumluluk iddiası taşımaz (prompt §31).
     for (const [code, name, mfr, mpn] of [
       ["CMP-MCU-01", "MCU 32-bit QFN-48 (DEMO)", "DemoSemi", "DS32F100-Q48"],

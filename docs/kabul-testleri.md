@@ -13,7 +13,7 @@ Yalnızca gerçekten çalıştırılan testler “doğrulandı” yazılır. Kom
 | T07 | AI alternatifinde pin/elektriksel uyumsuzluk | Fark görünür; onaysız dizgi engellenir | planlandı | — |
 | T08 | Alternatif Rev.B için onaylı, Rev.C'de seçiliyor | Otomatik kullanım engellenir; yeni kapsam gerekir | planlandı | — |
 | T09 | İlk test başarısız, tekrar test başarılı | İlk test başarısızlığı korunur; FPY yanlış yükselmez | doğrulandı | production.test.ts › T09 ve T10 |
-| T10 | Son kaliteyi geçmeyen ürüne sevkiyat | Sevk engellenir | doğrulandı | production.test.ts › T09 ve T10 |
+| T10 | Son kaliteyi geçmeyen ürüne sevkiyat | Sevk engellenir | doğrulandı | production.test.ts › T09 ve T10 (hazırlık ve paket okutmasında); shipping.test.ts |
 | T11 | Makara bölme, fason transferi ve iade | Lot zinciri ve miktar dengesi korunur | planlandı | — |
 | T12 | Yanlış firmware veya süresi geçmiş test ekipmanı | Tanımlı uyarı/engel ve olay kaydı oluşur | doğrulandı | production.test.ts › yanlış parça; quality.test.ts › yanlış firmware, kalibrasyon/hizmet dışı; e2e (web) |
 | T13 | Aynı stok/sipariş dosyası yeniden yükleniyor | Kayıt ve miktarlar mükerrer olmaz | doğrulandı | acceptance.test.ts › T13 |

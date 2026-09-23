@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ConfirmResult, ProductSummary, SalesOrder } from "@apisfactory/shared";
 import { get, newKey, post } from "../lib/api";
+import { OrderDelivery } from "./Shipping";
 import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, fmtDate, useCan } from "../lib/ui";
 
 export function SalesPage() {
@@ -140,45 +141,14 @@ export function SalesOrderPage() {
           ))}
         </section>
       ) : o.status === "draft" ? <Loading /> : null}
-      {o.status !== "cancelled" ? <EstimatePanel id={o.id} /> : null}
-      {o.status === "firm" ? <Shipments order={o} /> : null}
+      {!["cancelled", "shipped"].includes(o.status) ? <EstimatePanel id={o.id} /> : null}
+      {["firm", "shipped"].includes(o.status) ? <OrderDelivery order={o as any} /> : null}
       {can("sales.cancel") && ["draft", "firm"].includes(o.status) ? <CancelOrder id={o.id} /> : null}
       <History entityType="sales_order" id={o.id} />
     </>
   );
 }
 
-function Shipments({ order }: { order: SalesOrder }) {
-  const can = useCan();
-  const qc = useQueryClient();
-  const list = useQuery({ queryKey: ["shipments", order.id], queryFn: () => get<any[]>(`/api/sales-orders/${order.id}/shipments`), enabled: can("shipment.view") });
-  const [qty, setQty] = useState("");
-  const [key, setKey] = useState(newKey());
-  const line = order.lines[0]!;
-  const ship = useMutation({
-    mutationFn: () => post(`/api/sales-orders/${order.id}/ship`, { lineId: line.id, qty }, { "idempotency-key": key }),
-    onSuccess: () => { setQty(""); setKey(newKey()); qc.invalidateQueries({ queryKey: ["shipments", order.id] }); qc.invalidateQueries({ queryKey: ["history"] }); },
-  });
-  return (
-    <section className="card">
-      <h2>Sevkiyat</h2>
-      <p className="muted" style={{ margin: 0 }}>Yalnızca bu satıra ayrılmış ve son kaliteden geçmiş bitmiş ürün sevk edilir. İrsaliye/fatura sağlayıcısı bağlı değil; belge <span className="badge mode">TASLAK</span> olarak işaretlenir.</p>
-      {can("shipment.create") ? (
-        <div className="row">
-          <label className="field">Miktar ({line.productCode} Rev.{line.rev})<input inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value)} /></label>
-          <button className="primary" style={{ alignSelf: "flex-end" }} disabled={!qty || ship.isPending} onClick={() => ship.mutate()}>Sevk et</button>
-        </div>
-      ) : null}
-      <ErrorNotice error={ship.error} />
-      {list.data?.length === 0 ? <Empty>Henüz sevkiyat yok.</Empty> : null}
-      <table>
-        <tbody>
-          {list.data?.map((s) => <tr key={s.id}><td className="mono">{s.code}</td><td className="num">{fmt(s.qty)}</td><td><span className="badge mode">{s.documentMode === "draft" ? "TASLAK BELGE" : s.documentMode}</span></td><td className="muted">{fmtDate(s.shippedAt)} · {s.shippedBy}</td></tr>)}
-        </tbody>
-      </table>
-    </section>
-  );
-}
 
 function CancelOrder({ id }: { id: string }) {
   const qc = useQueryClient();

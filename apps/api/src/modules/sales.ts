@@ -298,77 +298,8 @@ export async function salesRoutes(app: FastifyInstance) {
   });
 }
 
-/**
- * Sevkiyat ve sipariş iptali (prompt §12, §17).
- * Sevkiyat yalnızca satıra rezerve edilmiş, son kaliteden geçmiş bitmiş stoktan yapılır (T10).
- * Resmî belge sağlayıcısı bağlı olmadığı için belge "taslak" olarak işaretlenir.
- */
+/** Sipariş iptali (prompt §12). Sevkiyat akışı modules/shipping.ts içindedir. */
 export async function shippingRoutes(app: FastifyInstance) {
-  app.post("/api/sales-orders/:id/ship", async (req) => {
-    const { id } = req.params as { id: string };
-    const input = parse(
-      z.object({ lineId: z.string().uuid(), qty: z.string().regex(/^\d+$/) }),
-      req.body,
-    );
-    return tenant(req, "shipment.create", (db, actor) =>
-      idempotent(db, actor.companyId, "shipment", idempotencyKey(req), async () => {
-        const o = await db.query(`select id, status, code from sales_orders where id = $1 for update`, [id]);
-        if (!o.rows[0]) throw notFound("Satış siparişi");
-        if (o.rows[0].status !== "firm") throw conflict("invalid_transition", "Yalnızca kesinleşmiş sipariş sevk edilir");
-        const line = await db.query(`select id from sales_order_lines where id = $1 and order_id = $2`, [input.lineId, id]);
-        if (!line.rows[0]) throw notFound("Sipariş satırı");
-        const res = await db.query(
-          `select r.id, r.item_id, r.lot_id, r.qty from reservations r join lots l on l.id = r.lot_id
-            where r.demand_type = 'sales_order_line' and r.demand_id = $1 and r.status = 'active' order by l.created_at for update of r`,
-          [input.lineId],
-        );
-        let rest = toMicro(input.qty);
-        const available = res.rows.reduce((a, r) => a + toMicro(r.qty), 0n);
-        if (available < rest) {
-          throw conflict("not_releasable", `Satıra ayrılmış, son kaliteden geçmiş bitmiş ürün ${fromMicro(available)}; ${input.qty} sevk edilemez`);
-        }
-        const finished = (await db.query(`select id from locations where type = 'finished' order by code limit 1`)).rows[0].id;
-        const code = await nextCode(db, actor.companyId, "shipment", "SVK");
-        for (const r of res.rows) {
-          if (rest <= 0n) break;
-          const take = min(rest, toMicro(r.qty));
-          await db.query(
-            `insert into stock_moves (company_id, item_id, lot_id, from_location_id, qty, move_type, ref_type, ref_id, created_by)
-             values (app_company_id(), $1, $2, $3, $4, 'ship', 'sales_order_line', $5, $6)`,
-            [r.item_id, r.lot_id, finished, fromMicro(take), input.lineId, actor.userId],
-          );
-          const left = toMicro(r.qty) - take;
-          if (left === 0n) await db.query(`update reservations set status = 'consumed' where id = $1`, [r.id]);
-          else await db.query(`update reservations set qty = $2 where id = $1`, [r.id, fromMicro(left)]);
-          await db.query(
-            `update devices set status = 'shipped' where id in (select id from devices where finished_lot_id = $1 and status = 'released' order by serial limit $2)`,
-            [r.lot_id, Number(fromMicro(take))],
-          );
-          rest -= take;
-        }
-        const s = await db.query(
-          `insert into shipments (company_id, code, sales_order_id, sales_order_line_id, qty, shipped_by) values (app_company_id(), $1, $2, $3, $4, $5) returning id`,
-          [code, id, input.lineId, input.qty, actor.userId],
-        );
-        await recordEvent(db, actor, { entityType: "sales_order", entityId: id, eventType: "shipped", after: { shipment: code, lineId: input.lineId, qty: input.qty, document: "draft" } });
-        await enqueue(db, actor.companyId, "shipment.created", { shipmentId: s.rows[0].id });
-        return { id: s.rows[0].id, code, qty: input.qty, documentMode: "draft" };
-      }),
-    );
-  });
-
-  app.get("/api/sales-orders/:id/shipments", async (req) => {
-    const { id } = req.params as { id: string };
-    return tenant(req, "shipment.view", async (db) => {
-      const r = await db.query(
-        `select s.id, s.code, s.qty, s.document_mode as "documentMode", s.shipped_at as "shippedAt", u.name as "shippedBy"
-           from shipments s left join users u on u.id = s.shipped_by where s.sales_order_id = $1 order by s.shipped_at`,
-        [id],
-      );
-      return r.rows;
-    });
-  });
-
   /**
    * İptal: fiziksel hareketler silinmez. Rezervasyonlar bırakılır; başlamamış üretim ihtiyacı ve açık talepler iptal edilir.
    * Başlamış iş emri ve onaylanmış satın alma talebi otomatik geri alınmaz; etki listesi ve görev olarak döner.
@@ -381,8 +312,10 @@ export async function shippingRoutes(app: FastifyInstance) {
       const order = o.rows[0];
       if (!order) throw notFound("Satış siparişi");
       if (order.status === "cancelled") throw conflict("invalid_transition", "Sipariş zaten iptal");
-      const shipped = await db.query(`select count(*)::int as n from shipments where sales_order_id = $1`, [id]);
+      const shipped = await db.query(`select count(*)::int as n from shipments where sales_order_id = $1 and status in ('shipped', 'delivered', 'problem')`, [id]);
       if (shipped.rows[0].n > 0) throw conflict("already_shipped", "Sevkiyatı yapılmış sipariş iptal edilemez; iade süreci ayrıdır");
+      const openSh = await db.query(`select code from shipments where sales_order_id = $1 and status in ('preparing', 'packed')`, [id]);
+      if (openSh.rows[0]) throw conflict("open_shipment", `Açık sevkiyat ${openSh.rows[0].code} var; önce sevkiyatı iptal edin`);
       const impact = { releasedReservations: 0, cancelledNeeds: 0, cancelledPurchaseRequests: 0, workOrdersInProgress: [] as string[], approvedPurchaseRequests: [] as string[] };
       const lines = await db.query(`select id from sales_order_lines where order_id = $1`, [id]);
       for (const l of lines.rows) {

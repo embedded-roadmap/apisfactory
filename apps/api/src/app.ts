@@ -1,3 +1,4 @@
+import { packagingRoutes } from "./modules/shipping";
 import { qualityRoutes } from "./modules/quality";
 import { changeRoutes } from "./modules/changes";
 import { leadTimeRoutes } from "./modules/leadtime";
@@ -50,5 +51,6 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(qualityRoutes);
   await app.register(changeRoutes);
   await app.register(leadTimeRoutes);
+  await app.register(packagingRoutes);
   return app;
 }

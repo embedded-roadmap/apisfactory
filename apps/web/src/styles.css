@@ -109,3 +109,17 @@ tr.click:hover td { background: var(--surface-2); }
   .grid2, .grid4 { grid-template-columns: 1fr; }
   .content { padding: 16px; }
 }
+
+/* Yazdırma: irsaliye taslağı ve paket etiketleri */
+.print { display: flex; flex-direction: column; gap: 16px; }
+.sheet { position: relative; background: #fff; color: #000; border: 1px solid #ccc; border-radius: 8px; padding: 20px; display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+.sheet table th, .sheet table td { color: #000; border-color: #ddd; }
+.sheet.label { width: 100mm; min-height: 70mm; }
+.watermark { position: absolute; right: 16px; bottom: 8px; font-weight: 800; color: #c0392b; letter-spacing: 0.08em; font-size: 12px; }
+.watermark.small { font-size: 10px; }
+@media print {
+  .side, .top, .no-print { display: none !important; }
+  .main, .content { padding: 0 !important; margin: 0 !important; }
+  body { background: #fff; }
+  .sheet { border: none; page-break-after: always; }
+}

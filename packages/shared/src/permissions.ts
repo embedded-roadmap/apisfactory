@@ -24,6 +24,8 @@ export const PERMISSIONS = [
   "sales.cancel",
   "shipment.view",
   "shipment.create",
+  "shipment.deliver",
+  "customer.address.manage",
   // Üretim ve son kalite
   "production.view",
   "production.plan",
@@ -107,11 +109,11 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
   },
   warehouse: {
     name: { tr: "Depo", en: "Warehouse" },
-    permissions: ["product.view", "inventory.view", "inventory.receive", "inventory.import", "task.view", "production.view", "inventory.issue", "sales.view", "shipment.create", "shipment.view"],
+    permissions: ["product.view", "inventory.view", "inventory.receive", "inventory.import", "task.view", "production.view", "inventory.issue", "sales.view", "shipment.create", "shipment.view", "shipment.deliver"],
   },
   sales: {
     name: { tr: "Satış", en: "Sales" },
-    permissions: ["product.view", "inventory.view", "sales.view", "sales.create", "sales.confirm", "sales.cancel", "shipment.view", "task.view", "field.price.view", "sales.promise"],
+    permissions: ["product.view", "inventory.view", "sales.view", "sales.create", "sales.confirm", "sales.cancel", "shipment.view", "task.view", "field.price.view", "sales.promise", "customer.address.manage", "shipment.deliver"],
   },
   purchasing: {
     name: { tr: "Satın alma", en: "Purchasing" },

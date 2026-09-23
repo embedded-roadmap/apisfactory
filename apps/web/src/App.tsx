@@ -16,6 +16,7 @@ import { EventsPage } from "./pages/Events";
 import { ProductionPage, WorkOrderPage } from "./pages/Production";
 import { AdminPage, PasswordPage } from "./pages/Admin";
 import { QualityPage } from "./pages/Quality";
+import { ShipmentPage, ShipmentPrintPage, ShipmentsPage } from "./pages/Shipping";
 import { ChangePage, ChangesPage } from "./pages/Changes";
 
 function useAuthState() {
@@ -98,6 +99,7 @@ const NAV: { to: string; key: string; perm?: Permission }[] = [
   { to: "/quality", key: "nav.quality", perm: "production.view" },
   { to: "/changes", key: "nav.changes", perm: "change.view" },
   { to: "/sales", key: "nav.sales", perm: "sales.view" },
+  { to: "/shipments", key: "nav.shipments", perm: "shipment.view" },
   { to: "/purchasing", key: "nav.purchasing", perm: "purchase.view" },
   { to: "/imports", key: "nav.imports" },
   { to: "/events", key: "nav.events", perm: "audit.view" },
@@ -165,6 +167,9 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/events" element={<EventsPage />} />
               <Route path="/production" element={<ProductionPage />} />
               <Route path="/production/:id" element={<WorkOrderPage />} />
+              <Route path="/shipments" element={<ShipmentsPage />} />
+              <Route path="/shipments/:id" element={<ShipmentPage />} />
+              <Route path="/shipments/:id/print" element={<ShipmentPrintPage />} />
               <Route path="/quality" element={<QualityPage />} />
               <Route path="/changes" element={<ChangesPage />} />
               <Route path="/changes/:id" element={<ChangePage />} />

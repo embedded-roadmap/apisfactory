@@ -166,7 +166,10 @@ describe("Satıştan üretime, son kaliteye ve sevkiyata", () => {
     expect(st.scrapped).toBe(1);
 
     // T10: serbest bırakılmadan sevkiyat yapılamaz
-    const early = await call(w.app, "warehouse@a.test", A, "POST", `/api/sales-orders/${orderId}/ship`, { lineId, qty: "1" });
+    const noAddr = await call(w.app, "warehouse@a.test", A, "POST", `/api/sales-orders/${orderId}/shipments`, { lines: [{ lineId, qty: "1" }] });
+    expect(noAddr.body.error.code).toBe("address_required");
+    expectOk(await call(w.app, "sales@a.test", A, "POST", `/api/customers/${customerId}/addresses`, { label: "Merkez", recipient: "Depo sorumlusu", line1: "Organize Sanayi 1. Cad. No:5", city: "Kocaeli" }));
+    const early = await call(w.app, "warehouse@a.test", A, "POST", `/api/sales-orders/${orderId}/shipments`, { lines: [{ lineId, qty: "1" }] });
     expect(early.status).toBe(409);
     expect(early.body.error.code).toBe("not_releasable");
     const tooEarlyRelease = await call(w.app, "quality@a.test", A, "POST", `/api/work-orders/${woId}/release-to-stock`);
@@ -177,12 +180,20 @@ describe("Satıştan üretime, son kaliteye ve sevkiyata", () => {
     expect(released.stats.released).toBe(2);
 
     // Serbest bırakılan 2 adet satıra ayrıldı; 3 istenirse reddedilir, 2 sevk edilir
-    const tooMany = await call(w.app, "warehouse@a.test", A, "POST", `/api/sales-orders/${orderId}/ship`, { lineId, qty: "3" });
+    const tooMany = await call(w.app, "warehouse@a.test", A, "POST", `/api/sales-orders/${orderId}/shipments`, { lines: [{ lineId, qty: "3" }] });
     expect(tooMany.body.error.code).toBe("not_releasable");
-    const sh = expectOk(await call(w.app, "warehouse@a.test", A, "POST", `/api/sales-orders/${orderId}/ship`, { lineId, qty: "2" }, { "idempotency-key": "ship-1" }));
-    expect(sh.documentMode).toBe("draft");
-    const again = expectOk(await call(w.app, "warehouse@a.test", A, "POST", `/api/sales-orders/${orderId}/ship`, { lineId, qty: "2" }, { "idempotency-key": "ship-1" }));
+    const sh = expectOk(await call(w.app, "warehouse@a.test", A, "POST", `/api/sales-orders/${orderId}/shipments`, { lines: [{ lineId, qty: "2" }] }, { "idempotency-key": "ship-1" }));
+    const again = expectOk(await call(w.app, "warehouse@a.test", A, "POST", `/api/sales-orders/${orderId}/shipments`, { lines: [{ lineId, qty: "2" }] }, { "idempotency-key": "ship-1" }));
     expect(again.code).toBe(sh.code);
+    // Hurdaya ayrılan cihaz pakete giremez
+    const scrap = await call(w.app, "warehouse@a.test", A, "POST", `/api/packages/${sh.packages[0].id}/items`, { code: serials[2] });
+    expect(scrap.body.error.code).toBe("not_released");
+    for (const sn of [serials[0], serials[1]]) expectOk(await call(w.app, "warehouse@a.test", A, "POST", `/api/packages/${sh.packages[0].id}/items`, { code: sn }));
+    expectOk(await call(w.app, "warehouse@a.test", A, "POST", `/api/packages/${sh.packages[0].id}/close`, { checklist: { box: true, accessories: true, label: true, inspection: true } }));
+    expectOk(await call(w.app, "warehouse@a.test", A, "POST", `/api/shipments/${sh.id}/pack-complete`));
+    const shipped = expectOk(await call(w.app, "warehouse@a.test", A, "POST", `/api/shipments/${sh.id}/ship`, { carrier: "Test kargo" }));
+    expect(shipped.status).toBe("shipped");
+    expect(shipped.documentMode).toBe("draft");
     const list = expectOk(await call(w.app, "sales@a.test", A, "GET", `/api/sales-orders/${orderId}/shipments`));
     expect(list).toHaveLength(1);
   });
