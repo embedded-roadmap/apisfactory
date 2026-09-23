@@ -232,7 +232,7 @@ function DeviceRow({ d, plan, ctx, onDone }: { d: any; plan: any | null; ctx: Te
   const send = (result?: "pass" | "fail") => act.mutate(() => post(`/api/devices/${d.serial}/test`, { ...ctx, result, measurements: measurements() }));
   return (
     <tr>
-      <td className="mono">{d.serial}</td>
+      <td className="mono"><Link to={`/devices/${d.serial}`}>{d.serial}</Link></td>
       <td><StateBadge value={d.status} prefix="dev" /></td>
       <td className="muted">{runs.map((r) => `#${r.runNo} ${r.result === "pass" ? "geçti" : "kaldı"}`).join(" · ") || "test yok"}</td>
       <td>

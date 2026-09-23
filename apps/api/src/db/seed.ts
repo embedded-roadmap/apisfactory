@@ -47,6 +47,7 @@ export async function createCompany(client: pg.Client, input: { code: string; na
     ["URT", "Üretim hattı", "production"],
     ["FSN", "Fason üretici", "subcontractor"],
     ["BTM", "Bitmiş ürün deposu", "finished"],
+    ["IAD", "İade kabul alanı", "returns"],
   ]) {
     const l = await client.query(`insert into locations (company_id, site_id, code, name, type) values ($1, $2, $3, $4, $5) returning id`, [
       companyId,

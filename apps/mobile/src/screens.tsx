@@ -163,6 +163,8 @@ export function ReceiveScreen() {
         </View>
       </View>
       <Button title="Kabul et (kontrole al)" primary busy={receive.isPending} disabled={!supplier || !item || !qty || !lot} onPress={() => { setDone(null); receive.mutate(); }} />
+      <RmaReceive />
+
       <Scanner
         visible={scan !== null}
         onClose={() => setScan(null)}
@@ -514,5 +516,34 @@ function WorkOrderScreen({ id, perms, onBack }: { id: string; perms: Set<string>
 
       <Scanner visible={scan !== null} onClose={() => setScan(null)} onScan={(v) => (scan === "lot" ? setLotCode(v) : setSerial(v))} />
     </ScrollView>
+  );
+}
+
+/** İade teslim alma: açık iadeler; teslim alınan ürün iade kabul alanına girer (satılabilir stok değişmez). */
+function RmaReceive() {
+  const qc = useQueryClient();
+  const list = useQuery({ queryKey: ["rmasOpen"], queryFn: () => api<any[]>("GET", "/api/rmas?status=open") });
+  const [code, setCode] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const receive = useMutation({
+    mutationFn: (id: string) => api<any>("POST", `/api/rmas/${id}/receive`, {}),
+    onSuccess: (r) => { setMsg(`${r.code} teslim alındı → iade kabul alanı. Kalite incelemesi bekliyor.`); setCode(""); qc.invalidateQueries({ queryKey: ["rmasOpen"] }); },
+  });
+  const rows = (list.data ?? []).filter((r) => !code || r.serial === code.trim() || r.lotNo === code.trim() || r.code === code.trim());
+  if (!list.data?.length) return null;
+  return (
+    <View style={s.card}>
+      <Text style={s.h2}>İade teslim al</Text>
+      <Field label="Seri / lot / iade no ile süz" value={code} onChangeText={setCode} autoCapitalize="characters" />
+      <ErrorBox error={receive.error} />
+      {msg ? <OkBox>{msg}</OkBox> : null}
+      {rows.map((r) => (
+        <View key={r.id} style={{ gap: 6, paddingVertical: 6, borderTopWidth: 1, borderColor: c.line }}>
+          <Text style={s.text}>{r.code} · {r.customerName}</Text>
+          <Text style={s.mono}>{r.serial ?? `${r.lotNo} × ${Number(r.qty)}`} · {r.productCode}</Text>
+          <Button title="Teslim al" primary busy={receive.isPending} onPress={() => receive.mutate(r.id)} />
+        </View>
+      ))}
+    </View>
   );
 }

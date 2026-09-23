@@ -41,6 +41,7 @@ export function InventoryPage() {
               <Stat label="Serbest (ayrılmamış)" v={avail.data.available} />
               <Stat label="Giriş kontrolünde" v={avail.data.inspection} />
               <Stat label="Karantina" v={avail.data.quarantine} />
+              <Stat label="İade kabul" v={avail.data.returns} />
               <Stat label="Fasonda" v={avail.data.subcontractor} />
               <Stat label="Açık alım" v={avail.data.openPurchase} />
             </div>

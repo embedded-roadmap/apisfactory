@@ -26,7 +26,7 @@ export type SalesOrderState = (typeof SALES_ORDER_STATES)[number];
 export const BOM_STATES = ["draft", "published", "archived"] as const;
 export type BomState = (typeof BOM_STATES)[number];
 
-export const LOCATION_TYPES = ["stock", "incoming_inspection", "quarantine", "production", "subcontractor", "finished"] as const;
+export const LOCATION_TYPES = ["stock", "incoming_inspection", "quarantine", "production", "subcontractor", "finished", "returns"] as const;
 export type LocationType = (typeof LOCATION_TYPES)[number];
 /** Yalnızca bu konum tiplerindeki miktar "kullanılabilir" sayılır (prompt §4, §14). */
 export const USABLE_LOCATION_TYPES: readonly LocationType[] = ["stock", "finished"];

@@ -1,17 +1,29 @@
 # Devam notu
 
-Son güncelleme: 23.09.2026 — oturum 4 (paketleme, adres, kısmi sevk, etiket ve irsaliye taslağı)
+Son güncelleme: 23.09.2026 — oturum 5 (müşteri iadesi, garanti, saha arızası, cihaz geçmişi)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 49/49 test geçti (acceptance 16, production 10, quality 14, shipping 9), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 61/61 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
 | Playwright uçtan uca (oturum 3) | Firmware girişi → test planı oluştur/yayımla → devir → iş emri → yanlış firmware engeli → planla test (geçti/kaldı) → ECR ile iş emri bekletme → Ar-Ge kararı → satış termini (hesaplanamadı → temin süresi → aralık) → taahhüt risk uyarısı; sayfa hatası yok |
 | Playwright uçtan uca (oturum 4) | Satış → iş emri → test → son kalite → sipariş ekranından sevkiyat hazırlığı → yanlış kod okutma engeli → 2 seri okutma → kontrol listesiyle paket kapatma → paketleme tamam → taşıyıcı + takip no ile sevk → irsaliye taslağı ve Code128 etiket; sipariş kısmi sevkte açık kalır; sayfa hatası yok |
+| Playwright uçtan uca (oturum 5) | Satış: seri okut → müşteri/sevk/garanti bulunur → iade aç; depo teslim alır; kalite inceler (üretim hatası) → tamir + alacak belgesi talebi; teknisyen tamir + tekrar test; depo geri gönderir → kapandı; cihaz geçmişi sevk + iade + olaylar; sayfa hatası yok |
+
+## Oturum 5'te eklenenler (W34)
+
+1. **İade açma** (satış, kalite): seri veya bitmiş ürün lotu okutulur; müşteri, sevkiyat, sipariş ve garanti sistemden bulunur. Müşteride olmayan cihaz, başka müşteri, aynı seri için ikinci açık iade, sevk edilenden fazla lot iadesi reddedilir. Garanti (ürünün garanti süresi, varsayılan 24 ay) açılışta hesaplanıp saklanır.
+2. **Teslim alma** (depo, web + mobil "Mal kabul"): ürün yeni **İade kabul alanına (IAD)** girer; kullanılabilir stok değişmez; cihaz "iade geldi".
+3. **İnceleme** (kalite): bulgu + kök neden (üretim, komponent, tasarım, firmware, müşteri hasarı, arıza bulunamadı, belirlenemedi). Tasarım/komponent/firmware/üretim bulgusunda tek tıkla Ar-Ge'ye değişiklik talebi.
+4. **Karar**: olduğu gibi iade · tamir (teknisyen tamir + tekrar test; geçmezse yeniden karar) · değişim (serbest, pakette olmayan, başka işe ayrılmamış seri/lot; iade gelen karantinaya) · hurda · stoğa al (yalnızca "arıza bulunamadı" + tekrar test geçti).
+5. **Alacak belgesi talebi**: garanti dışı veya müşteri hasarında açılamaz; açılırsa muhasebeye görev düşer (resmî belge yok).
+6. **Geri gönderim**: müşterinin aktif adresi kopyalanır; taşıyıcı + takip no; tekrar istek ikinci stok hareketi oluşturmaz.
+7. **Cihaz geçmişi sayfası** (`/devices/:seri`): ürün, BOM, iş emri, testler (plan, ekipman, firmware, ölçüm), malzeme lotları, sevkiyat (müşteri) ve iadeler, olaylar. İş emri ekranındaki seriler bu sayfaya bağlı.
+8. Stok uygunluğunda "İade kabul" kovası; yeni izinler `rma.view`, `rma.create`, `rma.decide`.
 
 ## Oturum 4'te eklenenler (W23)
 
@@ -54,12 +66,13 @@ Son güncelleme: 23.09.2026 — oturum 4 (paketleme, adres, kısmi sevk, etiket 
 - Test planı olmayan iş emrinde sonuç elle seçilir (geriye uyumluluk). Devir için test planı zorunlu değil — politika kararı gerekir.
 - Test istasyonu API/CSV adaptörü yok; ölçüm elle veya mobil formdan girilir.
 - Rota şablonu sabit; revizyon bazında rota düzenleme yok.
-- Kargo API'si, e-irsaliye/e-fatura yok (W36); belge TASLAK. Müşteri iadesi (W34) ve çevrimdışı mobil kuyruk yok.
+- Kargo API'si, e-irsaliye/e-fatura yok (W36); belge TASLAK. Çevrimdışı mobil kuyruk yok.
+- İade: tamir sonrası tekrar test yalnızca geçti/kaldı olarak girilir (test planı ölçümleri iade tamirine bağlanmadı). Karantinadaki iade ürününün sonraki analizi ve hurda/yeniden işleme kararı stok ekranından yapılmalı (ayrı akış yok). Geri gönderim sevkiyat listesinde ayrı satır olarak görünmez; iade kaydında izlenir.
 - Paketleme rotada ayrı iş merkezi değil; sevkiyat modülünde yapılır.
 
 ## Sıradaki uygulanabilir iş
 
-1. W34: müşteri iadesi / saha arızası (seri → geçmiş; inceleme, tamir, değişim, hurda; iade malı sağlam stoğa otomatik girmez).
+1. W25: tarihsel maliyet, marj ve metrik sözlüğü (hurda, FPY, yeniden işleme, iade oranı; formüller §18).
 2. W22: test istasyonu CSV/API adaptörü (test modunda), ölçümün cihaz serisiyle eşleşmesi.
 3. W10: genel akış motoru (zaman aşımı, vekil, üst sorumluya bildirim).
 4. W20: revizyon bazında rota ve standart süre düzenleme; iş merkezi kapasitesinin rotadan okunması.

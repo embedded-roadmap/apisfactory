@@ -26,6 +26,9 @@ export const PERMISSIONS = [
   "shipment.create",
   "shipment.deliver",
   "customer.address.manage",
+  "rma.view",
+  "rma.create",
+  "rma.decide",
   // Üretim ve son kalite
   "production.view",
   "production.plan",
@@ -83,7 +86,7 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
     name: { tr: "Yönetici", en: "Manager" },
     permissions: [
       "product.view", "bom.view", "inventory.view", "sales.view", "purchase.view", "production.view", "shipment.view",
-      "task.view", "audit.view", "export.run", "field.cost.view", "field.price.view", "change.view",
+      "task.view", "audit.view", "export.run", "field.cost.view", "field.price.view", "change.view", "rma.view",
     ],
   },
   rd: {
@@ -91,7 +94,7 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
     permissions: [
       "product.view", "product.create", "product.approve.rd", "bom.view", "bom.import", "bom.publish",
       "inventory.view", "purchase.view", "task.view", "field.cost.view",
-      "quality.plan.manage", "change.view", "change.create", "change.decide",
+      "quality.plan.manage", "change.view", "change.create", "change.decide", "rma.view",
     ],
   },
   production: {
@@ -101,19 +104,19 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
   technician: {
     name: { tr: "Teknisyen / operatör", en: "Technician / operator" },
     // Ticari ve mali alanlar varsayılan kapalı.
-    permissions: ["product.view", "bom.view", "inventory.view", "task.view", "production.view", "production.execute", "production.test.record", "change.view", "change.create"],
+    permissions: ["product.view", "bom.view", "inventory.view", "task.view", "production.view", "production.execute", "production.test.record", "change.view", "change.create", "rma.view"],
   },
   quality: {
     name: { tr: "Kalite", en: "Quality" },
-    permissions: ["product.view", "product.approve.quality", "bom.view", "inventory.view", "quality.incoming.decide", "task.view", "production.view", "production.test.record", "quality.final.release", "quality.plan.manage", "equipment.manage", "change.view", "change.create"],
+    permissions: ["product.view", "product.approve.quality", "bom.view", "inventory.view", "quality.incoming.decide", "task.view", "production.view", "production.test.record", "quality.final.release", "quality.plan.manage", "equipment.manage", "change.view", "change.create", "rma.view", "rma.create", "rma.decide"],
   },
   warehouse: {
     name: { tr: "Depo", en: "Warehouse" },
-    permissions: ["product.view", "inventory.view", "inventory.receive", "inventory.import", "task.view", "production.view", "inventory.issue", "sales.view", "shipment.create", "shipment.view", "shipment.deliver"],
+    permissions: ["product.view", "inventory.view", "inventory.receive", "inventory.import", "task.view", "production.view", "inventory.issue", "sales.view", "shipment.create", "shipment.view", "shipment.deliver", "rma.view"],
   },
   sales: {
     name: { tr: "Satış", en: "Sales" },
-    permissions: ["product.view", "inventory.view", "sales.view", "sales.create", "sales.confirm", "sales.cancel", "shipment.view", "task.view", "field.price.view", "sales.promise", "customer.address.manage", "shipment.deliver"],
+    permissions: ["product.view", "inventory.view", "sales.view", "sales.create", "sales.confirm", "sales.cancel", "shipment.view", "task.view", "field.price.view", "sales.promise", "customer.address.manage", "shipment.deliver", "rma.view", "rma.create"],
   },
   purchasing: {
     name: { tr: "Satın alma", en: "Purchasing" },
@@ -121,6 +124,6 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
   },
   accounting: {
     name: { tr: "Muhasebe", en: "Accounting" },
-    permissions: ["product.view", "sales.view", "purchase.view", "task.view", "export.run", "field.cost.view", "field.price.view"],
+    permissions: ["product.view", "sales.view", "purchase.view", "task.view", "export.run", "field.cost.view", "field.price.view", "rma.view"],
   },
 };

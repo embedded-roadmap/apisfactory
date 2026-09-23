@@ -28,6 +28,7 @@ export async function itemAvailability(db: Db, itemId: string): Promise<ItemAvai
        coalesce((select sum(qty) from bal where type = 'incoming_inspection'), 0) as inspection,
        coalesce((select sum(qty) from bal where type = 'quarantine'), 0) as quarantine,
        coalesce((select sum(qty) from bal where type = 'subcontractor'), 0) as subcontractor,
+       coalesce((select sum(qty) from bal where type = 'returns'), 0) as returns,
        coalesce((select sum(qty_ordered - qty_received) from purchase_order_lines where item_id = $1 and status = 'open'), 0) as open_purchase`,
     [itemId, USABLE],
   );
@@ -42,6 +43,7 @@ export async function itemAvailability(db: Db, itemId: string): Promise<ItemAvai
     inspection: n(x.inspection),
     quarantine: n(x.quarantine),
     subcontractor: n(x.subcontractor),
+    returns: n(x.returns),
     openPurchase: n(x.open_purchase),
   };
 }

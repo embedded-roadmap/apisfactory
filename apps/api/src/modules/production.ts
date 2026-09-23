@@ -569,7 +569,20 @@ export async function productionRoutes(app: FastifyInstance) {
           where mi.work_order_id = $1 group by i.code, i.mpn, l.lot_no order by i.code`,
         [d.rows[0].workOrderId],
       );
-      return { ...d.rows[0], testRuns: runs.rows, materialLots: lots.rows };
+      // Sahadaki yaşam: sevkiyat (müşteri) ve iade geçmişi (prompt §17 son paragraf, §22)
+      const shipments = await db.query(
+        `select s.code, s.status, s.shipped_at as "shippedAt", s.tracking_no as "trackingNo", c.name as "customerName", so.code as "salesOrderCode"
+           from package_items pi join packages pk on pk.id = pi.package_id join shipments s on s.id = pk.shipment_id
+           join sales_orders so on so.id = s.sales_order_id join customers c on c.id = so.customer_id
+          where pi.device_id = $1 and s.status in ('shipped', 'delivered', 'problem') order by s.shipped_at`,
+        [d.rows[0].id],
+      );
+      const rmas = await db.query(
+        `select r.id, r.code, r.kind, r.status, r.cause, r.disposition, r.in_warranty as "inWarranty", r.created_at as "createdAt", r.complaint, r.finding
+           from rmas r where r.device_id = $1 or r.replacement_device_id = $1 order by r.created_at`,
+        [d.rows[0].id],
+      );
+      return { ...d.rows[0], testRuns: runs.rows, materialLots: lots.rows, shipments: shipments.rows, rmas: rmas.rows };
     });
   });
 }

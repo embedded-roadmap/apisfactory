@@ -107,6 +107,7 @@ export type ItemAvailability = {
   inspection: string;
   quarantine: string;
   subcontractor: string;
+  returns: string;
   openPurchase: string;
 };
 

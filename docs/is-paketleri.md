@@ -35,7 +35,7 @@
 | W31 | AI önerisini göreve alma ve etki ölçme | W10, W26, W30 | Yönetim | planlandı | — |
 | W32 | Fason portalı, dosya ve malzeme teyidi | W13, W15, W18, W20 | Üretim, satın alma | planlandı | — |
 | W33 | MSL, raf ömrü, ambalaj ve koşul | W15, W19 | Depo, kalite | planlandı | — |
-| W34 | İade, saha arızası ve cihaz geçmişi | W21, W23, W24 | Kalite, satış | planlandı | — |
+| W34 | İade, saha arızası ve cihaz geçmişi | W21, W23, W24 | Kalite, satış | geliştiriliyor | Seri/lot iadesi, garanti hesabı, iade kabul alanı, inceleme + kök neden + ECR, tamir/değişim/hurda/stoğa al/olduğu gibi iade, geri gönderim, cihaz geçmişi (web + mobil teslim alma); alacak belgesi yalnızca muhasebe görevi |
 | W35 | Senaryo, maliyet/termin kıyası ve uygulama | W16, W25, W29 | Yönetim | planlandı | — |
 | W36 | Muhasebe/e-belge ve kargo adaptörleri | W03, W23, W24 | Muhasebe, depo | entegrasyon bekliyor | Sağlayıcı kararı açık |
 | W37 | Güvenlik, şirket ayrımı, yedek ve kesinti | W05, W06, W08 | Teknik lider | geliştiriliyor | RLS şirket ayrımı, oturum iptali; yedek/kurtarma yok |

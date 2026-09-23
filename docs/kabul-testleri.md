@@ -20,7 +20,7 @@ Yalnızca gerçekten çalıştırılan testler “doğrulandı” yazılır. Kom
 | T14 | Tarihsel sipariş aktarılıyor | Dış sipariş, ödeme ve müşteri mesajı gitmez | planlandı | — |
 | T15 | Distribütör API'si kesiliyor | Bilinmiyor/eski veri gösterilir; sıfır stok sayılmaz | planlandı | — |
 | T16 | Ödeme/belge/sipariş yanıtı zaman aşımına uğruyor | Uzlaştırma yapılmadan ikinci dış işlem gönderilmez | planlandı | — |
-| T17 | Kısmi satış ve müşteri iadesi | Miktar, bakiye ve doğru parti maliyeti korunur | planlandı | — |
+| T17 | Kısmi satış ve müşteri iadesi | Miktar, bakiye ve doğru parti maliyeti korunur | geliştiriliyor | shipping.test.ts (kısmi sevk), returns.test.ts (iade miktar/stok dengesi). Parti maliyeti W25 ile |
 | T18 | Başka şirket/rol dosya veya API kaydına erişiyor | API, arama, dosya, export ve AI yollarında erişim yok | doğrulandı | acceptance.test.ts › T18 (API, arama, doğrudan kimlik, veri tabanı RLS). Dosya/export/AI yolları henüz yok |
 | T19 | Toplantı kaydı kapalı veya erişim kaldırılmış | Kayıt oluşturulmaz; yetkisiz indirme engellenir | planlandı | — |
 | T20 | Gantt görevlerine döngüsel bağımlılık ekleniyor | Kaydetme reddedilir; taahhüt sessiz değişmez | planlandı | — |

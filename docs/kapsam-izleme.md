@@ -27,7 +27,7 @@ Durumlar: planlandı · geliştiriliyor · doğrulandı · entegrasyon bekliyor 
 | R20 | Adres, kargo etiketi, irsaliye ve fatura | W23, W24, W36 | geliştiriliyor | Müşteri teslim adresleri (düzenlenmez, pasife alınır), sevk anında adres kopyası, taşıyıcı ve takip no, tekrar korumalı sevk, irsaliye TASLAĞI ve Code128 koli/seri etiketi | customer_addresses, shipments | shipping.test.ts, e2e | Kargo API'si, e-irsaliye/e-fatura yok (W36) |
 | R21 | Vadeli tahsilat ve müşteri/muhasebe hatırlatması | W24 | planlandı | — | — | — | — |
 | R22 | Ürün maliyeti ve satış kârlılığı | W25 | planlandı | — | — | — | — |
-| R23 | Kısmi teslim, iptal, iade, hurda ve karantina | W18–W24, W34 | geliştiriliyor | Kısmi kalite reddi, karantina, hurda, sipariş iptali; sipariş bazında kısmi teslim izni, sevkiyat iptali, teslim teyidi ve teslim sorunu | stock_moves, reservations, shipments | T05, iptal testi, shipping.test.ts | Müşteri iadesi yok (W34) |
+| R23 | Kısmi teslim, iptal, iade, hurda ve karantina | W18–W24, W34 | geliştiriliyor | Kısmi kalite reddi, karantina, hurda, sipariş iptali; sipariş bazında kısmi teslim izni, sevkiyat iptali, teslim teyidi ve teslim sorunu | stock_moves, reservations, shipments | T05, iptal testi, shipping.test.ts, returns.test.ts | Müşteri iadesi var (W34); iade faturası/alacak belgesi resmî değil (W24/W36) |
 | R24 | Geçmiş üretimlerin sisteme alınması | W09, W39 | geliştiriliyor | Açılış stoğu içe aktarımı dış etki üretmez, tekrar dosya reddedilir | import_jobs | T13 | Geçmiş üretim aktarımı yok (W39) |
 | R25 | Birebir, grup ve kayıt bazlı mesajlaşma | W27 | planlandı | — | — | — | — |
 | R26 | Sesli/görüntülü görüşme ve ekran paylaşımı | W28 | planlandı | — | — | — | — |
