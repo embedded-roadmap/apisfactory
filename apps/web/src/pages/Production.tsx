@@ -5,6 +5,7 @@ import { get, newKey, post } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, fmtDate, useCan } from "../lib/ui";
 import { History } from "./Sales";
 import { WorkOrderCost } from "./Reports";
+import { Discussion } from "../components/Discussion";
 
 export function ProductionPage() {
   const can = useCan();
@@ -169,6 +170,7 @@ export function WorkOrderPage() {
         </table>
       </section>
       {can("field.cost.view") ? <WorkOrderCost woId={wo.id} /> : null}
+      <Discussion entityType="work_order" entityId={wo.id} />
       <History entityType="work_order" id={wo.id} />
     </>
   );

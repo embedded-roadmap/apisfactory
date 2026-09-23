@@ -5,6 +5,7 @@ import { get, newKey, post } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, fmtDate, useCan } from "../lib/ui";
 import { History } from "./Sales";
 import { addressText } from "./Shipping";
+import { Discussion } from "../components/Discussion";
 
 export const KIND: Record<string, string> = { return: "İade", warranty: "Garanti", field_failure: "Saha arızası" };
 export const CAUSE: Record<string, string> = {
@@ -233,6 +234,7 @@ export function ReturnPage() {
           </div>
         </section>
       ) : null}
+      <Discussion entityType="rma" entityId={r.id} />
       <History entityType="rma" id={r.id} />
     </>
   );

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BomDiff, BomVersion, ProductSummary, RevisionDetail } from "@apisfactory/shared";
 import { get, post } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, fmtDate, useCan } from "../lib/ui";
+import { Discussion } from "../components/Discussion";
 
 export function ProductsPage() {
   const can = useCan();
@@ -105,7 +106,7 @@ export function ProductDetailPage() {
               </div>
               <div className="row">
                 {can("product.create") && ["development", "pilot", "rejected", "draft"].includes(r.status) ? (
-                  <select aria-label="BOM sürümü bağla" value={r.bomVersionId ?? ""} onChange={(e) => act.mutate(() => post(`/api/revisions/${r.id}/bom`, { bomVersionId: e.target.value }))}>
+                  <select aria-label="BOM sürümü bağla" value={r.bomVersionId ?? ""} onChange={(e) => { const bomVersionId = e.target.value; act.mutate(() => post(`/api/revisions/${r.id}/bom`, { bomVersionId })); }}>
                     <option value="" disabled>BOM seç</option>
                     {p.boms.map((b) => <option key={b.id} value={b.id}>BOM v{b.versionNo} ({b.status === "published" ? "yayımlı" : "taslak"})</option>)}
                   </select>
@@ -162,6 +163,7 @@ export function ProductDetailPage() {
       </section>
       {selectedBom && !diffWith ? <BomView id={selectedBom} /> : null}
       {selectedBom && diffWith ? <BomDiffView a={diffWith} b={selectedBom} boms={p.boms} setA={setDiffWith} onClose={() => setDiffWith(null)} /> : null}
+      <Discussion entityType="product" entityId={p.id} />
     </>
   );
 }

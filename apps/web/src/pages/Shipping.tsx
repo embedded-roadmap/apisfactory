@@ -48,14 +48,14 @@ export function OrderDelivery({ order }: { order: SalesOrder & { customerId: str
       <div className="row" style={{ alignItems: "flex-end" }}>
         <label className="field" style={{ flex: 1 }}>Teslim adresi
           <select disabled={!can("sales.create") || !s || ["shipped", "cancelled"].includes(s.status)} value={current?.id ?? ""}
-            onChange={(e) => act.mutate(() => post(`/api/sales-orders/${order.id}/delivery`, { addressId: e.target.value }))}>
+            onChange={(e) => { const addressId = e.target.value; act.mutate(() => post(`/api/sales-orders/${order.id}/delivery`, { addressId })); }}>
             <option value="" disabled>{active.length ? "Seçin" : "Kayıtlı adres yok"}</option>
             {active.map((a) => <option key={a.id} value={a.id}>{a.label}{a.isDefault ? " (varsayılan)" : ""} — {addressText(a)}</option>)}
           </select>
         </label>
         <label className="row" style={{ gap: 6 }}>
           <input type="checkbox" style={{ minHeight: 0 }} disabled={!can("sales.create") || !s} checked={!!s?.allowPartial}
-            onChange={(e) => act.mutate(() => post(`/api/sales-orders/${order.id}/delivery`, { allowPartial: e.target.checked }))} />
+            onChange={(e) => { const allowPartial = e.target.checked; act.mutate(() => post(`/api/sales-orders/${order.id}/delivery`, { allowPartial })); }} />
           Kısmi teslim kabul
         </label>
         {can("customer.address.manage") ? <button onClick={() => setAdding(!adding)}>Adres ekle</button> : null}

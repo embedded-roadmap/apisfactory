@@ -71,6 +71,7 @@ export function TasksScreen({ go }: { go: (tab: string) => void }) {
         <View style={{ gap: 8 }}>
           <Text style={s.h1}>İşlerim</Text>
           <ErrorBox error={q.error} />
+          <Mentions />
           {q.data?.length === 0 ? <Text style={s.muted}>Açık işiniz yok.</Text> : null}
         </View>
       }
@@ -582,6 +583,27 @@ function RmaReceive() {
           <Text style={s.text}>{r.code} · {r.customerName}</Text>
           <Text style={s.mono}>{r.serial ?? `${r.lotNo} × ${Number(r.qty)}`} · {r.productCode}</Text>
           <Button title="Teslim al" primary busy={receive.isPending} onPress={() => receive.mutate(r.id)} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** Bahsedildiğim okunmamış mesajlar: kısa önizleme, okundu işaretleme (ayrıntı ve yanıt web'de, kayıt ekranında). */
+function Mentions() {
+  const q = useQuery({ queryKey: ["mentions"], queryFn: () => api<any[]>("GET", "/api/mentions?unread=true") });
+  const read = useMutation({ mutationFn: (m: any) => api("POST", `/api/threads/${m.entityType}/${m.entityId}/read`, {}), onSuccess: () => q.refetch() });
+  if (!q.data?.length) return null;
+  return (
+    <View style={[s.card, { gap: 6 }]}>
+      <Text style={s.label}>Bahsedildiğiniz mesajlar ({q.data.length})</Text>
+      {q.data.map((m) => (
+        <View key={m.messageId} style={{ gap: 4, borderTopWidth: 1, borderColor: c.line, paddingTop: 6 }}>
+          <Text style={s.text}>{m.label ?? m.entityType}</Text>
+          <Text style={{ color: c.muted }}>{m.authorName}: {m.excerpt ?? "geri çekildi"}</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Okundu: ${m.label}`} onPress={() => read.mutate(m)} style={[s.btn, { minHeight: 44, alignSelf: "flex-start" }]}>
+            <Text style={s.btnText}>Okundu</Text>
+          </Pressable>
         </View>
       ))}
     </View>

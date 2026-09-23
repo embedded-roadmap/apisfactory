@@ -174,3 +174,7 @@ button.kpi:disabled { cursor: default; opacity: 1; }
 .org-node { background: var(--surface-2); border-radius: 10px; padding: 8px 12px; display: inline-flex; flex-direction: column; gap: 6px; }
 .org-people { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 button.mini { min-height: 0; padding: 0 6px; margin-left: 4px; border: none; background: transparent; }
+
+/* Metin görünümlü düğme (konuşma: yanıtla, geri çek) */
+button.link { background: none; border: none; padding: 0 2px; min-height: 0; color: var(--text, inherit); text-decoration: underline; cursor: pointer; font: inherit; font-size: 13px; }
+textarea { width: 100%; font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line, #ccc); background: var(--surface, #fff); color: inherit; box-sizing: border-box; }

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmtDate, useCan } from "../lib/ui";
 import { History } from "./Sales";
+import { Discussion } from "../components/Discussion";
 
 const URGENCY: Record<string, string> = { low: "Düşük", normal: "Normal", high: "Yüksek", critical: "Kritik" };
 const DECISION: Record<string, string> = {
@@ -127,6 +128,7 @@ export function ChangePage() {
           <p className="muted" style={{ margin: 0 }}>Kalıcı revizyon kararında Ar-Ge'ye "yeni revizyon aç" görevi düşer; BOM bu ekrandan değişmez.</p>
         </section>
       ) : <div className="notice">Karar yetkiniz yok; talep Ar-Ge değerlendirmesinde.</div>}
+      <Discussion entityType="change_request" entityId={c.id} />
       <History entityType="change_request" id={c.id} />
     </>
   );

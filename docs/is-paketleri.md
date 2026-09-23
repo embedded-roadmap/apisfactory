@@ -28,8 +28,8 @@
 | W24 | Fatura eşleştirme, ödeme, tahsilat ve vade | W18, W19, W23 | Muhasebe | planlandı | — |
 | W25 | Tarihsel maliyet, marj ve metrik sözlüğü | W11, W20, W21, W24 | Muhasebe, yönetim | geliştiriliyor | Lot maliyeti, sürümlü politika ve maliyet hesabı, kârlılık, metrik sözlüğü + kaynaklar; bütçe, kur, dış hizmet yok |
 | W26 | Görev, Gantt, takvim ve organizasyon | W06, W10, W16 | Birim yöneticileri | geliştiriliyor | Günlük liste (sistem + planlı görev), planlı görev, bağımlılık, baz plan, Gantt (sürükleme + etki), organizasyon şeması, ekip performansı (web; mobilde görev ilerletme) |
-| W27 | Mesaj, grup, kayıt konuşması ve medya | W06, W08 | Bütün birimler | planlandı | — |
-| W28 | Görüşme, kayıt, transkript ve not | W27, W03 | Ürün sahibi | planlandı | — |
+| W27 | Mesaj, grup, kayıt konuşması ve medya | W06, W08 | Bütün birimler | geliştiriliyor | Kayda bağlı konuşma, yetkili bahsetme, okundu, değişmez mesaj + gerekçeli geri çekme; grup kanalı ve medya yok |
+| W28 | Görüşme, kayıt, transkript ve not | W27, W03 | Ürün sahibi | geliştiriliyor | Toplantı: gündem, katılım, tutanak, karar/aksiyon → görev, değişmez kapanış; görüşme/kayıt/transkript bağlayıcısı yok |
 | W29 | Alternatif AI, kanıt ve teknik onay | W13, W17, W21 | Ar-Ge, üretim | planlandı | — |
 | W30 | Yönetici raporu ve stratejik AI | W25, W08 | Yönetim | planlandı | — |
 | W31 | AI önerisini göreve alma ve etki ölçme | W10, W26, W30 | Yönetim | planlandı | — |

@@ -5,6 +5,7 @@ import type { ConfirmResult, ProductSummary, SalesOrder } from "@apisfactory/sha
 import { get, newKey, post } from "../lib/api";
 import { OrderDelivery } from "./Shipping";
 import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, fmtDate, useCan } from "../lib/ui";
+import { Discussion } from "../components/Discussion";
 
 export function SalesPage() {
   const can = useCan();
@@ -144,6 +145,7 @@ export function SalesOrderPage() {
       {!["cancelled", "shipped"].includes(o.status) ? <EstimatePanel id={o.id} /> : null}
       {["firm", "shipped"].includes(o.status) ? <OrderDelivery order={o as any} /> : null}
       {can("sales.cancel") && ["draft", "firm"].includes(o.status) ? <CancelOrder id={o.id} /> : null}
+      <Discussion entityType="sales_order" entityId={o.id} />
       <History entityType="sales_order" id={o.id} />
     </>
   );

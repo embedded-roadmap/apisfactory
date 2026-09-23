@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { get } from "../lib/api";
+import { MentionsCard } from "../components/Discussion";
 import { Empty, ErrorNotice, Loading, PageHeader, fmtDate, useMe } from "../lib/ui";
 
 const LINK: Record<string, (id: string) => string> = {
@@ -14,6 +15,7 @@ const LINK: Record<string, (id: string) => string> = {
   sales_order: (id) => `/sales/${id}`,
   change_request: (id) => `/changes/${id}`,
   rma: (id) => `/returns/${id}`,
+  meeting: (id) => `/planning/meetings/${id}`,
   shipment: (id) => `/shipments/${id}`,
 };
 const PRI: Record<string, string> = { low: "Düşük", normal: "Normal", high: "Yüksek", critical: "Kritik" };
@@ -27,6 +29,8 @@ export function TodayPage() {
   return (
     <>
       <PageHeader title={`Günaydın, ${me?.user.name.split(" ")[0] ?? ""}`} sub="Rollerinize atanmış açık işler" />
+      <MentionsCard />
+      <UpcomingMeetings />
       <section className="card">
         <h2>Bana atanan işler</h2>
         {tasks.isLoading ? <Loading /> : <ErrorNotice error={tasks.error} />}
@@ -82,5 +86,19 @@ export function TodayPage() {
         </table>
       </section>
     </>
+  );
+}
+
+function UpcomingMeetings() {
+  const q = useQuery({ queryKey: ["meetings", "mine-upcoming"], queryFn: () => get<any[]>("/api/meetings?scope=upcoming") });
+  const mine = (q.data ?? []).filter((m) => m.isParticipant).slice(0, 5);
+  if (!mine.length) return null;
+  return (
+    <section className="card">
+      <h2>Yaklaşan toplantılarım</h2>
+      <table><tbody>{mine.map((m) => (
+        <tr key={m.id}><td className="mono"><Link to={`/planning/meetings/${m.id}`}>{m.code}</Link></td><td>{m.title}</td><td>{fmtDate(m.startsAt)}</td><td className="muted">{m.location ?? ""}</td></tr>
+      ))}</tbody></table>
+    </section>
   );
 }

@@ -1,12 +1,12 @@
 # Devam notu
 
-Son güncelleme: 23.09.2026 — oturum 11 (devir politikası: test planı, firmware, SHA, rota zorunluluğu ve muafiyet)
+Son güncelleme: 23.09.2026 — oturum 12 (kayda bağlı mesajlaşma ve toplantı → görev)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 98/98 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 104/104 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
@@ -19,6 +19,15 @@ Son güncelleme: 23.09.2026 — oturum 11 (devir politikası: test planı, firmw
 | Playwright uçtan uca (oturum 9) | Kalite TST-01'e bağlayıcı tanımlar (Türkçe sütun adları, virgüllü ondalık, `SN:` öneki, mV/mA → V/A ölçek) ve API belirteci üretir; teknisyen CSV yükler → önizleme: 2 kaydedilecek (biri limit dışı kaldı), yanlış firmware reddi, bilinmeyen seri → onay; aynı dosya tekrar yüklenince mevcut yükleme açılır; istasyon API'si belirteçle üçüncü cihazı kaydeder; cihaz geçmişinde "istasyon CSV/API" kaynağı ve olayda `api` aktörü; sayfa hatası yok |
 | Playwright uçtan uca (oturum 10) | Üretim sorumlusu Rotalar ekranında revizyon seçer (varsayılan şablon + 50 adet süre özeti) → taslak v1: THT operasyonunu siler, SMT birim süresini ve montaj talimatını girer, kaydeder, gerekçeyle yayımlar; açılan iş emri "rota v1 (sabit)", plan/gerçek süre ve talimatı gösterir; v2 (SMT yavaş) yayımlanınca v1 arşive geçer, açık iş emri v1'de kalır; sayfa hatası yok |
 | Playwright uçtan uca (oturum 11) | Yönetici Akış & onay ekranında devir politikası v1 yayımlar (test planı + firmware + rota); Ar-Ge'nin devre gönderimi `handover_requirements` ile engellenir, ürün ekranında devir paketi kontrol listesi eksikleri gösterir; firmware ve test planı tamamlanır, yönetici rota için gerekçeli muafiyet verir → "hazır"; üç onayla yayımlanan revizyonda yayım anındaki kontrol listesi (politika v1, muafiyet ve veren) görünür; sayfa hatası yok |
+| Playwright uçtan uca (oturum 12) | Üretim sorumlusu toplantı açar (gündem, 3 katılımcı), karar ve aksiyon (sorumlu depo, 2 gün) ekler, notları kaydeder; katılım işaretlenmeden kapanış reddedilir; toplantı konuşmasında teknisyenden bahseder; tutanak kapanınca aksiyon depoya görev olur (Günlük işler'de); teknisyen "Bahsedildiğiniz mesajlar"dan konuşmaya gider, yanıtlar, bildirim okundu olur; sayfa hatası yok |
+
+## Oturum 12'de eklenenler (W27/W28)
+
+1. **Kayda bağlı konuşma** (iş emri, değişiklik talebi, iade, sipariş, ürün, görev, toplantı sayfalarında): kaydı görme izni olan okur/yazar; yanıt, bahsetme (@kişi), okunmamış işareti. Bahsedilen kişinin de kaydı görme izni olmalı (yoksa `mention_no_access`; içerik sızdırılmaz). Mesaj metni veri tabanında değişmez/silinmez; yazar gerekçeyle geri çeker (kayıt ve olay kalır). Tekrar korumalı gönderim.
+2. **Bahsetmeler**: Günlük işler'de "Bahsedildiğiniz mesajlar" (web) ve İşlerim'de (mobil, okundu işaretleme); konuşma açılınca okunur. Bildirim çıkış kutusuna test modunda.
+3. **Toplantı** (`/planning/meetings`, açma `task.manage`): gündem, zaman, yer, bağlı kayıt, katılımcılar (davet bildirimi test modunda), katılım (katıldı/katılmadı/mazeretli), tutanak notu, karar/aksiyon/bilgi maddeleri (aksiyon sorumlu + bitiş zorunlu). Düzenleme: düzenleyen veya görev yöneticisi.
+4. **Tutanağı kapat**: tüm katılım işaretli ve en az bir madde olmalı; aksiyonlar sorumlusuna toplantıya bağlı, bitiş tarihli görev olarak açılır; tutanak, katılım ve maddeler veri tabanı tetikleyicisiyle değişmez. Gerekçeli iptal. Günlük işler'de "Yaklaşan toplantılarım".
+5. Düzeltme: birkaç ekranda seçim kutusunun değeri istek gönderilirken geri alınıyordu (kontrollü bileşende olay değerinin geç okunması) — BOM bağlama, teslimat adresi/kısmi sevk, kontrol listesi.
 
 ## Oturum 11'de eklenenler (devir politikası)
 
@@ -131,13 +140,14 @@ Son güncelleme: 23.09.2026 — oturum 11 (devir politikası: test planı, firmw
 - Kargo API'si, e-irsaliye/e-fatura yok (W36); belge TASLAK. Çevrimdışı mobil kuyruk yok.
 - İade: tamir sonrası tekrar test yalnızca geçti/kaldı olarak girilir (test planı ölçümleri iade tamirine bağlanmadı). Karantinadaki iade ürününün sonraki analizi ve hurda/yeniden işleme kararı stok ekranından yapılmalı (ayrı akış yok). Geri gönderim sevkiyat listesinde ayrı satır olarak görünmez; iade kaydında izlenir.
 - Paketleme rotada ayrı iş merkezi değil; sevkiyat modülünde yapılır.
-- Planlama: Gantt'ta kaynak kapasitesi ve vardiya yok; iş emri çubukları salt okunur; mesajlaşma/toplantı (W27/W28) yok.
+- Planlama: Gantt'ta kaynak kapasitesi ve vardiya yok; iş emri çubukları salt okunur.
+- İletişim: kayıttan bağımsız birebir/grup sohbet, dosya/fotoğraf eki, anlık (canlı) güncelleme yok (sayfa yenilenince/işlemde güncellenir); sesli/görüntülü görüşme, kayıt ve transkript yok (dış bağlayıcı gerekir); takvim (ICS/Outlook) daveti yok; mobilde konuşma yazma yok.
 - Akış: politika yalnızca beş onay türü için; satın alma dışındaki türlerde parasal limit yok. Yükseltme tek seviye (üst rolün de süresi dolarsa ikinci yükseltme yok). Bildirim yalnızca çıkış kutusunda (e-posta/anlık bildirim bağlanmadı). Vekâlet mobilde gösterilmiyor. Tahmini tutar son lot maliyetinden; tedarikçi teklifi/fiyat listesi yok (W18).
 - Maliyet: kur dönüşümü yok (farklı para birimli satır "hesaplanamadı"); dış hizmet (fason) maliyeti yok; iade tamiri ve iade hurdası maliyete yansımıyor; bütçe modülü yok; prototip/pilot/seri ayrımı ve ekip performansı raporu (W26) yok. İşçilik yalnızca operasyon başlat/tamamla süresinden; hızlı tıklanan operasyon süre biriktirmez (uyarı olarak eksik listesine düşer). Mobilde maliyet ekranı yok (ofis işi).
 
 ## Sıradaki uygulanabilir iş
 
-1. W27/W28: iç mesajlaşma (kayda bağlı konuşma, bahsetme) ve toplantı kararlarının göreve dönüşmesi.
-2. W20 devamı: gerçekleşen operasyon sürelerinden standart süre önerisi (sapma raporu), paralel operasyon.
-3. W22 devamı: istasyon PC'si için klasör izleyen küçük ajan, operatör eşlemesi.
-4. W18: teklif, satın alma siparişi, teyit ve gecikme takibi (test bağlayıcısıyla).
+1. W18: teklif, satın alma siparişi, tedarikçi teyidi ve gecikme takibi (test bağlayıcısıyla; gerçek gönderim yok).
+2. W27 devamı: konuşmaya dosya/fotoğraf eki (W08 depolama), grup kanalları.
+3. W20 devamı: gerçekleşen operasyon sürelerinden standart süre önerisi (sapma raporu).
+4. W22 devamı: istasyon PC'si için klasör izleyen küçük ajan, operatör eşlemesi.

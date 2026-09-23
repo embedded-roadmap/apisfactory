@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmtDate, useCan } from "../lib/ui";
 import { History } from "./Sales";
+import { Discussion } from "../components/Discussion";
 
 export const PRIORITY: Record<string, string> = { low: "Düşük", normal: "Normal", high: "Yüksek", critical: "Kritik" };
 export const TASK_STATUS: Record<string, string> = { open: "Açık", in_progress: "Sürüyor", blocked: "Engelli", done: "Tamamlandı", cancelled: "İptal" };
@@ -18,12 +19,13 @@ const addDays = (d: string, n: number) => { const x = new Date(`${d}T00:00:00Z`)
 const diffDays = (a: string, b: string) => Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86400000);
 const today = () => iso(new Date());
 
-function Tabs() {
+export function Tabs() {
   const can = useCan();
   return (
     <div className="row tabs" role="tablist">
       <NavLink to="/planning" end>Görevler</NavLink>
       <NavLink to="/planning/gantt">Gantt</NavLink>
+      <NavLink to="/planning/meetings">Toplantılar</NavLink>
       <NavLink to="/planning/org">Organizasyon</NavLink>
       {can("team.report.view") ? <NavLink to="/planning/team">Ekip performansı</NavLink> : null}
     </div>
@@ -185,7 +187,7 @@ export function TaskPage() {
           <h2>Kontrol listesi</h2>
           {t.checklist.map((c: any, i: number) => (
             <label key={i} className="row" style={{ gap: 8 }}>
-              <input type="checkbox" style={{ minHeight: 0 }} checked={c.done} disabled={!active || !manual} onChange={(e) => act.mutate(() => post(`/api/tasks/${id}/checklist`, { index: i, done: e.target.checked }))} />
+              <input type="checkbox" style={{ minHeight: 0 }} checked={c.done} disabled={!active || !manual} onChange={(e) => { const done = e.target.checked; act.mutate(() => post(`/api/tasks/${id}/checklist`, { index: i, done })); }} />
               <span style={c.done ? { textDecoration: "line-through", color: "var(--muted)" } : undefined}>{c.text}</span>
             </label>
           ))}
@@ -244,6 +246,7 @@ export function TaskPage() {
           </div>
         </section>
       ) : null}
+      <Discussion entityType="task" entityId={t.id} />
       <History entityType="task" id={t.id} />
     </>
   );
