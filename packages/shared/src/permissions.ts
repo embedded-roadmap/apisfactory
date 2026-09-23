@@ -63,6 +63,10 @@ export const PERMISSIONS = [
   "invoice.manage",
   "invoice.approve",
   "payment.record",
+  // Alacaklar (müşteri faturası, tahsilat kaydı, kredi)
+  "receivable.view",
+  "receivable.manage",
+  "credit.override",
   // Genel
   "task.view",
   "audit.view",
@@ -103,7 +107,7 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
     permissions: [
       "product.view", "bom.view", "inventory.view", "sales.view", "purchase.view", "production.view", "shipment.view",
       "task.view", "audit.view", "export.run", "field.cost.view", "field.price.view", "change.view", "rma.view", "cost.manage", "report.view",
-      "task.manage", "org.manage", "team.report.view", "workflow.manage", "delegation.manage", "purchase.request.approve", "purchase.order.manage", "invoice.view", "invoice.approve",
+      "task.manage", "org.manage", "team.report.view", "workflow.manage", "delegation.manage", "purchase.request.approve", "purchase.order.manage", "invoice.view", "invoice.approve", "receivable.view", "credit.override",
     ],
   },
   rd: {
@@ -133,7 +137,7 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
   },
   sales: {
     name: { tr: "Satış", en: "Sales" },
-    permissions: ["product.view", "inventory.view", "sales.view", "sales.create", "sales.confirm", "sales.cancel", "shipment.view", "task.view", "field.price.view", "sales.promise", "customer.address.manage", "shipment.deliver", "rma.view", "rma.create", "report.view"],
+    permissions: ["product.view", "inventory.view", "sales.view", "sales.create", "sales.confirm", "sales.cancel", "shipment.view", "task.view", "field.price.view", "sales.promise", "customer.address.manage", "shipment.deliver", "rma.view", "rma.create", "report.view", "receivable.view"],
   },
   purchasing: {
     name: { tr: "Satın alma", en: "Purchasing" },
@@ -141,7 +145,7 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
   },
   accounting: {
     name: { tr: "Muhasebe", en: "Accounting" },
-    permissions: ["product.view", "sales.view", "purchase.view", "task.view", "export.run", "field.cost.view", "field.price.view", "rma.view", "cost.manage", "lot.cost.record", "report.view", "invoice.view", "invoice.manage", "invoice.approve", "payment.record"],
+    permissions: ["product.view", "sales.view", "purchase.view", "task.view", "export.run", "field.cost.view", "field.price.view", "rma.view", "cost.manage", "lot.cost.record", "report.view", "invoice.view", "invoice.manage", "invoice.approve", "payment.record", "receivable.view", "receivable.manage", "credit.override"],
   },
 };
 

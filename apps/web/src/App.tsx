@@ -19,6 +19,7 @@ import { QualityPage } from "./pages/Quality";
 import { StationPage } from "./pages/Station";
 import { RoutingPage } from "./pages/Routing";
 import { MeetingPage, MeetingsPage } from "./pages/Meetings";
+import { CustomerInvoicePage, CustomerInvoicesPage, ReceivablesAgingPage } from "./pages/Receivables";
 import { AgingPage, ApPolicyPage, InvoicePage, InvoicesPage, NewInvoicePage } from "./pages/Payables";
 import { FollowupsPage, PurchaseOrderPage, PurchaseOrdersPage, RfqPage, RfqsPage, SuppliersPage } from "./pages/Procurement";
 import { GanttPage, OrgPage, PlanningPage, TaskPage, TeamReportPage } from "./pages/Planning";
@@ -113,6 +114,7 @@ const NAV: { to: string; key: string; perm?: Permission }[] = [
   { to: "/returns", key: "nav.returns", perm: "rma.view" },
   { to: "/devices", key: "nav.devices", perm: "production.view" },
   { to: "/purchasing", key: "nav.purchasing", perm: "purchase.view" },
+  { to: "/receivables", key: "nav.receivables", perm: "receivable.view" },
   { to: "/payables", key: "nav.payables", perm: "invoice.view" },
   { to: "/imports", key: "nav.imports" },
   { to: "/reports", key: "nav.reports", perm: "report.view" },
@@ -184,6 +186,9 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/purchasing/orders/:id" element={<PurchaseOrderPage />} />
               <Route path="/purchasing/followups" element={<FollowupsPage />} />
               <Route path="/purchasing/suppliers" element={<SuppliersPage />} />
+              <Route path="/receivables" element={<CustomerInvoicesPage />} />
+              <Route path="/receivables/aging" element={<ReceivablesAgingPage />} />
+              <Route path="/receivables/:id" element={<CustomerInvoicePage />} />
               <Route path="/payables" element={<InvoicesPage />} />
               <Route path="/payables/new" element={<NewInvoicePage />} />
               <Route path="/payables/aging" element={<AgingPage />} />

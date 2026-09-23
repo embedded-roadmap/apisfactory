@@ -3,10 +3,12 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { CreateCustomerInput, CreateSalesOrderInput, USABLE_LOCATION_TYPES, type ConfirmResult, type SalesOrder } from "@apisfactory/shared";
 import { z } from "zod";
 import type { Db } from "../db/pool";
-import { conflict, notFound } from "../lib/errors";
+import { AppError, conflict, notFound } from "../lib/errors";
+import { RuleRejection, withRejectionLog } from "../lib/rejection";
 import { enqueue, idempotent, nextCode, openTask, recordEvent, type Actor } from "../lib/records";
 import { fromMicro, max, min, mul, toMicro } from "../lib/decimal";
 import { can, idempotencyKey, parse, tenant } from "../http/context";
+import { creditStatus } from "./receivables";
 
 const USABLE = USABLE_LOCATION_TYPES as readonly string[];
 
@@ -15,7 +17,8 @@ type LinePlan = ConfirmResult["lines"][number];
 
 async function loadOrder(db: Db, id: string, req: FastifyRequest): Promise<SalesOrder> {
   const o = await db.query(
-    `select so.id, so.code, so.customer_id as "customerId", c.name as "customerName", so.status, so.requested_date as "requestedDate"
+    `select so.id, so.code, so.customer_id as "customerId", c.name as "customerName", so.status, so.requested_date as "requestedDate",
+            so.credit_release_reason as "creditReleaseReason", so.credit_released_at as "creditReleasedAt"
        from sales_orders so join customers c on c.id = so.customer_id where so.id = $1`,
     [id],
   );
@@ -271,9 +274,9 @@ export async function salesRoutes(app: FastifyInstance) {
    */
   app.post("/api/sales-orders/:id/confirm", async (req): Promise<ConfirmResult> => {
     const { id } = req.params as { id: string };
-    return tenant(req, "sales.confirm", (db, actor) =>
+    return withRejectionLog(req, () => tenant(req, "sales.confirm", (db, actor) =>
       idempotent(db, actor.companyId, "sales_confirm", idempotencyKey(req), async () => {
-        const o = await db.query(`select id, status, requested_date, confirm_result from sales_orders where id = $1 for update`, [id]);
+        const o = await db.query(`select id, status, requested_date, confirm_result, customer_id, credit_released_at from sales_orders where id = $1 for update`, [id]);
         const order = o.rows[0];
         if (!order) throw notFound("Satış siparişi");
         if (order.status === "firm") return { ...(order.confirm_result as ConfirmResult), alreadyConfirmed: true };
@@ -286,6 +289,14 @@ export async function salesRoutes(app: FastifyInstance) {
             lines: notReleased.map((l) => ({ lineId: l.id, product: `${l.product_code} Rev.${l.rev}`, status: l.rev_status })),
           });
         }
+        // Kredi kontrolü (müşteri limiti / vadesi geçmiş alacak); yetkili sipariş bazında gerekçeyle serbest bırakabilir.
+        const credit = await creditStatus(db, order.customer_id, id);
+        if (credit.blocked && !order.credit_released_at) {
+          throw new RuleRejection(
+            new AppError(409, "credit_blocked", credit.reasons.join("; "), { credit }),
+            { entityType: "sales_order", entityId: id, eventType: "confirm.rejected.credit", after: { reasons: credit.reasons, exposure: credit.exposure, limit: credit.creditLimit } },
+          );
+        }
         await lockItems(db, lines);
         const plans: LinePlan[] = [];
         for (const l of lines) plans.push(await planLine(db, actor, l, order.requested_date, true));
@@ -296,7 +307,7 @@ export async function salesRoutes(app: FastifyInstance) {
         await enqueue(db, actor.companyId, "sales_order.confirmed", { orderId: id });
         return result;
       }),
-    );
+    ));
   });
 }
 

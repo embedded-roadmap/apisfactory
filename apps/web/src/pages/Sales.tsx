@@ -6,6 +6,7 @@ import { get, newKey, post } from "../lib/api";
 import { OrderDelivery } from "./Shipping";
 import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, fmtDate, useCan } from "../lib/ui";
 import { Discussion } from "../components/Discussion";
+import { OrderCredit } from "./Receivables";
 
 export function SalesPage() {
   const can = useCan();
@@ -86,6 +87,7 @@ export function SalesOrderPage() {
   const confirm = useMutation({
     mutationFn: () => post<ConfirmResult>(`/api/sales-orders/${id}/confirm`, undefined, { "idempotency-key": key }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["order", id] }); qc.invalidateQueries({ queryKey: ["history"] }); },
+    onError: () => qc.invalidateQueries({ queryKey: ["history"] }),
   });
   if (order.isLoading) return <Loading />;
   if (order.error) return <ErrorNotice error={order.error} />;
@@ -110,6 +112,8 @@ export function SalesOrderPage() {
         </div>
       ) : null}
       <ErrorNotice error={confirm.error} />
+      {(confirm.error as any)?.code === "credit_blocked" ? <div className="notice bad">Kredi kontrolü: sipariş kesinleştirilemedi. Muhasebe/yönetici aşağıdan gerekçeyle serbest bırakabilir.</div> : null}
+      {o.status === "draft" ? <OrderCredit order={o as any} /> : null}
       {plan ? (
         <section className="card">
           <div className="row between">
