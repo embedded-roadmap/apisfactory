@@ -1,12 +1,12 @@
 # Devam notu
 
-Son güncelleme: 23.09.2026 — oturum 20 (W38: bağlayıcı operasyon panosu — kota, önbellek isabeti, hata, son etkinlik)
+Son güncelleme: 24.09.2026 — oturum 21 (W29 devamı: alternatif kanıtına datasheet/tartışma eki, mobilde onaylı alternatif lot bilgisi)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 142/142 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6, payables 5, receivables 4, distributors 5, alternates 6, dispatch 5, collaboration 9, ops 4), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 143/143 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6, payables 5, receivables 4, distributors 5, alternates 7, dispatch 5, collaboration 9, ops 4), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
@@ -28,6 +28,13 @@ Son güncelleme: 23.09.2026 — oturum 20 (W38: bağlayıcı operasyon panosu �
 | Playwright uçtan uca (oturum 18) | Muhasebe e-belge bağlayıcısını (Uyumsoft) TEST moduna alır; depo kargo bağlayıcısını (Yurtiçi Kargo) TEST moduna alır; sayfa hatası yok |
 | Playwright uçtan uca (oturum 19) | Üretim yeni kanal açar, fotoğraf ekleyip mesaj gönderir; ek mesajda rozet olarak görünür ve indirilebilir; sayfa hatası yok |
 | Playwright uçtan uca (oturum 20) | Yönetici bağlayıcı panosunu açar; distribütör/e-belge/kargo bölümleri BAĞLANMADI ve sıfır etkinlikle görünür; sayfa hatası yok |
+| Playwright uçtan uca (oturum 21) | Satın alma alternatif önerir, Ar-Ge ve üretim onaylar; üretim kanıt & tartışmayı açıp fotoğraf ekli mesaj gönderir; sayfa hatası yok |
+
+## Oturum 21'de eklenenler (W29 devamı)
+
+1. **Alternatif kaydına kanıt & tartışma**: her alternatif önerisi artık kendi konuşmasına sahip (yeni tablo yok — mevcut mesaj/ek altyapısı `item_alternate` kayıt türü olarak kaydedildi). Ar-Ge/üretim datasheet, test sonucu fotoğrafı vb. ekleyip tartışabilir; yalnız `bom.view` yetkisi olanlar görür.
+2. **Mobil**: iş emri malzeme çıkışı ekranında onaylı alternatiften çıkılan miktar ayrı gösterilir; alternatif lotun okutulabileceği bilgisi eklendi (çıkış zaten kod bazlı olduğundan, onaylı herhangi bir alternatif lotun okutulması sunucu tarafından otomatik doğrulanıyordu — bu oturumda yalnız görünürlük eklendi).
+3. Gerçek AI önerisi hâlâ yok (W30 sonrasına bırakıldı); aday bulma kural tabanlı kalmaya devam ediyor.
 
 ## Oturum 20'de eklenenler (W38)
 
@@ -225,7 +232,7 @@ Son güncelleme: 23.09.2026 — oturum 20 (W38: bağlayıcı operasyon panosu �
 
 ## Sıradaki uygulanabilir iş
 
-1. W29 devamı: alternatif kanıtına datasheet eki, mobilde alternatif lot seçimi, gerçek AI önerisi (W30 sonrası).
-2. W36 devamı: gerçek entegratör/kargo firması sözleşmesi imzalanınca canlı bağlanma (sağlayıcı kararı şirkete ait).
-3. W27 devamı: mobil uygulamaya dosya eki ve kanal desteği (şimdilik yalnız web); video paylaşımı yok (R28).
-4. Kalan planlı iş paketleri için `docs/is-paketleri.md`ye bakın (W03/W30 gibi kalanlar dış karar veya AI kapsamı bekliyor).
+1. W36 devamı: gerçek entegratör/kargo firması sözleşmesi imzalanınca canlı bağlanma (sağlayıcı kararı şirkete ait).
+2. W27 devamı: mobil uygulamaya tam kanal/dosya-eki arayüzü (şimdilik yalnız web; mobilde yalnız bahsetme özeti var).
+3. W33: MSL, raf ömrü, ambalaj ve koşul takibi (depo/kalite, planlandı — henüz başlanmadı).
+4. Kalanların çoğu (W03, W30–W32, W35, W39–W42) dış sağlayıcı kararı, gerçek AI kapsamı veya iş/pilot süreci gerektiriyor; kod ile ilerletilebilecek yeni iş paketi kalmadıkça bu liste güncellenecek.

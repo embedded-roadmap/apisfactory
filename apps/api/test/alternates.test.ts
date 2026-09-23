@@ -131,4 +131,15 @@ describe("Onaylı alternatif parça (W29)", () => {
     const re = expectOk(await call(w.app, "purchasing@a.test", A, "POST", "/api/alternates", { itemId: items["CAP-A"], alternateItemId: items["CAP-B"], reason: "Üretici yeni lotta sapmayı giderdi" }));
     expect(re.status).toBe("proposed");
   });
+
+  it("Oturum 20 devamı (W29): alternatif kaydına kanıt tartışması ve datasheet eki eklenebilir", async () => {
+    const url = `/api/threads/item_alternate/${altId}`;
+    const label = expectOk(await call(w.app, "rd@a.test", A, "GET", url)).label;
+    expect(label).toBe("CMP-ALTPASSIVE-CAP-A → CMP-ALT-CAP-B");
+    const pdf = Buffer.from("%PDF-1.4 test").toString("base64");
+    const msg = expectOk(await call(w.app, "rd@a.test", A, "POST", `${url}/messages`, { body: "Datasheet ekte", attachments: [{ fileName: "datasheet.pdf", contentType: "application/pdf", contentBase64: pdf }] }));
+    expect(msg.attachments).toBe(1);
+    const noAccess = await call(w.app, "sales@a.test", A, "GET", url);
+    expect(noAccess.status).toBe(403); // satış bom.view sahibi değil
+  });
 });

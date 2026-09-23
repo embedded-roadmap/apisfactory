@@ -30,6 +30,13 @@ export const ENTITY: Record<string, { table: string; perm: Permission; label: (r
   task: { table: "tasks", perm: "task.view", select: "title as code", label: (r) => r.code, link: (id) => `/planning/tasks/${id}` },
   meeting: { table: "meetings", perm: "task.view", select: "code || ' ' || title as code", label: (r) => r.code, link: (id) => `/planning/meetings/${id}` },
   channel: { table: "channels", perm: "task.view", select: "code || ' ' || name as code", label: (r) => r.code, link: (id) => `/collaboration/channels/${id}` },
+  item_alternate: {
+    table: "item_alternates",
+    perm: "bom.view",
+    select: "(select concat(i.code, ' → ', x.code) from items i, items x where i.id = item_alternates.item_id and x.id = item_alternates.alternate_item_id) as code",
+    label: (r) => r.code,
+    link: () => `/products/alternates`,
+  },
 };
 
 const MAX_ATTACHMENTS = 3;

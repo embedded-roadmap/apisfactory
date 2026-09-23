@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, fmtDate, useCan } from "../lib/ui";
+import { Discussion } from "../components/Discussion";
 
 const STATUS: Record<string, [string, string]> = {
   proposed: ["Onay bekliyor", "warn"],
@@ -47,6 +48,7 @@ function AlternateCard({ a, onDone }: { a: any; onDone: () => void }) {
   const can = useCan();
   const [note, setNote] = useState("");
   const [revoke, setRevoke] = useState("");
+  const [showDiscussion, setShowDiscussion] = useState(false);
   const act = useMutation({ mutationFn: (fn: () => Promise<unknown>) => fn(), onSuccess: () => { setNote(""); setRevoke(""); onDone(); } });
   const [label, cls] = STATUS[a.status] ?? [a.status, ""];
   const evidenceOk = a.pinCompatible && a.footprintSame && a.electricalEquivalent;
@@ -90,6 +92,8 @@ function AlternateCard({ a, onDone }: { a: any; onDone: () => void }) {
           <button className="danger" disabled={act.isPending || revoke.trim().length < 5} onClick={() => { const r = revoke; act.mutate(() => post(`/api/alternates/${a.id}/revoke`, { reason: r })); }}>Geri al</button>
         </div>
       ) : null}
+      <button type="button" className="link" onClick={() => setShowDiscussion(!showDiscussion)}>{showDiscussion ? "Kanıt & tartışmayı gizle" : "Kanıt & tartışma (datasheet, test sonucu ekle)"}</button>
+      {showDiscussion ? <Discussion entityType="item_alternate" entityId={a.id} /> : null}
     </div>
   );
 }

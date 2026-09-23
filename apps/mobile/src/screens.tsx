@@ -438,10 +438,14 @@ function WorkOrderScreen({ id, perms, onBack }: { id: string; perms: Set<string>
           <Text style={s.h2}>Malzeme çıkışı</Text>
           {wo.materials.map((m: any) => (
             <View key={m.itemId} style={[s.row, { justifyContent: "space-between" }]}>
-              <Text style={s.mono}>{m.itemCode}</Text>
+              <View>
+                <Text style={s.mono}>{m.itemCode}</Text>
+                {Number(m.issuedAsAlternate) > 0 ? <Text style={s.muted}>onaylı alternatif: {Number(m.issuedAsAlternate)}</Text> : null}
+              </View>
               <Text style={{ color: m.complete ? c.ok : c.warn, fontWeight: "700" }}>{m.complete ? "Tamam" : `Kalan ${Number(m.remaining)}`}</Text>
             </View>
           ))}
+          <Text style={s.muted}>Onaylı alternatif parçanın lotu da okutulabilir; sunucu ürün kapsamındaki onayı otomatik doğrular.</Text>
           <View style={s.row}>
             <View style={{ flex: 1 }}>
               <Field label="Lot" value={lotCode} onChangeText={setLotCode} autoCapitalize="characters" />
