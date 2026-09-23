@@ -19,7 +19,7 @@
 | W15 | Stok, lot, sahiplik, rezervasyon ve hareket | W07, W09 | Depo | geliştiriliyor | Lot, konum tipi, hareket defteri, rezervasyon, negatif stok engeli |
 | W16 | Net ihtiyaç, kapasite ve termin | W12, W14, W15 | Üretim, satış | geliştiriliyor | Net ihtiyaç, iptal; termin aralığı (malzeme + iş merkezi + kuyruk + tatil), taahhüt; Gantt yok |
 | W17 | Distribütör veri adaptörleri ve güncellik | W03, W12 | Satın alma | entegrasyon bekliyor | Bağlayıcı durumu BAĞLANMADI olarak gösteriliyor |
-| W18 | Teklif, alım, teyit ve gecikme | W10, W15, W17 | Satın alma | geliştiriliyor | Talep onayı; teklif, sipariş gönderimi, teyit yok |
+| W18 | Teklif, alım, teyit ve gecikme | W10, W15, W17 | Satın alma | geliştiriliyor | Tedarikçi, RFQ + teklif karşılaştırma, gerekçeli seçim, sipariş (test gönderimi), değişmez teyit + kayma etkisi, takip taraması, mal kabul bağlantısı; gerçek gönderim ve distribütör API'si yok |
 | W19 | Mal kabul, karantina, kontrol ve iade | W15, W18 | Depo, kalite | geliştiriliyor | Mal kabul, giriş kalite, karantina; iade yok |
 | W20 | İş emri, rota, teknisyen ve tüketim | W13, W16, W19 | Üretim | geliştiriliyor | İş emri, revizyon bazında sürümlü rota + standart süre (iş emrine sabitlenir, termin/kuyruk bundan), sıra, malzeme çıkışı (yanlış parça, karantina, başka işe ayrılmış engeli), teknisyen web+mobil, plan/gerçek süre, tüketim |
 | W21 | Kalite reçetesi, uygunsuzluk ve yeniden işleme | W19, W20 | Kalite | geliştiriliyor | Sürümlü test planı, sunucu kararı, uygunsuzluk, yeniden işleme/hurda, son kalite; ara kontrol listesi yok |

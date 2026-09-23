@@ -3,6 +3,7 @@ import { stationRoutes } from "./modules/station";
 import { routingRoutes } from "./modules/routing";
 import { handoverRoutes } from "./modules/handover";
 import { collaborationRoutes } from "./modules/collaboration";
+import { procurementRoutes } from "./modules/procurement";
 import { planningRoutes } from "./modules/planning";
 import { costingRoutes } from "./modules/costing";
 import { returnRoutes } from "./modules/returns";
@@ -68,5 +69,6 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(routingRoutes);
   await app.register(handoverRoutes);
   await app.register(collaborationRoutes);
+  await app.register(procurementRoutes);
   return app;
 }

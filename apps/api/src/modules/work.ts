@@ -88,6 +88,7 @@ export async function workRoutes(app: FastifyInstance) {
       { key: "mouser", name: "Mouser", mode: "not_connected", note: "W17" },
       { key: "farnell", name: "Farnell", mode: "not_connected", note: "W17" },
       { key: "nexar", name: "Nexar / Octopart", mode: "not_connected", note: "W17" },
+      { key: "supplier_orders", name: "Tedarikçi sipariş gönderimi", mode: "test", note: "Sipariş, hatırlatma ve iptal yalnızca çıkış kutusuna yazılır; tedarikçiye gerçek gönderim yok" },
       { key: "einvoice", name: "e-Fatura / e-İrsaliye", mode: "not_connected", note: "W36 — sağlayıcı kararı açık" },
       await (async () => {
         const n = (await db.query(`select count(*)::int as n from test_station_connectors where status = 'active'`)).rows[0].n as number;

@@ -8,6 +8,7 @@ import { safeCell } from "../lib/csv";
 import { fromMicro, toMicro } from "../lib/decimal";
 import { can, idempotencyKey, parse, tenant } from "../http/context";
 import { recordLotCost } from "./costing";
+import { refreshPoStatus } from "./procurement";
 
 const USABLE = USABLE_LOCATION_TYPES as readonly string[];
 
@@ -110,6 +111,13 @@ export async function inventoryRoutes(app: FastifyInstance) {
     return tenant(req, "inventory.receive", (db, actor) =>
       idempotent(db, actor.companyId, "receipt", idempotencyKey(req), async () => {
         const inspectionLoc = await locationByType(db, "incoming_inspection");
+        if (input.purchaseOrderLineId) {
+          // Sipariş satırı açık olmalı ve kalemi eşleşmeli (yanlış satıra teslim yazılmaz).
+          const pl = (await db.query(`select item_id, status from purchase_order_lines where id = $1 for update`, [input.purchaseOrderLineId])).rows[0];
+          if (!pl) throw notFound("Sipariş satırı");
+          if (pl.status !== "open") throw conflict("po_line_closed", "Sipariş satırı kapalı veya iptal");
+          if (input.lines.some((l) => l.itemId !== pl.item_id)) throw conflict("po_item_mismatch", "Kabul edilen kalem sipariş satırındaki kalemle aynı değil");
+        }
         const code = await nextCode(db, actor.companyId, "receipt", "MK");
         const gr = await db.query(
           `insert into goods_receipts (company_id, code, supplier_name, po_line_id, received_by) values (app_company_id(), $1, $2, $3, $4) returning id`,
@@ -135,7 +143,8 @@ export async function inventoryRoutes(app: FastifyInstance) {
             [l.itemId, lot.rows[0].id, inspectionLoc, l.qty, line.rows[0].id, actor.userId],
           );
           if (input.purchaseOrderLineId) {
-            await db.query(`update purchase_order_lines set qty_received = qty_received + $2 where id = $1`, [input.purchaseOrderLineId, l.qty]);
+            const pl = await db.query(`update purchase_order_lines set qty_received = qty_received + $2 where id = $1 returning po_id`, [input.purchaseOrderLineId, l.qty]);
+            if (pl.rows[0]?.po_id) await refreshPoStatus(db, pl.rows[0].po_id);
           }
           await openTask(db, actor.companyId, {
             kind: "incoming_inspection",

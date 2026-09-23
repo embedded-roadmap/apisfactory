@@ -11,16 +11,18 @@ export function ReceivingPage() {
   const qc = useQueryClient();
   const rows = useQuery({ queryKey: ["receipts"], queryFn: () => get<ReceiptRow[]>("/api/receipts") });
   const items = useQuery({ queryKey: ["items", "component"], queryFn: () => get<Item[]>("/api/items?kind=component"), enabled: can("inventory.receive") });
-  const [form, setForm] = useState({ supplierName: "", itemId: "", qty: "", lotNo: "", dateCode: "" });
+  const poLines = useQuery({ queryKey: ["openPoLines"], queryFn: () => get<any[]>("/api/receiving/open-po-lines"), enabled: can("inventory.receive") });
+  const [form, setForm] = useState({ supplierName: "", itemId: "", qty: "", lotNo: "", dateCode: "", poLineId: "" });
   // Tekrar gönderimde çift kayıt oluşmasın diye form başına tek anahtar
   const [key, setKey] = useState(newKey());
   const receive = useMutation({
     mutationFn: () =>
-      post("/api/receipts", { supplierName: form.supplierName, lines: [{ itemId: form.itemId, qty: form.qty, lotNo: form.lotNo, dateCode: form.dateCode || undefined }] }, { "idempotency-key": key }),
+      post("/api/receipts", { supplierName: form.supplierName, purchaseOrderLineId: form.poLineId || undefined, lines: [{ itemId: form.itemId, qty: form.qty, lotNo: form.lotNo, dateCode: form.dateCode || undefined }] }, { "idempotency-key": key }),
     onSuccess: () => {
       setForm({ ...form, qty: "", lotNo: "", dateCode: "" });
       setKey(newKey());
       qc.invalidateQueries({ queryKey: ["receipts"] });
+      qc.invalidateQueries({ queryKey: ["openPoLines"] });
     },
   });
 
@@ -31,6 +33,12 @@ export function ReceivingPage() {
         <form className="card" onSubmit={(e: FormEvent) => { e.preventDefault(); receive.mutate(); }}>
           <h2>Yeni mal kabul</h2>
           <ErrorNotice error={receive.error} />
+          <label className="field">Satın alma sipariş satırı (varsa)
+            <select aria-label="Sipariş satırı" value={form.poLineId} onChange={(e) => { const l = poLines.data?.find((x) => x.id === e.target.value); setForm({ ...form, poLineId: e.target.value, ...(l ? { supplierName: l.supplierName, itemId: l.itemId, qty: String(Number(l.openQty)) } : {}) }); }}>
+              <option value="">Siparişsiz kabul</option>
+              {poLines.data?.map((l) => <option key={l.id} value={l.id}>{l.poCode} · {l.supplierName} · {l.itemCode} · açık {Number(l.openQty)}{l.confirmedDate ? ` · teyit ${l.confirmedDate}` : ""}</option>)}
+            </select>
+          </label>
           <div className="grid4">
             <label className="field">Tedarikçi<input required value={form.supplierName} onChange={(e) => setForm({ ...form, supplierName: e.target.value })} /></label>
             <label className="field">Kalem

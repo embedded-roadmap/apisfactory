@@ -2,6 +2,7 @@ import pg from "pg";
 import { config } from "../config";
 import type { Db } from "../db/pool";
 import { runEscalations } from "../lib/workflow";
+import { runPoFollowups } from "../modules/procurement";
 
 /**
  * Çıkış kutusu işleyicisi (test bağlayıcısı). Bu fazda dış sisteme hiçbir şey gönderilmez;
@@ -45,6 +46,8 @@ async function escalate(c: pg.Client) {
     try {
       await c.query(`select set_config('app.company_id', $1, true)`, [co.id]);
       const n = await runEscalations(c as unknown as Db, { companyId: co.id, userId: null, kind: "automation" });
+      const f = await runPoFollowups(c as unknown as Db, { companyId: co.id, userId: null, kind: "automation" });
+      if (f) console.log(`[purchasing] ${co.id}: ${f} tedarikçi takibi`);
       await c.query("commit");
       if (n) console.log(`[workflow] ${co.id}: ${n} görev yükseltildi`);
     } catch (e) {

@@ -161,6 +161,14 @@ async function seedDemo() {
       [a.companyId],
     );
 
+    // DEMO tedarikçiler (gerçek firma değildir; tedarikçiye gönderim test modunda)
+    await client.query(
+      `insert into suppliers (company_id, code, name, contact_email, default_lead_time_days) values
+         ($1, 'DEMO-DAG', 'DEMO Dağıtıcı A.Ş.', 'siparis@dagitici.demo.apisfactory.com', 14),
+         ($1, 'DEMO-YRL', 'DEMO Yerel Elektronik', 'satis@yerel.demo.apisfactory.com', 5)`,
+      [a.companyId],
+    );
+
     const b = await createCompany(client, { code: "DEMO-IKI", name: "DEMO İkinci Şirket (izolasyon testi)", isDemo: true });
     await createUser(client, { email: "yonetici@ikinci.demo.apisfactory.com", name: "İkinci Şirket Yöneticisi", password: DEMO_PASSWORD, companyId: b.companyId, roles: ["manager", "rd", "sales", "warehouse"], roleIds: b.roleIds });
     await client.query("commit");

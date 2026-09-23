@@ -23,6 +23,7 @@ export const ENTITY: Record<string, { table: string; perm: Permission; label: (r
   sales_order: { table: "sales_orders", perm: "sales.view", select: "code", label: (r) => r.code, link: (id) => `/sales/${id}` },
   shipment: { table: "shipments", perm: "shipment.view", select: "code", label: (r) => r.code, link: (id) => `/shipments/${id}` },
   product: { table: "products", perm: "product.view", select: "code || ' ' || name as code", label: (r) => r.code, link: (id) => `/products/${id}` },
+  purchase_order: { table: "purchase_orders", perm: "purchase.view", select: "code", label: (r) => r.code, link: (id) => `/purchasing/orders/${id}` },
   purchase_request: { table: "purchase_requests", perm: "purchase.view", select: "code", label: (r) => r.code, link: () => `/purchasing` },
   task: { table: "tasks", perm: "task.view", select: "title as code", label: (r) => r.code, link: (id) => `/planning/tasks/${id}` },
   meeting: { table: "meetings", perm: "task.view", select: "code || ' ' || title as code", label: (r) => r.code, link: (id) => `/planning/meetings/${id}` },

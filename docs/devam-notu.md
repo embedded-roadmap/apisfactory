@@ -1,12 +1,12 @@
 # Devam notu
 
-Son güncelleme: 23.09.2026 — oturum 12 (kayda bağlı mesajlaşma ve toplantı → görev)
+Son güncelleme: 23.09.2026 — oturum 13 (W18: tedarikçi, teklif, satın alma siparişi, teyit ve gecikme takibi)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 104/104 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 110/110 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
@@ -20,6 +20,18 @@ Son güncelleme: 23.09.2026 — oturum 12 (kayda bağlı mesajlaşma ve toplant�
 | Playwright uçtan uca (oturum 10) | Üretim sorumlusu Rotalar ekranında revizyon seçer (varsayılan şablon + 50 adet süre özeti) → taslak v1: THT operasyonunu siler, SMT birim süresini ve montaj talimatını girer, kaydeder, gerekçeyle yayımlar; açılan iş emri "rota v1 (sabit)", plan/gerçek süre ve talimatı gösterir; v2 (SMT yavaş) yayımlanınca v1 arşive geçer, açık iş emri v1'de kalır; sayfa hatası yok |
 | Playwright uçtan uca (oturum 11) | Yönetici Akış & onay ekranında devir politikası v1 yayımlar (test planı + firmware + rota); Ar-Ge'nin devre gönderimi `handover_requirements` ile engellenir, ürün ekranında devir paketi kontrol listesi eksikleri gösterir; firmware ve test planı tamamlanır, yönetici rota için gerekçeli muafiyet verir → "hazır"; üç onayla yayımlanan revizyonda yayım anındaki kontrol listesi (politika v1, muafiyet ve veren) görünür; sayfa hatası yok |
 | Playwright uçtan uca (oturum 12) | Üretim sorumlusu toplantı açar (gündem, 3 katılımcı), karar ve aksiyon (sorumlu depo, 2 gün) ekler, notları kaydeder; katılım işaretlenmeden kapanış reddedilir; toplantı konuşmasında teknisyenden bahseder; tutanak kapanınca aksiyon depoya görev olur (Günlük işler'de); teknisyen "Bahsedildiğiniz mesajlar"dan konuşmaya gider, yanıtlar, bildirim okundu olur; sayfa hatası yok |
+| Playwright uçtan uca (oturum 13) | Ar-Ge talep açar; satın alma onaylar → "Teklif iste" → iki DEMO tedarikçiden teklif (en ucuz ihtiyaç sonrası, en hızlı pahalı) → hızlıyı seçince gerekçe istenir → gerekçeyle taslak sipariş → test gönderimi → teyit → ileri kayma not ister, kayma 3 gün uyarısı; depo sipariş satırını seçerek mal kabul eder → sipariş "teslim alındı"; tedarikçi performansı; sayfa hatası yok |
+
+## Oturum 13'te eklenenler (W18)
+
+1. **Tedarikçiler** (`/purchasing/suppliers`, `supplier.manage`: satın alma): kod, ad, e-posta, varsayılan temin; gerekçeli bloke/aktif; performans (satır, gecikmiş, ortalama teyit kayması). Eski serbest metin tedarikçiler migration'da kayda dönüştürüldü. DEMO: iki tedarikçi.
+2. **Teklif talebi (RFQ)** (`/purchasing/rfqs`, `purchase.order.manage`: satın alma, yönetici): yalnız onaylı satın alma talebinden (talep başına bir açık RFQ); teklif = birim fiyat, para birimi, temin, MOQ, geçerlilik; bloke tedarikçiden teklif alınmaz; yeni teklif öncekinin yerine geçer (önceki olayda). Karşılaştırma: toplam (MOQ ile), en ucuz, en hızlı, hazır tarihi / ihtiyaç tarihi, süresi dolmuş, son lot maliyetinden sapma. Fiyatlar maliyet görme yetkisi olmayana gizli.
+3. **Gerekçeli seçim**: en ucuz değil / ihtiyaç tarihini karşılamıyor / süresi dolmuş / %20+ fiyat sapması → gerekçe zorunlu (`award_reason_required`). Seçim taslak satın alma siparişi açar (MOQ miktarıyla), talep "siparişe dönüştü".
+4. **Satın alma siparişi** (`/purchasing/orders`): taslak → gönder (**TEST**: yalnız çıkış kutusu, tedarikçiye gerçek gönderim yok) → teyitli → kısmi / tamamı teslim (mal kabulden otomatik) ; gerekçeli iptal (teslim başladıysa veya üretim ihtiyacına ayrıldıysa engelli).
+5. **Tedarikçi teyidi**: satır bazında, değişmez kayıt (önceki tarih, kayma günü, tedarikçi ref., kaynak). İleri kayma not ister; bağlı satış siparişleri (ayırma veya üretim ihtiyacı talebi üzerinden) etkisi döner, termin riskteyse satış ve üretime görev açılır. Termin hesabı teyit tarihini kullanır.
+6. **Takip** (`/purchasing/followups`): gönderimden 3 gün sonra teyitsiz ve teyit tarihi geçmiş eksik satırlar; satın almaya görev + test modunda tedarikçi hatırlatması (satır başına günde bir); arka plan her dakika tarar.
+7. **Mal kabul**: açık sipariş satırı seçilerek (fiyatsız liste, depo rolü) kabul; satır kapalıysa veya kalem eşleşmiyorsa reddedilir.
+8. Sipariş sayfasında kayda bağlı konuşma; Bağlantı durumunda "Tedarikçi sipariş gönderimi: TEST".
 
 ## Oturum 12'de eklenenler (W27/W28)
 
@@ -142,12 +154,13 @@ Son güncelleme: 23.09.2026 — oturum 12 (kayda bağlı mesajlaşma ve toplant�
 - Paketleme rotada ayrı iş merkezi değil; sevkiyat modülünde yapılır.
 - Planlama: Gantt'ta kaynak kapasitesi ve vardiya yok; iş emri çubukları salt okunur.
 - İletişim: kayıttan bağımsız birebir/grup sohbet, dosya/fotoğraf eki, anlık (canlı) güncelleme yok (sayfa yenilenince/işlemde güncellenir); sesli/görüntülü görüşme, kayıt ve transkript yok (dış bağlayıcı gerekir); takvim (ICS/Outlook) daveti yok; mobilde konuşma yazma yok.
+- Satın alma: tedarikçiye gerçek gönderim (e-posta/EDI/portal) yok; teklifler elle girilir (distribütör API'si W17); çok kalemli RFQ/sipariş yok (talep başına bir satır); kur dönüşümü yok (farklı para birimli teklif sapma hesaplanmaz); fatura eşleştirme (W24) yok; sipariş onay limiti (W10 politikası) sipariş aşamasına bağlanmadı.
 - Akış: politika yalnızca beş onay türü için; satın alma dışındaki türlerde parasal limit yok. Yükseltme tek seviye (üst rolün de süresi dolarsa ikinci yükseltme yok). Bildirim yalnızca çıkış kutusunda (e-posta/anlık bildirim bağlanmadı). Vekâlet mobilde gösterilmiyor. Tahmini tutar son lot maliyetinden; tedarikçi teklifi/fiyat listesi yok (W18).
 - Maliyet: kur dönüşümü yok (farklı para birimli satır "hesaplanamadı"); dış hizmet (fason) maliyeti yok; iade tamiri ve iade hurdası maliyete yansımıyor; bütçe modülü yok; prototip/pilot/seri ayrımı ve ekip performansı raporu (W26) yok. İşçilik yalnızca operasyon başlat/tamamla süresinden; hızlı tıklanan operasyon süre biriktirmez (uyarı olarak eksik listesine düşer). Mobilde maliyet ekranı yok (ofis işi).
 
 ## Sıradaki uygulanabilir iş
 
-1. W18: teklif, satın alma siparişi, tedarikçi teyidi ve gecikme takibi (test bağlayıcısıyla; gerçek gönderim yok).
-2. W27 devamı: konuşmaya dosya/fotoğraf eki (W08 depolama), grup kanalları.
-3. W20 devamı: gerçekleşen operasyon sürelerinden standart süre önerisi (sapma raporu).
-4. W22 devamı: istasyon PC'si için klasör izleyen küçük ajan, operatör eşlemesi.
+1. W24: tedarikçi faturası üç yönlü eşleştirme (sipariş–mal kabul–fatura), fiyat/miktar farkı, ödeme vadesi (ödeme yapılmaz).
+2. W17: distribütör fiyat/stok bağlayıcısı (test modu, önbellek, kaynak ve zaman damgası) ve RFQ'ya otomatik teklif.
+3. W27 devamı: konuşmaya dosya/fotoğraf eki (W08 depolama), grup kanalları.
+4. W20/W22 devamı: standart süre önerisi, istasyon klasör ajanı.

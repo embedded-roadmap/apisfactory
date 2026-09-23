@@ -19,6 +19,7 @@ import { QualityPage } from "./pages/Quality";
 import { StationPage } from "./pages/Station";
 import { RoutingPage } from "./pages/Routing";
 import { MeetingPage, MeetingsPage } from "./pages/Meetings";
+import { FollowupsPage, PurchaseOrderPage, PurchaseOrdersPage, RfqPage, RfqsPage, SuppliersPage } from "./pages/Procurement";
 import { GanttPage, OrgPage, PlanningPage, TaskPage, TeamReportPage } from "./pages/Planning";
 import { ReportsPage } from "./pages/Reports";
 import { DevicePage, ReturnPage, ReturnsPage } from "./pages/Returns";
@@ -175,6 +176,12 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/sales" element={<SalesPage />} />
               <Route path="/sales/:id" element={<SalesOrderPage />} />
               <Route path="/purchasing" element={<PurchasingPage />} />
+              <Route path="/purchasing/rfqs" element={<RfqsPage />} />
+              <Route path="/purchasing/rfqs/:id" element={<RfqPage />} />
+              <Route path="/purchasing/orders" element={<PurchaseOrdersPage />} />
+              <Route path="/purchasing/orders/:id" element={<PurchaseOrderPage />} />
+              <Route path="/purchasing/followups" element={<FollowupsPage />} />
+              <Route path="/purchasing/suppliers" element={<SuppliersPage />} />
               <Route path="/imports" element={<ImportsPage />} />
               <Route path="/events" element={<EventsPage />} />
               <Route path="/production" element={<ProductionPage />} />

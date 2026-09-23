@@ -16,6 +16,7 @@ const LINK: Record<string, (id: string) => string> = {
   change_request: (id) => `/changes/${id}`,
   rma: (id) => `/returns/${id}`,
   meeting: (id) => `/planning/meetings/${id}`,
+  purchase_order: (id) => `/purchasing/orders/${id}`,
   shipment: (id) => `/shipments/${id}`,
 };
 const PRI: Record<string, string> = { low: "Düşük", normal: "Normal", high: "Yüksek", critical: "Kritik" };

@@ -1,13 +1,16 @@
 import { useState, type FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
+import { PurchasingTabs } from "./Procurement";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post, newKey } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, useCan } from "../lib/ui";
 
 export function PurchasingPage() {
   const can = useCan();
+  const nav = useNavigate();
   const qc = useQueryClient();
+  const rfq = useMutation({ mutationFn: (purchaseRequestId: string) => post<any>("/api/rfqs", { purchaseRequestId }), onSuccess: (r) => nav(`/purchasing/rfqs/${r.id}`) });
   const prs = useQuery({ queryKey: ["prs"], queryFn: () => get<any[]>("/api/purchase-requests") });
-  const pos = useQuery({ queryKey: ["pos"], queryFn: () => get<any[]>("/api/purchase-order-lines") });
   const [note, setNote] = useState<Record<string, string>>({});
   const decide = useMutation({
     mutationFn: (v: { id: string; decision: "approve" | "reject" }) => post(`/api/purchase-requests/${v.id}/decision`, { decision: v.decision, note: note[v.id] || undefined }),
@@ -16,7 +19,9 @@ export function PurchasingPage() {
   return (
     <>
       <PageHeader title="Satın alma" sub="Talep onayı tedarikçiye sipariş göndermez. Dış gönderim bağlayıcısı bu fazda bağlı değil." />
-      <div className="notice info">Tedarikçi sipariş gönderimi: <span className="badge mode">BAĞLANMADI</span> — bütçe/fiyat sapma kuralları ve test bağlayıcısı W18'de.</div>
+      <PurchasingTabs />
+      <div className="notice info">Tedarikçi sipariş gönderimi: <span className="badge mode warn">TEST</span> — sipariş ve hatırlatmalar çıkış kutusuna yazılır, tedarikçiye gerçek gönderim yok.</div>
+      <ErrorNotice error={rfq.error} />
       {can("purchase.request.create") ? <NewRequest /> : null}
       <ErrorNotice error={decide.error} />
       {decide.data && (decide.data as any).onBehalfOf ? <div className="notice">Karar vekâleten kaydedildi.</div> : null}
@@ -44,23 +49,13 @@ export function PurchasingPage() {
                         <button className="danger" onClick={() => decide.mutate({ id: p.id, decision: "reject" })}>Reddet</button>
                       </div>
                     ) : null}
+                    {can("purchase.order.manage") && p.status === "approved" ? <button onClick={() => rfq.mutate(p.id)}>Teklif iste</button> : null}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         ) : null}
-      </section>
-      <section className="card">
-        <h2>Açık satın alma siparişleri</h2>
-        {pos.data?.length === 0 ? <Empty /> : null}
-        <table>
-          <tbody>
-            {pos.data?.map((p) => (
-              <tr key={p.id}><td className="mono">{p.poCode}</td><td>{p.supplierName}</td><td className="mono">{p.itemCode}</td><td className="num">{fmt(p.qtyOrdered)}</td><td className="num">alındı {fmt(p.qtyReceived)}</td><td>{p.confirmedDate ? `teyit ${p.confirmedDate}` : <span className="badge warn">teyitsiz</span>}</td></tr>
-            ))}
-          </tbody>
-        </table>
       </section>
     </>
   );
