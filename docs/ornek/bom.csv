@@ -1,0 +1,5 @@
+Designator;Manufacturer;MPN;Quantity;Description;DNP
+U1;DemoSemi;DS32F100-Q48;1;MCU;
+U2;DemoPower;DP3301-33;1;LDO 3V3;
+"C1,C2,C3,C4";DemoPassive;DPC0603X106;4;10uF 0603;
+J1;DemoConn;DCN-2X5-127;1;Konnektör;DNP

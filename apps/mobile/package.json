@@ -1,0 +1,28 @@
+{
+  "name": "@apisfactory/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@apisfactory/shared": "workspace:*",
+    "@tanstack/react-query": "^5.62.0",
+    "expo": "~57.0.24",
+    "expo-camera": "~57.0.5",
+    "expo-constants": "~57.0.19",
+    "expo-secure-store": "~57.0.4",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3"
+  }
+}

@@ -1,0 +1,4 @@
+kod,miktar,lot,konum,rev
+CMP-MCU-01,200,MCU-L1,STK,
+CMP-LDO-01,1000,LDO-L1,STK,
+CMP-CAP-01,500,CAP-L1,STK,

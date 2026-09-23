@@ -1,0 +1,14 @@
+{
+  "name": "apisfactory",
+  "private": true,
+  "packageManager": "pnpm@10.28.0",
+  "scripts": {
+    "dev:api": "pnpm --filter @apisfactory/api dev",
+    "dev:web": "pnpm --filter @apisfactory/web dev",
+    "dev:mobile": "pnpm --filter @apisfactory/mobile start",
+    "db:migrate": "pnpm --filter @apisfactory/api migrate",
+    "db:seed": "pnpm --filter @apisfactory/api seed",
+    "test": "pnpm --filter @apisfactory/api test",
+    "typecheck": "pnpm -r typecheck"
+  }
+}

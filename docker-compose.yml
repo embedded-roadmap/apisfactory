@@ -1,0 +1,12 @@
+# Yerel geliştirme için PostgreSQL 16
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres
+    ports: ["5432:5432"]
+    volumes:
+      - ./scripts/db-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:

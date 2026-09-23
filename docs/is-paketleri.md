@@ -1,0 +1,46 @@
+# İş paketleri — W01–W42
+
+| Kod | Teslim | Bağımlılık | Kabul sahibi | Durum | Not |
+|---|---|---|---|---|---|
+| W01 | Kapsam sözlüğü, örnek veri, karar listesi | Başlangıç | Ürün sahibi | geliştiriliyor | Kapsam tabloları ve karar listesi docs/ altında |
+| W02 | apisfactory marka uygulaması, ürün terminolojisi ve tanıtım sitesi hizalaması (marka kararı verildi) | W01 | Ürün sahibi | geliştiriliyor | Marka apisfactory; site ve uygulama aynı token'lar |
+| W03 | API yetenek/lisans/kota ve erişim denemeleri | W01 | Teknik lider, satın alma | entegrasyon bekliyor | Hiçbir sağlayıcıyla erişim denenmedi |
+| W04 | Ekran haritası, rol yolculukları ve UX | W01 | Bütün birimler | planlandı | — |
+| W05 | Depo, ortamlar, dağıtım ve test hattı | W01 | Teknik lider | geliştiriliyor | pnpm monorepo, migration, docker-compose; CI hattı yok |
+| W06 | Şirket, tesis, kimlik, rol, alan izinleri, vekâlet | W05 | Yönetim | geliştiriliyor | Şirket, tesis, departman, rol, izin, alan izni (fiyat); vekâlet/MFA yok |
+| W07 | Ortak veri sözlüğü, kimlikler ve ilişkiler | W01, W05 | Teknik lider | geliştiriliyor | Ortak kimlikler, MPN ayrımı, sabit hassasiyetli miktar |
+| W08 | Dosya/sürüm, arama, indirme ve log altyapısı | W06, W07 | Ar-Ge, yönetim | geliştiriliyor | Olay defteri var; dosya/sürüm deposu ve arama yok |
+| W09 | Import/export, önizleme ve hata dosyası | W06, W07 | Bütün birimler | geliştiriliyor | Önizlemeli CSV import (BOM, açılış stoğu), stok export |
+| W10 | Akış, onay, zaman aşımı, tekrar koruması | W06, W07 | Yönetim | geliştiriliyor | Durum geçişleri sunucuda, idempotency, outbox; genel akış motoru yok |
+| W11 | Ar-Ge proje, bütçe, talep ve gider | W07, W09, W10 | Ar-Ge, muhasebe | geliştiriliyor | Yok (yalnızca ürün/revizyon); proje, bütçe, gider sonraki adım |
+| W12 | Ürün, BOM, varyant, CAD ve fark görünümü | W08, W09 | Ar-Ge | geliştiriliyor | Ürün, BOM sürümü, CSV/Altium/KiCad kolon eşleştirme, fark |
+| W13 | Teknik devir, revizyon ve etki | W10, W12 | Ar-Ge, üretim, kalite | geliştiriliyor | Üç birim devir onayı, ret/düzeltme görevi; revizyon talebi (ECR) yok |
+| W14 | Müşteri, teklif, sipariş ve satış engeli | W13 | Satış | geliştiriliyor | Müşteri, taslak/kesin sipariş, devir engeli |
+| W15 | Stok, lot, sahiplik, rezervasyon ve hareket | W07, W09 | Depo | geliştiriliyor | Lot, konum tipi, hareket defteri, rezervasyon, negatif stok engeli |
+| W16 | Net ihtiyaç, kapasite ve termin | W12, W14, W15 | Üretim, satış | geliştiriliyor | Net ihtiyaç var; kapasite/termin yok |
+| W17 | Distribütör veri adaptörleri ve güncellik | W03, W12 | Satın alma | entegrasyon bekliyor | Bağlayıcı durumu BAĞLANMADI olarak gösteriliyor |
+| W18 | Teklif, alım, teyit ve gecikme | W10, W15, W17 | Satın alma | geliştiriliyor | Talep onayı; teklif, sipariş gönderimi, teyit yok |
+| W19 | Mal kabul, karantina, kontrol ve iade | W15, W18 | Depo, kalite | geliştiriliyor | Mal kabul, giriş kalite, karantina; iade yok |
+| W20 | İş emri, rota, teknisyen ve tüketim | W13, W16, W19 | Üretim | planlandı | — |
+| W21 | Kalite reçetesi, uygunsuzluk ve yeniden işleme | W19, W20 | Kalite | planlandı | — |
+| W22 | Test istasyonu ve ekipman uygunluğu | W13, W21 | Kalite, Ar-Ge | planlandı | — |
+| W23 | Paketleme, etiket, sevkiyat ve adres | W14, W20, W21 | Depo, satış | planlandı | — |
+| W24 | Fatura eşleştirme, ödeme, tahsilat ve vade | W18, W19, W23 | Muhasebe | planlandı | — |
+| W25 | Tarihsel maliyet, marj ve metrik sözlüğü | W11, W20, W21, W24 | Muhasebe, yönetim | planlandı | — |
+| W26 | Görev, Gantt, takvim ve organizasyon | W06, W10, W16 | Birim yöneticileri | geliştiriliyor | Günlük iş listesi; Gantt/organizasyon yok |
+| W27 | Mesaj, grup, kayıt konuşması ve medya | W06, W08 | Bütün birimler | planlandı | — |
+| W28 | Görüşme, kayıt, transkript ve not | W27, W03 | Ürün sahibi | planlandı | — |
+| W29 | Alternatif AI, kanıt ve teknik onay | W13, W17, W21 | Ar-Ge, üretim | planlandı | — |
+| W30 | Yönetici raporu ve stratejik AI | W25, W08 | Yönetim | planlandı | — |
+| W31 | AI önerisini göreve alma ve etki ölçme | W10, W26, W30 | Yönetim | planlandı | — |
+| W32 | Fason portalı, dosya ve malzeme teyidi | W13, W15, W18, W20 | Üretim, satın alma | planlandı | — |
+| W33 | MSL, raf ömrü, ambalaj ve koşul | W15, W19 | Depo, kalite | planlandı | — |
+| W34 | İade, saha arızası ve cihaz geçmişi | W21, W23, W24 | Kalite, satış | planlandı | — |
+| W35 | Senaryo, maliyet/termin kıyası ve uygulama | W16, W25, W29 | Yönetim | planlandı | — |
+| W36 | Muhasebe/e-belge ve kargo adaptörleri | W03, W23, W24 | Muhasebe, depo | entegrasyon bekliyor | Sağlayıcı kararı açık |
+| W37 | Güvenlik, şirket ayrımı, yedek ve kesinti | W05, W06, W08 | Teknik lider | geliştiriliyor | RLS şirket ayrımı, oturum iptali; yedek/kurtarma yok |
+| W38 | Kota, maliyet, izleme ve operasyon panoları | W17, W28, W29, W30 | Teknik lider | planlandı | — |
+| W39 | Tarihsel veri geçişi, uzlaşma ve pilot | W09, W20, W25, W37 | Pilot şirket | planlandı | — |
+| W40 | Uçtan uca test, yük ve hata dayanıklılığı | İlgili bütün paketler | QA | planlandı | — |
+| W41 | Eğitim, yardım, canlı geçiş ve destek | W39, W40 | Ürün sahibi | planlandı | — |
+| W42 | Abonelik, faturalama ve şirket yaşam döngüsü | W06, W38 | Ürün sahibi, muhasebe | planlandı | — |
