@@ -1,12 +1,12 @@
 # Devam notu
 
-Son güncelleme: 23.09.2026 — oturum 13 (W18: tedarikçi, teklif, satın alma siparişi, teyit ve gecikme takibi)
+Son güncelleme: 23.09.2026 — oturum 14 (W24: tedarikçi faturası, üç yönlü eşleştirme, fark onayı, vade ve ödeme kaydı)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 110/110 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 115/115 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6, payables 5), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
@@ -21,6 +21,18 @@ Son güncelleme: 23.09.2026 — oturum 13 (W18: tedarikçi, teklif, satın alma 
 | Playwright uçtan uca (oturum 11) | Yönetici Akış & onay ekranında devir politikası v1 yayımlar (test planı + firmware + rota); Ar-Ge'nin devre gönderimi `handover_requirements` ile engellenir, ürün ekranında devir paketi kontrol listesi eksikleri gösterir; firmware ve test planı tamamlanır, yönetici rota için gerekçeli muafiyet verir → "hazır"; üç onayla yayımlanan revizyonda yayım anındaki kontrol listesi (politika v1, muafiyet ve veren) görünür; sayfa hatası yok |
 | Playwright uçtan uca (oturum 12) | Üretim sorumlusu toplantı açar (gündem, 3 katılımcı), karar ve aksiyon (sorumlu depo, 2 gün) ekler, notları kaydeder; katılım işaretlenmeden kapanış reddedilir; toplantı konuşmasında teknisyenden bahseder; tutanak kapanınca aksiyon depoya görev olur (Günlük işler'de); teknisyen "Bahsedildiğiniz mesajlar"dan konuşmaya gider, yanıtlar, bildirim okundu olur; sayfa hatası yok |
 | Playwright uçtan uca (oturum 13) | Ar-Ge talep açar; satın alma onaylar → "Teklif iste" → iki DEMO tedarikçiden teklif (en ucuz ihtiyaç sonrası, en hızlı pahalı) → hızlıyı seçince gerekçe istenir → gerekçeyle taslak sipariş → test gönderimi → teyit → ileri kayma not ister, kayma 3 gün uyarısı; depo sipariş satırını seçerek mal kabul eder → sipariş "teslim alındı"; tedarikçi performansı; sayfa hatası yok |
+| Playwright uçtan uca (oturum 14) | Oturum 13 akışının devamı: kalite 190 kabul / 10 ret; muhasebe faturayı girer (faturalanabilir satır listeden, fiyat 5,10 vs sipariş 4,90 → %4,08 fiyat farkı), önizleme "fark var", kaydedince onaya düşer ve giren onaylayamaz; yönetici gerekçeyle onaylar; yaşlandırma; muhasebe banka referansıyla ödeme kaydı girer → "ödendi"; sayfa hatası yok |
+
+## Oturum 14'te eklenenler (W24)
+
+1. **Tedarikçi faturası** (`/payables`, giriş `invoice.manage`: muhasebe; görüntüleme muhasebe, satın alma, yönetici): fatura no tedarikçi başına tekil (mükerrer reddi), vade boşsa tedarikçinin ödeme vadesinden (varsayılan 30 gün), net + KDV = toplam, tekrar korumalı.
+2. **Üç yönlü eşleştirme** (sipariş – kalite kabulü – fatura): faturalanan miktar (önceki faturalar dahil) ≤ **kalite kabul edilen** miktar (kabul bekleyen faturalanamaz); fiyat sapması ≤ tolerans (% ve tutar); aynı para birimi ve tedarikçi; siparişsiz satır ve toplam uyuşmazlığı fark sayılır. Kaydetmeden önizleme; kalite kabul edilmiş/faturalanmamış satır listesi.
+3. **Tolerans politikası** (sürümlü, değişmez; `cost.manage`): varsayılan fiyat %2, miktar %0. Fatura, kaydedildiği andaki politika sürümünü saklar.
+4. **Karar**: eşleşen fatura otomatik "ödemeye hazır"; farklı fatura muhasebe görevine düşer, **faturayı giren onaylayamaz** (görev ayrılığı), gerekçeli onay/ret (`invoice.approve`: muhasebe, yönetici).
+5. **Faturadan lot maliyeti**: onaylanan faturanın birim fiyatı o sipariş satırından gelen lotlara maliyet kaydı olarak yazılır (kaynak: fatura) — iş emri maliyeti bunu kullanır.
+6. **Ödeme kaydı** (`payment.record`): sistem ödeme YAPMAZ; bankada yapılmış ödemenin tutar/tarih/referans kaydı (değişmez), açık bakiyeyi aşamaz, tamamı girilince "ödendi". Ödeme kaydı olan fatura iptal edilemez.
+7. **Vade yaşlandırma** (geçmiş 1–30/31–60/60+, 7/30 gün içinde, sonrası, farkta bekleyen) ve 8 haftalık ödeme planı, para birimi bazında (kur dönüşümü yok).
+8. Tedarikçiye ödeme vadesi alanı; fatura sayfasında kayda bağlı konuşma.
 
 ## Oturum 13'te eklenenler (W18)
 
@@ -154,13 +166,14 @@ Son güncelleme: 23.09.2026 — oturum 13 (W18: tedarikçi, teklif, satın alma 
 - Paketleme rotada ayrı iş merkezi değil; sevkiyat modülünde yapılır.
 - Planlama: Gantt'ta kaynak kapasitesi ve vardiya yok; iş emri çubukları salt okunur.
 - İletişim: kayıttan bağımsız birebir/grup sohbet, dosya/fotoğraf eki, anlık (canlı) güncelleme yok (sayfa yenilenince/işlemde güncellenir); sesli/görüntülü görüşme, kayıt ve transkript yok (dış bağlayıcı gerekir); takvim (ICS/Outlook) daveti yok; mobilde konuşma yazma yok.
-- Satın alma: tedarikçiye gerçek gönderim (e-posta/EDI/portal) yok; teklifler elle girilir (distribütör API'si W17); çok kalemli RFQ/sipariş yok (talep başına bir satır); kur dönüşümü yok (farklı para birimli teklif sapma hesaplanmaz); fatura eşleştirme (W24) yok; sipariş onay limiti (W10 politikası) sipariş aşamasına bağlanmadı.
+- Satın alma: tedarikçiye gerçek gönderim (e-posta/EDI/portal) yok; teklifler elle girilir (distribütör API'si W17); çok kalemli RFQ/sipariş yok (talep başına bir satır); kur dönüşümü yok (farklı para birimli teklif sapma hesaplanmaz); sipariş onay limiti (W10 politikası) sipariş aşamasına bağlanmadı.
+- Borçlar: e-fatura (GİB) alımı yok (fatura elle girilir, W36); banka/ödeme bağlantısı yok (yalnız kayıt); kur farkı, stopaj ve iade faturası (fiyat farkı/iade) yok; müşteri faturası ve tahsilat (alacaklar) yok; muhasebe fişi/entegrasyonu yok.
 - Akış: politika yalnızca beş onay türü için; satın alma dışındaki türlerde parasal limit yok. Yükseltme tek seviye (üst rolün de süresi dolarsa ikinci yükseltme yok). Bildirim yalnızca çıkış kutusunda (e-posta/anlık bildirim bağlanmadı). Vekâlet mobilde gösterilmiyor. Tahmini tutar son lot maliyetinden; tedarikçi teklifi/fiyat listesi yok (W18).
 - Maliyet: kur dönüşümü yok (farklı para birimli satır "hesaplanamadı"); dış hizmet (fason) maliyeti yok; iade tamiri ve iade hurdası maliyete yansımıyor; bütçe modülü yok; prototip/pilot/seri ayrımı ve ekip performansı raporu (W26) yok. İşçilik yalnızca operasyon başlat/tamamla süresinden; hızlı tıklanan operasyon süre biriktirmez (uyarı olarak eksik listesine düşer). Mobilde maliyet ekranı yok (ofis işi).
 
 ## Sıradaki uygulanabilir iş
 
-1. W24: tedarikçi faturası üç yönlü eşleştirme (sipariş–mal kabul–fatura), fiyat/miktar farkı, ödeme vadesi (ödeme yapılmaz).
+1. W24 devamı: müşteri faturası (sevkiyattan taslak), tahsilat kaydı, alacak yaşlandırma ve kredi limiti uyarısı (tahsilat yapılmaz).
 2. W17: distribütör fiyat/stok bağlayıcısı (test modu, önbellek, kaynak ve zaman damgası) ve RFQ'ya otomatik teklif.
 3. W27 devamı: konuşmaya dosya/fotoğraf eki (W08 depolama), grup kanalları.
 4. W20/W22 devamı: standart süre önerisi, istasyon klasör ajanı.

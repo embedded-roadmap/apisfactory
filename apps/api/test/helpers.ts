@@ -23,7 +23,7 @@ export async function setupWorld(): Promise<World> {
   await migrate(url, () => {});
 
   const a = await createCompany(owner, { code: "A", name: "Şirket A" });
-  const roles: RoleCode[] = ["rd", "production", "quality", "warehouse", "sales", "purchasing", "admin", "technician", "manager"];
+  const roles: RoleCode[] = ["rd", "production", "quality", "warehouse", "sales", "purchasing", "admin", "technician", "manager", "accounting"];
   for (const r of roles) await createUser(owner, { email: `${r}@a.test`, name: `A ${r}`, password: PASSWORD, companyId: a.companyId, roles: [r], roleIds: a.roleIds });
   const b = await createCompany(owner, { code: "B", name: "Şirket B" });
   await createUser(owner, {

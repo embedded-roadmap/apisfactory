@@ -58,6 +58,11 @@ export const PERMISSIONS = [
   "purchase.request.approve",
   "purchase.order.manage",
   "supplier.manage",
+  // Borçlar (tedarikçi faturası)
+  "invoice.view",
+  "invoice.manage",
+  "invoice.approve",
+  "payment.record",
   // Genel
   "task.view",
   "audit.view",
@@ -98,7 +103,7 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
     permissions: [
       "product.view", "bom.view", "inventory.view", "sales.view", "purchase.view", "production.view", "shipment.view",
       "task.view", "audit.view", "export.run", "field.cost.view", "field.price.view", "change.view", "rma.view", "cost.manage", "report.view",
-      "task.manage", "org.manage", "team.report.view", "workflow.manage", "delegation.manage", "purchase.request.approve", "purchase.order.manage",
+      "task.manage", "org.manage", "team.report.view", "workflow.manage", "delegation.manage", "purchase.request.approve", "purchase.order.manage", "invoice.view", "invoice.approve",
     ],
   },
   rd: {
@@ -132,11 +137,11 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
   },
   purchasing: {
     name: { tr: "Satın alma", en: "Purchasing" },
-    permissions: ["product.view", "bom.view", "inventory.view", "purchase.view", "purchase.request.approve", "task.view", "field.cost.view", "lot.cost.record", "purchase.request.create", "purchase.order.manage", "supplier.manage"],
+    permissions: ["product.view", "bom.view", "inventory.view", "purchase.view", "purchase.request.approve", "task.view", "field.cost.view", "lot.cost.record", "purchase.request.create", "purchase.order.manage", "supplier.manage", "invoice.view"],
   },
   accounting: {
     name: { tr: "Muhasebe", en: "Accounting" },
-    permissions: ["product.view", "sales.view", "purchase.view", "task.view", "export.run", "field.cost.view", "field.price.view", "rma.view", "cost.manage", "lot.cost.record", "report.view"],
+    permissions: ["product.view", "sales.view", "purchase.view", "task.view", "export.run", "field.cost.view", "field.price.view", "rma.view", "cost.manage", "lot.cost.record", "report.view", "invoice.view", "invoice.manage", "invoice.approve", "payment.record"],
   },
 };
 

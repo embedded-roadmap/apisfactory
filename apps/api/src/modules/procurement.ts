@@ -161,7 +161,7 @@ export async function procurementRoutes(app: FastifyInstance) {
   app.get("/api/suppliers", async (req) =>
     tenant(req, "purchase.view", async (db) => {
       const r = await db.query(
-        `select s.id, s.code, s.name, s.contact_email as "contactEmail", s.default_lead_time_days as "defaultLeadTimeDays", s.status, s.blocked_reason as "blockedReason", s.note,
+        `select s.id, s.code, s.name, s.contact_email as "contactEmail", s.default_lead_time_days as "defaultLeadTimeDays", s.payment_terms_days as "paymentTermsDays", s.status, s.blocked_reason as "blockedReason", s.note,
                 (select count(*) from purchase_order_lines l where l.supplier_id = s.id)::int as "lineCount",
                 (select count(*) from purchase_order_lines l where l.supplier_id = s.id and l.status <> 'cancelled' and l.qty_received >= l.qty_ordered)::int as "deliveredLines",
                 (select count(*) from purchase_order_lines l where l.supplier_id = s.id and l.status = 'open' and l.confirmed_date < current_date and l.qty_received < l.qty_ordered)::int as "overdueLines",
@@ -173,11 +173,11 @@ export async function procurementRoutes(app: FastifyInstance) {
   );
 
   app.post("/api/suppliers", async (req) => {
-    const input = parse(z.object({ code: z.string().regex(/^[A-Za-z0-9_-]{2,30}$/), name: z.string().min(2).max(200), contactEmail: z.string().email().optional(), defaultLeadTimeDays: z.number().int().min(0).max(365).optional(), note: z.string().max(1000).optional() }), req.body);
+    const input = parse(z.object({ code: z.string().regex(/^[A-Za-z0-9_-]{2,30}$/), name: z.string().min(2).max(200), contactEmail: z.string().email().optional(), defaultLeadTimeDays: z.number().int().min(0).max(365).optional(), paymentTermsDays: z.number().int().min(0).max(365).optional(), note: z.string().max(1000).optional() }), req.body);
     return tenant(req, "supplier.manage", async (db, actor) => {
       const r = await db.query(
-        `insert into suppliers (company_id, code, name, contact_email, default_lead_time_days, note) values (app_company_id(), $1, $2, $3, $4, $5) returning id`,
-        [input.code.toUpperCase(), input.name, input.contactEmail ?? null, input.defaultLeadTimeDays ?? null, input.note ?? null],
+        `insert into suppliers (company_id, code, name, contact_email, default_lead_time_days, note, payment_terms_days) values (app_company_id(), $1, $2, $3, $4, $5, coalesce($6, 30)) returning id`,
+        [input.code.toUpperCase(), input.name, input.contactEmail ?? null, input.defaultLeadTimeDays ?? null, input.note ?? null, input.paymentTermsDays ?? null],
       );
       await recordEvent(db, actor, { entityType: "supplier", entityId: r.rows[0].id, eventType: "created", after: input });
       return { id: r.rows[0].id as string };

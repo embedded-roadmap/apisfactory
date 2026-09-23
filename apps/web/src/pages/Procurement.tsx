@@ -34,7 +34,7 @@ export function SuppliersPage() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["suppliers"], queryFn: () => get<any[]>("/api/suppliers") });
   const act = useMutation({ mutationFn: (f: () => Promise<unknown>) => f(), onSuccess: () => qc.invalidateQueries({ queryKey: ["suppliers"] }) });
-  const [f, setF] = useState({ code: "", name: "", contactEmail: "", defaultLeadTimeDays: "" });
+  const [f, setF] = useState({ code: "", name: "", contactEmail: "", defaultLeadTimeDays: "", paymentTermsDays: "30" });
   const [reason, setReason] = useState<Record<string, string>>({});
   return (
     <>
@@ -46,10 +46,10 @@ export function SuppliersPage() {
         {q.data?.length === 0 ? <Empty>Tedarikçi yok.</Empty> : null}
         {q.data?.length ? (
           <table>
-            <thead><tr><th>Kod</th><th>Ad</th><th>E-posta</th><th className="num">Temin (gün)</th><th className="num">Satır</th><th className="num">Gecikmiş</th><th className="num">Ort. kayma (gün)</th><th>Durum</th><th /></tr></thead>
+            <thead><tr><th>Kod</th><th>Ad</th><th>E-posta</th><th className="num">Temin (gün)</th><th className="num">Vade (gün)</th><th className="num">Satır</th><th className="num">Gecikmiş</th><th className="num">Ort. kayma (gün)</th><th>Durum</th><th /></tr></thead>
             <tbody>{q.data.map((s) => (
               <tr key={s.id}>
-                <td className="mono">{s.code}</td><td>{s.name}</td><td className="muted">{s.contactEmail ?? "—"}</td><td className="num">{s.defaultLeadTimeDays ?? "—"}</td>
+                <td className="mono">{s.code}</td><td>{s.name}</td><td className="muted">{s.contactEmail ?? "—"}</td><td className="num">{s.defaultLeadTimeDays ?? "—"}</td><td className="num">{s.paymentTermsDays}</td>
                 <td className="num">{s.lineCount}</td><td className="num">{s.overdueLines ? <span className="badge bad">{s.overdueLines}</span> : 0}</td><td className="num">{s.avgSlipDays ?? "—"}</td>
                 <td>{s.status === "active" ? <span className="badge ok">aktif</span> : <span className="badge bad" title={s.blockedReason}>bloke</span>}</td>
                 <td>{can("supplier.manage") ? (
@@ -63,11 +63,12 @@ export function SuppliersPage() {
           </table>
         ) : null}
         {can("supplier.manage") ? (
-          <form className="row" onSubmit={(e: FormEvent) => { e.preventDefault(); act.mutate(() => post("/api/suppliers", { code: f.code, name: f.name, contactEmail: f.contactEmail || undefined, defaultLeadTimeDays: f.defaultLeadTimeDays ? Number(f.defaultLeadTimeDays) : undefined }).then(() => setF({ code: "", name: "", contactEmail: "", defaultLeadTimeDays: "" }))); }}>
+          <form className="row" onSubmit={(e: FormEvent) => { e.preventDefault(); act.mutate(() => post("/api/suppliers", { code: f.code, name: f.name, contactEmail: f.contactEmail || undefined, defaultLeadTimeDays: f.defaultLeadTimeDays ? Number(f.defaultLeadTimeDays) : undefined, paymentTermsDays: Number(f.paymentTermsDays) || 30 }).then(() => setF({ code: "", name: "", contactEmail: "", defaultLeadTimeDays: "", paymentTermsDays: "30" }))); }}>
             <label className="field" style={{ width: 110 }}>Kod<input aria-label="Tedarikçi kodu" required value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })} /></label>
             <label className="field" style={{ flex: 1 }}>Ad<input aria-label="Tedarikçi adı" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></label>
             <label className="field">E-posta<input type="email" value={f.contactEmail} onChange={(e) => setF({ ...f, contactEmail: e.target.value })} /></label>
             <label className="field" style={{ width: 110 }}>Temin (gün)<input inputMode="numeric" value={f.defaultLeadTimeDays} onChange={(e) => setF({ ...f, defaultLeadTimeDays: e.target.value })} /></label>
+            <label className="field" style={{ width: 110 }}>Vade (gün)<input inputMode="numeric" value={f.paymentTermsDays} onChange={(e) => setF({ ...f, paymentTermsDays: e.target.value })} /></label>
             <button className="primary" style={{ alignSelf: "flex-end" }}>Ekle</button>
           </form>
         ) : null}
