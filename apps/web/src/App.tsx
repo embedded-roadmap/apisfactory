@@ -19,6 +19,7 @@ import { QualityPage } from "./pages/Quality";
 import { StationPage } from "./pages/Station";
 import { RoutingPage } from "./pages/Routing";
 import { MeetingPage, MeetingsPage } from "./pages/Meetings";
+import { ChannelPage, ChannelsPage } from "./pages/Channels";
 import { DistributorsPage } from "./pages/Distributors";
 import { AlternatesPage } from "./pages/Alternates";
 import { CustomerInvoicePage, CustomerInvoicesPage, EinvoiceConnectorsPage, ReceivablesAgingPage } from "./pages/Receivables";
@@ -121,6 +122,7 @@ const NAV: { to: string; key: string; perm?: Permission }[] = [
   { to: "/imports", key: "nav.imports" },
   { to: "/reports", key: "nav.reports", perm: "report.view" },
   { to: "/workflow", key: "nav.workflow", perm: "task.view" },
+  { to: "/collaboration/channels", key: "nav.channels", perm: "task.view" },
   { to: "/events", key: "nav.events", perm: "audit.view" },
   { to: "/admin", key: "nav.admin", perm: "admin.users" },
 ];
@@ -218,6 +220,8 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/planning/gantt" element={<GanttPage />} />
               <Route path="/planning/meetings" element={<MeetingsPage />} />
               <Route path="/planning/meetings/:id" element={<MeetingPage />} />
+              <Route path="/collaboration/channels" element={<ChannelsPage />} />
+              <Route path="/collaboration/channels/:id" element={<ChannelPage />} />
               <Route path="/planning/org" element={<OrgPage />} />
               <Route path="/planning/team" element={<TeamReportPage />} />
               <Route path="/quality" element={<QualityPage />} />

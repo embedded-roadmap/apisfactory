@@ -1,12 +1,12 @@
 # Devam notu
 
-Son güncelleme: 23.09.2026 — oturum 18 (W36: e-fatura/e-arşiv ve kargo bağlayıcıları — yalnız TEST modu, sağlayıcı kararı açık)
+Son güncelleme: 23.09.2026 — oturum 19 (W27 devamı: mesajlara dosya/fotoğraf eki, serbest grup kanalları)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 135/135 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6, payables 5, receivables 4, distributors 5, alternates 6, dispatch 5), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 138/138 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6, payables 5, receivables 4, distributors 5, alternates 6, dispatch 5, collaboration 9), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
@@ -26,6 +26,13 @@ Son güncelleme: 23.09.2026 — oturum 18 (W36: e-fatura/e-arşiv ve kargo bağl
 | Playwright uçtan uca (oturum 16) | Satın alma DigiKey'i TEST moduna alıp DEMO tedarikçiye bağlar, Mouser'ı fiyat dosyası moduna alıp CSV yükler; RFQ sayfasında distribütör teklifleri (TEST VERİSİ rozeti, alınma zamanı) ve "otomatik teklif" → DigiKey teklifi eklenir, Mouser atlanır (tedarikçiye bağlı değil); Ar-Ge BOM tedarik görünümünü hesaplar; sayfa hatası yok |
 | Playwright uçtan uca (oturum 17) | Satın alma CMP-CAP-01 için kural tabanlı adaylardan CMP-CAP-02'yi seçip kanıtla önerir; Ar-Ge notsuz onayda "kanıt eksik" uyarısı alır, notla onaylar; üretim onaylayınca durum Onaylı; kalite gerekçeyle geri alır; sayfa hatası yok |
 | Playwright uçtan uca (oturum 18) | Muhasebe e-belge bağlayıcısını (Uyumsoft) TEST moduna alır; depo kargo bağlayıcısını (Yurtiçi Kargo) TEST moduna alır; sayfa hatası yok |
+| Playwright uçtan uca (oturum 19) | Üretim yeni kanal açar, fotoğraf ekleyip mesaj gönderir; ek mesajda rozet olarak görünür ve indirilebilir; sayfa hatası yok |
+
+## Oturum 19'da eklenenler (W27 devamı)
+
+1. **Mesajlara dosya/fotoğraf eki**: mevcut her konuşmada (iş emri, değişiklik, iade, toplantı, kanal…) mesaja en fazla 3 dosya eklenebilir (PNG/JPEG/WEBP/GIF/PDF/metin/CSV, dosya başına 3 MB, mesaj başına toplam 5 MB — istek gövdesi sınırına göre). Ek veri tabanında saklanır (harici depolama yok); indirme, mesajın bağlı olduğu kaydı görme yetkisiyle korunur. Mesaj geri çekilince eki de görünmez.
+2. **Serbest grup kanalları** (`/collaboration/channels`): herhangi bir iş kaydına bağlı olmayan, tüm çalışanların (`task.view`) görebildiği konuşma odaları. Herkes kanal açabilir; yalnız oluşturan veya görev yönetimi yetkisi olan kişi arşivler (geçmiş kalır). Mevcut konuşma/bahsetme/okundu altyapısı aynen kullanılır (kanal = yeni bir "kayıt türü").
+3. Web: `Discussion` bileşenine dosya seçici ve ek rozetleri (indirmede blob + yetkili fetch); yeni Kanallar sayfası ve menü girdisi.
 
 ## Oturum 18'de eklenenler (W36)
 
@@ -209,7 +216,7 @@ Son güncelleme: 23.09.2026 — oturum 18 (W36: e-fatura/e-arşiv ve kargo bağl
 
 ## Sıradaki uygulanabilir iş
 
-1. W27 devamı: konuşmaya dosya/fotoğraf eki (W08 depolama), grup kanalları.
-2. W38: bağlayıcı kotası, önbellek isabeti ve hata panosu (çağrı kayıtları hazır; e-belge/kargo dispatch kayıtları da eklenebilir).
-3. W29 devamı: alternatif kanıtına datasheet eki, mobilde alternatif lot seçimi, gerçek AI önerisi (W30 sonrası).
-4. W36 devamı: gerçek entegratör/kargo firması sözleşmesi imzalanınca canlı bağlanma (sağlayıcı kararı şirkete ait).
+1. W38: bağlayıcı kotası, önbellek isabeti ve hata panosu (çağrı kayıtları hazır; e-belge/kargo dispatch kayıtları da eklenebilir).
+2. W29 devamı: alternatif kanıtına datasheet eki, mobilde alternatif lot seçimi, gerçek AI önerisi (W30 sonrası).
+3. W36 devamı: gerçek entegratör/kargo firması sözleşmesi imzalanınca canlı bağlanma (sağlayıcı kararı şirkete ait).
+4. W27 devamı: mobil uygulamaya dosya eki ve kanal desteği (şimdilik yalnız web); video paylaşımı yok (R28).

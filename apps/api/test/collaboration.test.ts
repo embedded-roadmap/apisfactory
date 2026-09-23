@@ -3,7 +3,7 @@
  * (katılım, tutanak, aksiyonların göreve dönüşmesi, kapanan tutanağın değişmezliği).
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { call, clearTokens, expectOk, setupWorld, type World } from "./helpers";
+import { call, clearTokens, expectOk, login, setupWorld, type World } from "./helpers";
 import { closePool } from "../src/db/pool";
 
 let w: World;
@@ -138,5 +138,54 @@ describe("Toplantı ve tutanak (W28)", () => {
     expectOk(await call(w.app, "quality@a.test", A, "POST", `/api/meetings/${m.id}/cancel`, { reason: "Denetim ertelendi" }));
     const upd = await call(w.app, "quality@a.test", A, "POST", `/api/meetings/${m.id}/update`, { title: "Yeni başlık" });
     expect(upd.body.error.code).toBe("meeting_closed");
+  });
+});
+
+describe("Mesaj eki ve kanallar (W27 devamı)", () => {
+  it("dosya eki: tür/boyut sınırı, indirmede yetki, geri çekilen mesajın eki görünmez", async () => {
+    const purl = `/api/threads/product/${productId}`;
+    const png1x1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+    const tooBig = Buffer.alloc(3_100_000).toString("base64");
+    const oversized = await call(w.app, "rd@a.test", A, "POST", `${purl}/messages`, { body: "Büyük dosya", attachments: [{ fileName: "buyuk.png", contentType: "image/png", contentBase64: tooBig }] });
+    expect(oversized.status).toBe(400);
+    const badType = await call(w.app, "rd@a.test", A, "POST", `${purl}/messages`, { body: "Kötü tür", attachments: [{ fileName: "x.exe", contentType: "application/x-msdownload", contentBase64: png1x1 }] });
+    expect(badType.status).toBe(400);
+    const msg = expectOk(await call(w.app, "rd@a.test", A, "POST", `${purl}/messages`, { body: "Fotoğraf ekli", attachments: [{ fileName: "test.png", contentType: "image/png", contentBase64: png1x1 }] }));
+    expect(msg.attachments).toBe(1);
+    const list = expectOk(await call(w.app, "rd@a.test", A, "GET", purl));
+    const m = list.messages.find((x: any) => x.id === msg.id);
+    expect(m.attachments).toMatchObject([{ fileName: "test.png", contentType: "image/png", sizeBytes: expect.any(Number) }]);
+    const attId = m.attachments[0].id;
+    // Yetkisi olmayan (admin bu ürünü göremez) ekini de indiremez
+    const denied = await w.app.inject({ method: "GET", url: `/api/attachments/${attId}`, headers: { authorization: `Bearer ${await login(w.app, "admin@a.test")}`, "x-company-id": A } });
+    expect(denied.statusCode).toBe(403);
+    const ok = await w.app.inject({ method: "GET", url: `/api/attachments/${attId}`, headers: { authorization: `Bearer ${await login(w.app, "rd@a.test")}`, "x-company-id": A } });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.headers["content-type"]).toBe("image/png");
+    expect(ok.rawPayload.length).toBe(Buffer.from(png1x1, "base64").length);
+    // Mesaj geri çekilince listede eki de görünmez (metin gibi)
+    expectOk(await call(w.app, "rd@a.test", A, "POST", `/api/messages/${msg.id}/retract`, { reason: "Yanlış dosya" }));
+    const after = expectOk(await call(w.app, "rd@a.test", A, "GET", purl));
+    expect(after.messages.find((x: any) => x.id === msg.id).attachments).toEqual([]);
+  });
+
+  it("kanal: herhangi bir çalışan açar ve konuşur; yalnız oluşturan (veya task.manage) arşivler", async () => {
+    const ch = expectOk(await call(w.app, "warehouse@a.test", A, "POST", "/api/channels", { name: "Depo duyuruları", description: "Genel depo konuları" }));
+    expect(ch.code).toMatch(/^KNL-/);
+    const list = expectOk(await call(w.app, "sales@a.test", A, "GET", "/api/channels"));
+    expect(list.find((c: any) => c.id === ch.id)).toMatchObject({ name: "Depo duyuruları", archivedAt: null });
+    expectOk(await call(w.app, "sales@a.test", A, "POST", `/api/threads/channel/${ch.id}/messages`, { body: "Herkese açık kanal mesajı" }));
+    const thread = expectOk(await call(w.app, "warehouse@a.test", A, "GET", `/api/threads/channel/${ch.id}`));
+    expect(thread.messages).toHaveLength(1);
+    const deniedArchive = await call(w.app, "sales@a.test", A, "POST", `/api/channels/${ch.id}/archive`, { reason: "deneme" });
+    expect(deniedArchive.status).toBe(403); // ne oluşturan ne de task.manage
+    expectOk(await call(w.app, "warehouse@a.test", A, "POST", `/api/channels/${ch.id}/archive`, { reason: "Konu kapandı" }));
+    const again = await call(w.app, "warehouse@a.test", A, "POST", `/api/channels/${ch.id}/archive`, { reason: "tekrar" });
+    expect(again.body.error.code).toBe("invalid_transition");
+  });
+
+  it("RLS: başka şirket kanalı ve eki göremez", async () => {
+    const b = await call(w.app, "all@b.test", w.b.companyId, "GET", "/api/channels");
+    expect(expectOk(b)).toEqual([]);
   });
 });

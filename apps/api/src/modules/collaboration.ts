@@ -1,11 +1,11 @@
 import type { FastifyInstance } from "fastify";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { Permission } from "@apisfactory/shared";
 import { z } from "zod";
 import type { Db } from "../db/pool";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors";
 import { enqueue, idempotent, nextCode, recordEvent } from "../lib/records";
-import { can, ctxOf, idempotencyKey, parse, tenant } from "../http/context";
+import { can, ctxOf, idempotencyKey, need, parse, tenant } from "../http/context";
 
 /**
  * W27/W28 — Kayda bağlı iç mesajlaşma ve toplantı.
@@ -29,7 +29,14 @@ export const ENTITY: Record<string, { table: string; perm: Permission; label: (r
   purchase_request: { table: "purchase_requests", perm: "purchase.view", select: "code", label: (r) => r.code, link: () => `/purchasing` },
   task: { table: "tasks", perm: "task.view", select: "title as code", label: (r) => r.code, link: (id) => `/planning/tasks/${id}` },
   meeting: { table: "meetings", perm: "task.view", select: "code || ' ' || title as code", label: (r) => r.code, link: (id) => `/planning/meetings/${id}` },
+  channel: { table: "channels", perm: "task.view", select: "code || ' ' || name as code", label: (r) => r.code, link: (id) => `/collaboration/channels/${id}` },
 };
+
+const MAX_ATTACHMENTS = 3;
+const MAX_ATTACHMENT_BYTES = 3_000_000;
+const MAX_ATTACHMENTS_TOTAL_BYTES = 5_000_000; // istek gövdesi 8 MB ile sınırlı (app.ts bodyLimit); base64 ~%33 büyür
+const ATTACHMENT_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif", "application/pdf", "text/plain", "text/csv"] as const;
+const AttachmentInput = z.object({ fileName: z.string().trim().min(1).max(200), contentType: z.enum(ATTACHMENT_TYPES), contentBase64: z.string().min(1) });
 
 async function entityLabel(db: Db, type: string, id: string) {
   const e = ENTITY[type];
@@ -110,7 +117,9 @@ export async function collaborationRoutes(app: FastifyInstance) {
       const r = await db.query(
         `select m.id, m.author_id as "authorId", u.name as "authorName", case when m.retracted_at is null then m.body end as body,
                 m.reply_to as "replyTo", m.created_at as "createdAt", m.retracted_at as "retractedAt", m.retract_reason as "retractReason",
-                coalesce((select json_agg(json_build_object('userId', mm.user_id, 'name', mu.name)) from message_mentions mm join users mu on mu.id = mm.user_id where mm.message_id = m.id), '[]') as mentions
+                coalesce((select json_agg(json_build_object('userId', mm.user_id, 'name', mu.name)) from message_mentions mm join users mu on mu.id = mm.user_id where mm.message_id = m.id), '[]') as mentions,
+                coalesce((select json_agg(json_build_object('id', a.id, 'fileName', a.file_name, 'contentType', a.content_type, 'sizeBytes', a.size_bytes) order by a.created_at)
+                            from message_attachments a where a.message_id = m.id and m.retracted_at is null), '[]') as attachments
            from messages m join users u on u.id = m.author_id where m.thread_id = $1 order by m.created_at, m.id limit 500`,
         [tid],
       );
@@ -158,7 +167,16 @@ export async function collaborationRoutes(app: FastifyInstance) {
     const { entityType, entityId } = req.params as { entityType: string; entityId: string };
     const e = ENTITY[entityType];
     if (!e) throw badRequest("Bilinmeyen kayıt türü");
-    const input = parse(z.object({ body: z.string().trim().min(1).max(4000), mentions: z.array(z.string().uuid()).max(20).default([]), replyTo: z.string().uuid().optional() }), req.body);
+    const input = parse(
+      z.object({ body: z.string().trim().min(1).max(4000), mentions: z.array(z.string().uuid()).max(20).default([]), replyTo: z.string().uuid().optional(), attachments: z.array(AttachmentInput).max(MAX_ATTACHMENTS).default([]) }),
+      req.body,
+    );
+    const files = input.attachments.map((a) => {
+      const buf = Buffer.from(a.contentBase64, "base64");
+      if (!buf.length || buf.length > MAX_ATTACHMENT_BYTES) throw badRequest(`${a.fileName}: dosya boyutu sınırın dışında (en fazla ${MAX_ATTACHMENT_BYTES / 1_000_000} MB)`);
+      return { fileName: a.fileName, contentType: a.contentType, buf, sha: createHash("sha256").update(buf).digest("hex") };
+    });
+    if (files.reduce((n, f) => n + f.buf.length, 0) > MAX_ATTACHMENTS_TOTAL_BYTES) throw badRequest(`Ekler toplamda ${MAX_ATTACHMENTS_TOTAL_BYTES / 1_000_000} MB'ı aşamaz`);
     return tenant(req, e.perm, (db, actor) =>
       idempotent(db, actor.companyId, "message_post", idempotencyKey(req), async () => {
         const label = await entityLabel(db, entityType, entityId);
@@ -179,6 +197,13 @@ export async function collaborationRoutes(app: FastifyInstance) {
           `insert into messages (id, company_id, thread_id, author_id, body, reply_to) values ($1, app_company_id(), $2, $3, $4, $5)`,
           [id, tid, actor.userId, input.body, input.replyTo ?? null],
         );
+        for (const f of files) {
+          await db.query(
+            `insert into message_attachments (company_id, message_id, file_name, content_type, size_bytes, sha256, content, uploaded_by)
+             values (app_company_id(), $1, $2, $3, $4, $5, $6, $7)`,
+            [id, f.fileName, f.contentType, f.buf.length, f.sha, f.buf, actor.userId],
+          );
+        }
         for (const u of mentionIds) {
           await db.query(`insert into message_mentions (company_id, message_id, user_id) values (app_company_id(), $1, $2)`, [id, u]);
           await enqueue(db, actor.companyId, "notification.mention", { messageId: id, userId: u, entityType, entityId, label });
@@ -187,7 +212,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
           `insert into thread_reads (company_id, thread_id, user_id) values (app_company_id(), $1, $2) on conflict (thread_id, user_id) do update set last_read_at = now()`,
           [tid, actor.userId],
         );
-        return { id, threadId: tid, mentioned: mentionIds.length };
+        return { id, threadId: tid, mentioned: mentionIds.length, attachments: files.length };
       }),
     );
   });
@@ -203,6 +228,65 @@ export async function collaborationRoutes(app: FastifyInstance) {
       await db.query(`update messages set retracted_at = now(), retract_reason = $2 where id = $1`, [id, input.reason]);
       await recordEvent(db, actor, { entityType: m.entity_type, entityId: m.entity_id, eventType: "message.retracted", after: { messageId: id }, reason: input.reason });
       return { id, retracted: true };
+    });
+  });
+
+  /** Ek dosya indirme: mesajın bağlı olduğu kaydı görme yetkisi gerekir. */
+  app.get("/api/attachments/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const out = await tenant(req, null, async (db) => {
+      const a = (await db.query(
+        `select a.file_name as "fileName", a.content_type as "contentType", a.content, t.entity_type as "entityType"
+           from message_attachments a join messages m on m.id = a.message_id join threads t on t.id = m.thread_id where a.id = $1`,
+        [id],
+      )).rows[0];
+      if (!a) throw notFound("Ek");
+      const e = ENTITY[a.entityType];
+      if (!e) throw notFound("Ek");
+      need(req, e.perm);
+      return a;
+    });
+    reply.header("content-type", out.contentType).header("content-disposition", `inline; filename="${encodeURIComponent(out.fileName)}"`);
+    return out.content;
+  });
+
+  // ---- Kanallar ---------------------------------------------------------------------------
+  app.get("/api/channels", async (req) =>
+    tenant(req, "task.view", async (db) => {
+      const r = await db.query(
+        `select c.id, c.code, c.name, c.description, c.archived_at as "archivedAt", u.name as "createdBy", c.created_at as "createdAt",
+                (select max(m.created_at) from threads t join messages m on m.thread_id = t.id where t.entity_type = 'channel' and t.entity_id = c.id) as "lastMessageAt"
+           from channels c left join users u on u.id = c.created_by
+          order by c.archived_at is not null, coalesce((select max(m.created_at) from threads t join messages m on m.thread_id = t.id where t.entity_type = 'channel' and t.entity_id = c.id), c.created_at) desc`,
+      );
+      return r.rows;
+    }),
+  );
+
+  app.post("/api/channels", async (req) => {
+    const input = parse(z.object({ name: z.string().trim().min(2).max(100), description: z.string().max(2000).optional() }), req.body);
+    return tenant(req, "task.view", async (db, actor) => {
+      const code = await nextCode(db, actor.companyId, "channel", "KNL");
+      const r = await db.query(
+        `insert into channels (company_id, code, name, description, created_by) values (app_company_id(), $1, $2, $3, $4) returning id, code`,
+        [code, input.name, input.description ?? null, actor.userId],
+      );
+      await recordEvent(db, actor, { entityType: "channel", entityId: r.rows[0].id, eventType: "created", after: { code, name: input.name } });
+      return r.rows[0];
+    });
+  });
+
+  app.post("/api/channels/:id/archive", async (req) => {
+    const { id } = req.params as { id: string };
+    const input = parse(z.object({ reason: z.string().min(3).max(500) }), req.body);
+    return tenant(req, "task.view", async (db, actor) => {
+      const c = (await db.query(`select code, created_by, archived_at from channels where id = $1 for update`, [id])).rows[0];
+      if (!c) throw notFound("Kanal");
+      if (c.archived_at) throw conflict("invalid_transition", "Kanal zaten arşivlenmiş");
+      if (c.created_by !== actor.userId) need(req, "task.manage");
+      await db.query(`update channels set archived_at = now(), archived_by = $2 where id = $1`, [id, actor.userId]);
+      await recordEvent(db, actor, { entityType: "channel", entityId: id, eventType: "archived", reason: input.reason });
+      return { id, archived: true };
     });
   });
 

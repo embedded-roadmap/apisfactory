@@ -1,8 +1,36 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { get, newKey, post } from "../lib/api";
+import { auth, BASE, get, newKey, post } from "../lib/api";
 import { ErrorNotice, fmtDate, useMe } from "../lib/ui";
+
+const ATTACHMENT_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif", "application/pdf", "text/plain", "text/csv"];
+const MAX_ATTACHMENT_BYTES = 3_000_000;
+const MAX_ATTACHMENTS = 3;
+const fmtKb = (n: number) => `${Math.round(n / 1024)} KB`;
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(",", 2)[1] ?? "");
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(file);
+  });
+}
+
+async function openAttachment(id: string, fileName: string, contentType: string) {
+  const { session, companyId } = auth.get();
+  const res = await fetch(`${BASE}/api/attachments/${id}`, { headers: { authorization: `Bearer ${session?.token}`, "x-company-id": companyId ?? "" } });
+  if (!res.ok) return;
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  if (contentType.startsWith("image/") || contentType === "application/pdf") window.open(url, "_blank");
+  else {
+    const a = document.createElement("a");
+    a.href = url; a.download = fileName; a.click();
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
 
 /**
  * Kayda bağlı konuşma (W27). Kaydı görebilen herkes okur/yazar; bahsedilen kişi kaydı görme yetkisine sahip olmalı.
@@ -19,11 +47,25 @@ export function Discussion({ entityType, entityId }: { entityType: string; entit
   const [replyTo, setReplyTo] = useState<any | null>(null);
   const [idem, setIdem] = useState(newKey());
   const [retract, setRetract] = useState<{ id: string; reason: string } | null>(null);
+  const [attachments, setAttachments] = useState<{ fileName: string; contentType: string; contentBase64: string; sizeBytes: number }[]>([]);
+  const [fileError, setFileError] = useState<string | null>(null);
   const refresh = () => { qc.invalidateQueries({ queryKey: key }); qc.invalidateQueries({ queryKey: ["mentions"] }); };
   const send = useMutation({
-    mutationFn: () => post(`/api/threads/${entityType}/${entityId}/messages`, { body, mentions, replyTo: replyTo?.id }, { "Idempotency-Key": idem }),
-    onSuccess: () => { setBody(""); setMentions([]); setReplyTo(null); setIdem(newKey()); refresh(); },
+    mutationFn: () => post(`/api/threads/${entityType}/${entityId}/messages`, { body, mentions, replyTo: replyTo?.id, attachments: attachments.map(({ fileName, contentType, contentBase64 }) => ({ fileName, contentType, contentBase64 })) }, { "Idempotency-Key": idem }),
+    onSuccess: () => { setBody(""); setMentions([]); setReplyTo(null); setIdem(newKey()); setAttachments([]); refresh(); },
   });
+  async function addFiles(files: FileList | null) {
+    setFileError(null);
+    if (!files) return;
+    const next = [...attachments];
+    for (const f of Array.from(files)) {
+      if (next.length >= MAX_ATTACHMENTS) { setFileError(`En fazla ${MAX_ATTACHMENTS} dosya eklenebilir`); break; }
+      if (!ATTACHMENT_TYPES.includes(f.type)) { setFileError(`${f.name}: desteklenmeyen dosya türü`); continue; }
+      if (f.size > MAX_ATTACHMENT_BYTES) { setFileError(`${f.name}: dosya çok büyük (en fazla ${MAX_ATTACHMENT_BYTES / 1_000_000} MB)`); continue; }
+      next.push({ fileName: f.name, contentType: f.type, contentBase64: await fileToBase64(f), sizeBytes: f.size });
+    }
+    setAttachments(next);
+  }
   const act = useMutation({ mutationFn: (f: () => Promise<unknown>) => f(), onSuccess: refresh });
   const count = q.data?.messages.length ?? 0;
   useEffect(() => {
@@ -48,6 +90,15 @@ export function Discussion({ entityType, entityId }: { entityType: string; entit
               </div>
               {parent ? <div className="muted" style={{ fontSize: 13 }}>↪ {parent.authorName}: {parent.body ? `${String(parent.body).slice(0, 80)}${parent.body.length > 80 ? "…" : ""}` : "geri çekilmiş mesaj"}</div> : null}
               {m.body !== null ? <div style={{ whiteSpace: "pre-wrap" }}>{m.body}</div> : <div className="muted"><i>Mesaj geri çekildi — {m.retractReason}</i></div>}
+              {m.attachments?.length ? (
+                <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                  {m.attachments.map((a: any) => (
+                    <button key={a.id} type="button" className="badge" onClick={() => openAttachment(a.id, a.fileName, a.contentType)}>
+                      {a.contentType.startsWith("image/") ? "🖼" : "📎"} {a.fileName} <span className="muted">({fmtKb(a.sizeBytes)})</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               {m.mentions.length ? <div className="muted" style={{ fontSize: 13 }}>Bahsedilen: {m.mentions.map((x: any) => `@${x.name}`).join(", ")}</div> : null}
               {m.body !== null ? (
                 <div className="row" style={{ gap: 6 }}>
@@ -70,7 +121,17 @@ export function Discussion({ entityType, entityId }: { entityType: string; entit
       <form className="stack" style={{ gap: 6 }} onSubmit={(e) => { e.preventDefault(); if (body.trim()) send.mutate(); }}>
         {replyTo ? <div className="row muted" style={{ fontSize: 13 }}>↪ {replyTo.authorName} yanıtlanıyor <button type="button" className="link" onClick={() => setReplyTo(null)}>kaldır</button></div> : null}
         <textarea aria-label="Mesaj" rows={3} maxLength={4000} placeholder="Mesaj yazın…" value={body} onChange={(e) => setBody(e.target.value)} />
+        {attachments.length ? (
+          <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+            {attachments.map((a, i) => <span key={i} className="badge">{a.fileName} ({fmtKb(a.sizeBytes)}) <button type="button" className="link" aria-label={`${a.fileName} kaldır`} onClick={() => setAttachments(attachments.filter((_, j) => j !== i))}>×</button></span>)}
+          </div>
+        ) : null}
+        {fileError ? <ErrorNotice error={new Error(fileError)} /> : null}
         <div className="row" style={{ flexWrap: "wrap" }}>
+          <label className="btn" style={{ cursor: "pointer" }}>
+            Dosya/fotoğraf ekle
+            <input type="file" multiple accept={ATTACHMENT_TYPES.join(",")} style={{ display: "none" }} onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
+          </label>
           <select aria-label="Kişiden bahset" value="" onChange={(e) => { if (e.target.value && !mentions.includes(e.target.value)) setMentions([...mentions, e.target.value]); }}>
             <option value="">@ Kişiden bahset…</option>
             {people.data?.filter((p) => p.id !== me?.user.id && !mentions.includes(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
