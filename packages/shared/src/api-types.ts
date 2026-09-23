@@ -48,6 +48,15 @@ export type RevisionDetail = {
   firmwareSha256?: string | null;
   approvals: HandoverApproval[];
   missingApprovals: ("rd" | "production" | "quality")[];
+  readiness?: HandoverReadiness | null;
+  handoverChecklist?: (HandoverReadiness & { round: number; at: string }) | null;
+};
+
+export type HandoverReadiness = {
+  policyVersion: number | null;
+  ready: boolean;
+  missing: string[];
+  items: { key: string; label: string; required: boolean; ok: boolean; detail: string | null; waiver: { reason: string; by: string | null; at: string } | null }[];
 };
 
 export type BomLine = {

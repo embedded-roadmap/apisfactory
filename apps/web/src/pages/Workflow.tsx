@@ -60,6 +60,7 @@ export function WorkflowPage() {
         </section>
       ) : null}
       {edit && q.data ? <PolicyEditor kind={edit} current={q.data.current.find((c: any) => c.kind === edit)?.policy} onDone={() => setEdit(null)} /> : null}
+      <HandoverPolicyCard />
       {can("workflow.manage") ? <DryRun /> : null}
       {q.data?.history.length ? (
         <section className="card">
@@ -121,6 +122,54 @@ function PolicyEditor({ kind, current, onDone }: { kind: string; current: any; o
         <div className="row"><button className="primary" disabled={save.isPending}>Sürümü yayımla</button><button type="button" onClick={onDone}>Vazgeç</button></div>
         <ErrorNotice error={save.error} />
       </form>
+    </section>
+  );
+}
+
+const REQ_LABEL: Record<string, string> = { test_plan: "Test planı", firmware: "Firmware", firmware_sha: "Firmware SHA-256", routing: "Rota" };
+
+/** Devir politikası (şirket ayarı): devre gönderme ve son onayda zorunlu paket. */
+function HandoverPolicyCard() {
+  const can = useCan();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["handoverPolicy"], queryFn: () => get<any>("/api/handover/policy") });
+  const [f, setF] = useState<{ requireTestPlan: boolean; requireFirmware: boolean; requireFirmwareSha: boolean; requireRouting: boolean; note: string } | null>(null);
+  const save = useMutation({ mutationFn: () => post<any>("/api/handover/policy", f), onSuccess: () => { setF(null); qc.invalidateQueries({ queryKey: ["handoverPolicy"] }); } });
+  const c = q.data?.current;
+  const flags = (p: any) => [p.requireTestPlan && "test planı", p.requireFirmware && "firmware", p.requireFirmwareSha && "SHA-256", p.requireRouting && "rota"].filter(Boolean).join(", ") || "yalnız BOM";
+  return (
+    <section className="card">
+      <div className="row between">
+        <h2 style={{ margin: 0 }}>Devir politikası</h2>
+        {can("workflow.manage") && c && !f ? <button onClick={() => setF({ requireTestPlan: c.requireTestPlan, requireFirmware: c.requireFirmware, requireFirmwareSha: c.requireFirmwareSha, requireRouting: c.requireRouting, note: "" })}>Yeni sürüm</button> : null}
+      </div>
+      <ErrorNotice error={q.error} />
+      {c ? <p style={{ margin: 0 }}>{c.versionNo ? <><b>v{c.versionNo}</b> · zorunlu: {flags(c)}</> : <span className="muted">{q.data.defaults}</span>} <span className="muted">· Yayımlanmış BOM her zaman zorunlu. Kontrol devre göndermede ve son devir onayında yapılır.</span></p> : null}
+      {f ? (
+        <form className="stack" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+          <div className="row" style={{ flexWrap: "wrap" }}>
+            {([["requireTestPlan", "Yayımlanmış test planı"], ["requireFirmware", "Firmware sürümü"], ["requireFirmwareSha", "Firmware SHA-256"], ["requireRouting", "Yayımlanmış rota"]] as const).map(([k, l]) => (
+              <label key={k} className="row" style={{ gap: 6 }}><input type="checkbox" style={{ minHeight: 0 }} checked={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.checked, ...(k === "requireFirmware" && !e.target.checked ? { requireFirmwareSha: false } : {}) })} disabled={k === "requireFirmwareSha" && !f.requireFirmware} /> {l}</label>
+            ))}
+          </div>
+          <label className="field">Gerekçe<input aria-label="Devir politikası gerekçesi" required minLength={3} value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></label>
+          <div className="row"><button className="primary" disabled={save.isPending}>Yayımla</button><button type="button" onClick={() => setF(null)}>Vazgeç</button></div>
+          <ErrorNotice error={save.error} />
+        </form>
+      ) : null}
+      {save.data?.affectedInReview?.length ? (
+        <div className="notice warn">Devir incelemesindeki {save.data.affectedInReview.length} revizyon yeni politikayı karşılamıyor; son onayda durdurulacak: {save.data.affectedInReview.map((x: any) => `${x.product} (${x.missing.map((m: string) => REQ_LABEL[m] ?? m).join(", ")})`).join("; ")}</div>
+      ) : null}
+      {q.data?.history.length ? (
+        <details><summary>Sürüm geçmişi ({q.data.history.length})</summary>
+          <table><tbody>{q.data.history.map((h: any) => <tr key={h.versionNo}><td>v{h.versionNo}</td><td>{flags(h)}</td><td>{h.note}</td><td className="muted">{h.createdBy} · {fmtDate(h.createdAt)}</td></tr>)}</tbody></table>
+        </details>
+      ) : null}
+      {q.data?.waivers.length ? (
+        <details><summary>Muafiyetler ({q.data.waivers.length})</summary>
+          <table><tbody>{q.data.waivers.map((x: any) => <tr key={x.revisionId + x.requirement}><td className="mono">{x.productCode} Rev.{x.rev}</td><td>{REQ_LABEL[x.requirement]}</td><td>{x.reason}</td><td className="muted">{x.grantedBy} · {fmtDate(x.createdAt)}</td></tr>)}</tbody></table>
+        </details>
+      ) : null}
     </section>
   );
 }

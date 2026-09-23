@@ -117,6 +117,8 @@ export function ProductDetailPage() {
                 ) : null}
               </div>
             </div>
+            {r.status !== "released" && r.readiness ? <Readiness rev={r} data={r.readiness} onDone={refresh} /> : null}
+            {r.status === "released" && r.handoverChecklist ? <Readiness rev={r} data={r.handoverChecklist} onDone={refresh} frozen /> : null}
             {r.status === "handover_review" ? <HandoverPanel rev={r} onDone={refresh} /> : null}
             {r.approvals.length > 0 ? (
               <table>
@@ -161,6 +163,43 @@ export function ProductDetailPage() {
       {selectedBom && !diffWith ? <BomView id={selectedBom} /> : null}
       {selectedBom && diffWith ? <BomDiffView a={diffWith} b={selectedBom} boms={p.boms} setA={setDiffWith} onClose={() => setDiffWith(null)} /> : null}
     </>
+  );
+}
+
+/** Devir paketi kontrol listesi: şirketin devir politikasına göre zorunlu maddeler, muafiyetler; yayımdan sonra donmuş hali. */
+function Readiness({ rev, data, onDone, frozen }: { rev: RevisionDetail; data: NonNullable<RevisionDetail["readiness"]>; onDone: () => void; frozen?: boolean }) {
+  const can = useCan();
+  const [waive, setWaive] = useState<{ requirement: string; reason: string } | null>(null);
+  const act = useMutation({ mutationFn: () => post(`/api/revisions/${rev.id}/waivers`, waive), onSuccess: () => { setWaive(null); onDone(); } });
+  return (
+    <div className="stack" style={{ gap: 6 }}>
+      <div className="row">
+        <b>Devir paketi</b>
+        <span className="muted">politika {data.policyVersion ? `v${data.policyVersion}` : "yok (yalnız BOM)"}{frozen ? " · yayım anındaki durum" : ""}</span>
+        {data.ready ? <span className="badge ok">hazır</span> : <span className="badge bad">eksik: {data.missing.length}</span>}
+      </div>
+      <table>
+        <tbody>
+          {data.items.filter((i) => i.required || i.ok).map((i) => (
+            <tr key={i.key}>
+              <td>{i.ok ? <span className="badge ok">tamam</span> : i.waiver ? <span className="badge warn">muaf</span> : <span className="badge bad">eksik</span>}</td>
+              <td>{i.label}{i.required ? "" : <span className="muted"> (zorunlu değil)</span>}</td>
+              <td className="mono">{i.detail}</td>
+              <td className="muted">{i.waiver ? `${i.waiver.by ?? ""}: ${i.waiver.reason}` : ""}</td>
+              <td>{!frozen && can("workflow.manage") && i.required && !i.ok && !i.waiver && i.key !== "bom" ? <button onClick={() => setWaive({ requirement: i.key, reason: "" })}>Muafiyet</button> : null}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {waive ? (
+        <div className="row">
+          <input aria-label="Muafiyet gerekçesi" placeholder="Gerekçe (en az 10 karakter)" value={waive.reason} onChange={(e) => setWaive({ ...waive, reason: e.target.value })} style={{ flex: 1 }} />
+          <button className="primary" disabled={waive.reason.length < 10 || act.isPending} onClick={() => act.mutate()}>Muafiyet ver</button>
+          <button onClick={() => setWaive(null)}>Vazgeç</button>
+        </div>
+      ) : null}
+      <ErrorNotice error={act.error} />
+    </div>
   );
 }
 

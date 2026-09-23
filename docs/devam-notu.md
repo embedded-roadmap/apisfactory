@@ -1,12 +1,12 @@
 # Devam notu
 
-Son güncelleme: 23.09.2026 — oturum 10 (revizyon bazında sürümlü rota ve standart süre)
+Son güncelleme: 23.09.2026 — oturum 11 (devir politikası: test planı, firmware, SHA, rota zorunluluğu ve muafiyet)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 95/95 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 98/98 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
@@ -18,6 +18,14 @@ Son güncelleme: 23.09.2026 — oturum 10 (revizyon bazında sürümlü rota ve 
 | Playwright uçtan uca (oturum 8) | Yönetici satın alma politikası v1 yayımlar (satın alma 1.000 TRY, yönetici sınırsız, 24 saat → yönetici) → kuru çalıştırma "onaylayamaz"; üretim sorumlusuna süreli vekâlet verir; Ar-Ge elle talep açar (tutar bilinmiyor); satın alma onayı `amount_unknown` ile engellenir ve yöneticiye görev açılır; vekil Günlük işler'de "vekâleten" işi görür ve onaylar (olayda adına); izleme ekranında yükseltme taraması; sayfa hatası yok |
 | Playwright uçtan uca (oturum 9) | Kalite TST-01'e bağlayıcı tanımlar (Türkçe sütun adları, virgüllü ondalık, `SN:` öneki, mV/mA → V/A ölçek) ve API belirteci üretir; teknisyen CSV yükler → önizleme: 2 kaydedilecek (biri limit dışı kaldı), yanlış firmware reddi, bilinmeyen seri → onay; aynı dosya tekrar yüklenince mevcut yükleme açılır; istasyon API'si belirteçle üçüncü cihazı kaydeder; cihaz geçmişinde "istasyon CSV/API" kaynağı ve olayda `api` aktörü; sayfa hatası yok |
 | Playwright uçtan uca (oturum 10) | Üretim sorumlusu Rotalar ekranında revizyon seçer (varsayılan şablon + 50 adet süre özeti) → taslak v1: THT operasyonunu siler, SMT birim süresini ve montaj talimatını girer, kaydeder, gerekçeyle yayımlar; açılan iş emri "rota v1 (sabit)", plan/gerçek süre ve talimatı gösterir; v2 (SMT yavaş) yayımlanınca v1 arşive geçer, açık iş emri v1'de kalır; sayfa hatası yok |
+| Playwright uçtan uca (oturum 11) | Yönetici Akış & onay ekranında devir politikası v1 yayımlar (test planı + firmware + rota); Ar-Ge'nin devre gönderimi `handover_requirements` ile engellenir, ürün ekranında devir paketi kontrol listesi eksikleri gösterir; firmware ve test planı tamamlanır, yönetici rota için gerekçeli muafiyet verir → "hazır"; üç onayla yayımlanan revizyonda yayım anındaki kontrol listesi (politika v1, muafiyet ve veren) görünür; sayfa hatası yok |
+
+## Oturum 11'de eklenenler (devir politikası)
+
+1. **Devir politikası** (şirket ayarı, `/workflow` sayfasında, `workflow.manage`): yayımlanmış test planı, firmware sürümü, firmware SHA-256 (firmware zorunluluğu gerektirir), yayımlanmış rota zorunluluğu. Sürümlü ve değişmez (veri tabanı tetikleyicisi); yayımlanmış BOM her zaman zorunlu. Politika yoksa yalnız BOM.
+2. **Kontrol**: devre göndermede ve son devir onayında (inceleme sırasında politika sıkılaşmış olabilir) yapılır; eksik madde `handover_requirements` ile reddedilir, ret olay defterine `handover.blocked` olarak yazılır, son onay kaydedilmez. Yeni politika yayımlanınca incelemedeki etkilenen revizyonlar listelenir.
+3. **Muafiyet**: revizyon ve madde bazında, gerekçeli (≥10 karakter), yalnız zorunlu ve eksik maddeye, yayımlanmış revizyona verilmez; değişmez kayıt + olay.
+4. **Devir paketi kontrol listesi** ürün ekranında (tamam / eksik / muaf, ayrıntı, muafiyet veren); yayımda o anki liste politika sürümü ve tur ile revizyona dondurulur.
 
 ## Oturum 10'da eklenenler (W20)
 
@@ -117,9 +125,9 @@ Son güncelleme: 23.09.2026 — oturum 10 (revizyon bazında sürümlü rota ve 
 ## Bilinen sorunlar ve sınırlar
 
 - Termin: vardiya, paralel hat, operasyonların örtüşmesi yok; kesin siparişte malzeme durumu onay anındaki ayırmadan okunur.
-- Test planı olmayan iş emrinde sonuç elle seçilir (geriye uyumluluk). Devir için test planı zorunlu değil — politika kararı gerekir.
+- Test planı olmayan iş emrinde sonuç elle seçilir (geriye uyumluluk). Devirde test planı/firmware/rota zorunluluğu şirketin devir politikasıyla (oturum 11) belirlenir.
 - Test istasyonu: yalnızca düz CSV ve JSON satır biçimi (istasyona özgü log/XML ayrıştırıcı yok); klasör izleme/otomatik çekme yok (istasyon API'ye göndermeli ya da dosya elle yüklenmeli); istasyon operatörü kullanıcıyla eşlenmiyor; bağlayıcı eşlemesi sürümlü değil (değişiklik olayda before/after ile). Belirteç için oran sınırı yok.
-- Rota: operasyonlar sıralı (paralel operasyon, örtüşme, alternatif iş merkezi yok); süreler elle girilir (gerçekleşen süreden öneri yok); rota revizyon devrinde zorunlu değil (yoksa varsayılan şablon). Kapasite takvimi iş merkezi bazında günlük dakika; vardiya yok.
+- Rota: operasyonlar sıralı (paralel operasyon, örtüşme, alternatif iş merkezi yok); süreler elle girilir (gerçekleşen süreden öneri yok); rota devirde yalnız devir politikası isterse zorunlu (yoksa varsayılan şablon). Kapasite takvimi iş merkezi bazında günlük dakika; vardiya yok.
 - Kargo API'si, e-irsaliye/e-fatura yok (W36); belge TASLAK. Çevrimdışı mobil kuyruk yok.
 - İade: tamir sonrası tekrar test yalnızca geçti/kaldı olarak girilir (test planı ölçümleri iade tamirine bağlanmadı). Karantinadaki iade ürününün sonraki analizi ve hurda/yeniden işleme kararı stok ekranından yapılmalı (ayrı akış yok). Geri gönderim sevkiyat listesinde ayrı satır olarak görünmez; iade kaydında izlenir.
 - Paketleme rotada ayrı iş merkezi değil; sevkiyat modülünde yapılır.
@@ -129,7 +137,7 @@ Son güncelleme: 23.09.2026 — oturum 10 (revizyon bazında sürümlü rota ve 
 
 ## Sıradaki uygulanabilir iş
 
-1. Politika: devre gönderimde test planı + firmware (+ yayımlanmış rota) zorunluluğu (şirket ayarı) — W10 politika altyapısına eklenebilir.
-2. W27/W28: iç mesajlaşma ve toplantı kararlarının göreve dönüşmesi.
-3. W20 devamı: gerçekleşen operasyon sürelerinden standart süre önerisi (sapma raporu), paralel operasyon.
-4. W22 devamı: istasyon PC'si için klasör izleyen küçük ajan, operatör eşlemesi.
+1. W27/W28: iç mesajlaşma (kayda bağlı konuşma, bahsetme) ve toplantı kararlarının göreve dönüşmesi.
+2. W20 devamı: gerçekleşen operasyon sürelerinden standart süre önerisi (sapma raporu), paralel operasyon.
+3. W22 devamı: istasyon PC'si için klasör izleyen küçük ajan, operatör eşlemesi.
+4. W18: teklif, satın alma siparişi, teyit ve gecikme takibi (test bağlayıcısıyla).

@@ -13,7 +13,9 @@ import {
 } from "@apisfactory/shared";
 import { z } from "zod";
 import type { Db } from "../db/pool";
-import { conflict, forbidden, notFound } from "../lib/errors";
+import { AppError, conflict, forbidden, notFound } from "../lib/errors";
+import { RuleRejection, withRejectionLog } from "../lib/rejection";
+import { handoverReadiness } from "../lib/handover";
 import { closeTasks, openTask, recordEvent, type Actor } from "../lib/records";
 import { can, parse, tenant } from "../http/context";
 
@@ -24,7 +26,7 @@ export async function loadRevision(db: Db, id: string): Promise<RevisionDetail> 
   const r = await db.query(
     `select pr.id, pr.product_id as "productId", pr.rev, pr.status, pr.bom_version_id as "bomVersionId",
             pr.released_at as "releasedAt", pr.firmware_version as "firmwareVersion", pr.firmware_sha256 as "firmwareSha256",
-            coalesce(h.current_round, 0) as round
+            coalesce(h.current_round, 0) as round, pr.handover_checklist as "handoverChecklist"
        from product_revisions pr left join handover_rounds h on h.revision_id = pr.id
       where pr.id = $1`,
     [id],
@@ -41,6 +43,8 @@ export async function loadRevision(db: Db, id: string): Promise<RevisionDetail> 
   const { round: _round, ...rest } = rev;
   return {
     ...rest,
+    readiness: await handoverReadiness(db, id),
+    handoverChecklist: rev.handoverChecklist ?? null,
     approvals: a.rows,
     missingApprovals: rev.status === "handover_review" ? HANDOVER_AREAS.filter((x) => !approved.has(x)) : [],
   };
@@ -166,7 +170,7 @@ export async function productRoutes(app: FastifyInstance) {
   app.post("/api/revisions/:id/transition", async (req) => {
     const { id } = req.params as { id: string };
     const { action } = parse(z.object({ action: z.enum(["start_development", "start_pilot", "submit_handover"]) }), req.body);
-    return tenant(req, "product.create", async (db, actor) => {
+    return withRejectionLog(req, () => tenant(req, "product.create", async (db, actor) => {
       const rev = await lockRevision(db, id);
       const t = REVISION_TRANSITIONS[action];
       if (!canTransition(t, rev.status as RevisionState)) {
@@ -176,6 +180,7 @@ export async function productRoutes(app: FastifyInstance) {
         if (!rev.bom_version_id) throw conflict("handover_incomplete", "Devir için yayımlanmış bir BOM sürümü bağlanmalı");
         const b = await db.query(`select status from bom_versions where id = $1`, [rev.bom_version_id]);
         if (b.rows[0]?.status !== "published") throw conflict("handover_incomplete", "Bağlı BOM sürümü yayımlanmamış");
+        await assertHandoverReady(db, id);
         await db.query(`update handover_rounds set current_round = current_round + 1 where revision_id = $1`, [id]);
         for (const area of HANDOVER_AREAS) {
           await openTask(db, actor.companyId, {
@@ -189,7 +194,7 @@ export async function productRoutes(app: FastifyInstance) {
       }
       await setRevisionStatus(db, actor, id, rev.status, t.to);
       return loadRevision(db, id);
-    });
+    }));
   });
 
   /** Devir kararı: her birim kendi izniyle karar verir. Üç onay tamamlanınca revizyon yayımlanır (prompt §8). */
@@ -197,11 +202,19 @@ export async function productRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const input = parse(HandoverDecisionInput, req.body);
     if (!can(req, AREA_PERMISSION[input.area])) throw forbidden(AREA_PERMISSION[input.area]);
-    return tenant(req, null, async (db, actor) => {
+    return withRejectionLog(req, () => tenant(req, null, async (db, actor) => {
       const rev = await lockRevision(db, id);
       if (rev.status !== "handover_review") throw conflict("invalid_transition", "Revizyon devir incelemesinde değil");
       const round = (await db.query(`select current_round from handover_rounds where revision_id = $1`, [id])).rows[0].current_round;
       if (input.decision === "reject" && !input.note) throw conflict("reason_required", "Ret gerekçesi zorunlu");
+      if (input.decision === "approve") {
+        // Son onay yayımı tetikler: politika inceleme sırasında sıkılaştırılmış olabilir, yayım öncesi yeniden kontrol edilir.
+        const others = await db.query(
+          `select count(distinct area)::int as n from handover_approvals where revision_id = $1 and round = $2 and decision = 'approve' and area <> $3`,
+          [id, round, input.area],
+        );
+        if (others.rows[0].n === HANDOVER_AREAS.length - 1) await assertHandoverReady(db, id);
+      }
       await db.query(
         `insert into handover_approvals (company_id, revision_id, round, area, decision, decided_by, note)
          values (app_company_id(), $1, $2, $3, $4, $5, $6)`,
@@ -226,12 +239,26 @@ export async function productRoutes(app: FastifyInstance) {
           [id, round],
         );
         if (approved.rows[0].n === HANDOVER_AREAS.length) {
+          const checklist = await handoverReadiness(db, id);
+          await db.query(`update product_revisions set handover_checklist = $2 where id = $1`, [id, JSON.stringify({ ...checklist, round, at: new Date().toISOString() })]);
           await setRevisionStatus(db, { ...actor, kind: "automation" }, id, rev.status, "released", "Ar-Ge, üretim ve kalite devir onayları tamamlandı");
         }
       }
       return loadRevision(db, id);
-    });
+    }));
   });
+}
+
+/** Devir politikası kontrolü: eksik zorunlu madde (muafiyetsiz) varsa reddedilir; ret olay defterine yazılır. */
+async function assertHandoverReady(db: Db, id: string) {
+  const r = await handoverReadiness(db, id);
+  if (r && !r.ready) {
+    const labels = r.items.filter((i) => r.missing.includes(i.key)).map((i) => i.label);
+    throw new RuleRejection(
+      new AppError(409, "handover_requirements", `Devir politikası (v${r.policyVersion}) karşılanmadı: ${labels.join(", ")}`, { missing: r.missing, policyVersion: r.policyVersion }),
+      { entityType: "product_revision", entityId: id, eventType: "handover.blocked", after: { missing: r.missing, policyVersion: r.policyVersion } },
+    );
+  }
 }
 
 async function lockRevision(db: Db, id: string) {
