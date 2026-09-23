@@ -284,7 +284,11 @@ function InspectCard({ r, canDecide }: { r: Pending; canDecide: boolean }) {
   );
 }
 
-type Lookup = { id: string; lotNo: string; inspectionStatus: string; itemCode: string; itemName: string; mpn: string | null; balances: { locationCode: string; locationType: string; qty: string }[] };
+type Lookup = {
+  id: string; lotNo: string; inspectionStatus: string; itemCode: string; itemName: string; mpn: string | null;
+  expiresAt: string | null; openedAt: string | null; mslLevel: string | null; floorLifeHours: number | null; storageCondition: string | null;
+  balances: { locationCode: string; locationType: string; qty: string }[];
+};
 
 export function LookupScreen() {
   const [code, setCode] = useState("");
@@ -312,6 +316,14 @@ export function LookupScreen() {
           <Text style={s.text}>
             {l.itemCode} · {l.itemName}
           </Text>
+          {l.mslLevel || l.expiresAt || l.storageCondition ? (
+            <Text style={s.muted}>
+              {l.mslLevel ? `MSL ${l.mslLevel} · ` : ""}
+              {l.expiresAt ? `SKT ${new Date(l.expiresAt).toLocaleDateString("tr-TR")}${new Date(l.expiresAt) < new Date() ? " (SÜRESİ GEÇTİ)" : ""} · ` : ""}
+              {l.openedAt ? "paket açık · " : ""}
+              {l.storageCondition ?? ""}
+            </Text>
+          ) : null}
           {l.balances.length === 0 ? <Text style={s.muted}>Bakiye yok</Text> : null}
           {l.balances.map((b) => (
             <View key={b.locationCode} style={[s.row, { justifyContent: "space-between" }]}>

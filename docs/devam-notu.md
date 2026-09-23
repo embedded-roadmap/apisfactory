@@ -1,12 +1,12 @@
 # Devam notu
 
-Son güncelleme: 24.09.2026 — oturum 21 (W29 devamı: alternatif kanıtına datasheet/tartışma eki, mobilde onaylı alternatif lot bilgisi)
+Son güncelleme: 24.09.2026 — oturum 22 (W33: MSL, raf ömrü, ambalaj ve koşul takibi)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 143/143 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6, payables 5, receivables 4, distributors 5, alternates 7, dispatch 5, collaboration 9, ops 4), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 148/148 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6, payables 5, receivables 4, distributors 5, alternates 7, dispatch 5, collaboration 9, ops 4, storage 5), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
@@ -29,6 +29,17 @@ Son güncelleme: 24.09.2026 — oturum 21 (W29 devamı: alternatif kanıtına da
 | Playwright uçtan uca (oturum 19) | Üretim yeni kanal açar, fotoğraf ekleyip mesaj gönderir; ek mesajda rozet olarak görünür ve indirilebilir; sayfa hatası yok |
 | Playwright uçtan uca (oturum 20) | Yönetici bağlayıcı panosunu açar; distribütör/e-belge/kargo bölümleri BAĞLANMADI ve sıfır etkinlikle görünür; sayfa hatası yok |
 | Playwright uçtan uca (oturum 21) | Satın alma alternatif önerir, Ar-Ge ve üretim onaylar; üretim kanıt & tartışmayı açıp fotoğraf ekli mesaj gönderir; sayfa hatası yok |
+| Playwright uçtan uca (oturum 22) | Depo mal kabul yapar; kalite MSL/kullanım süresi/raf ömrü/FEFO ve lot son kullanma tarihini girer; depo paketi açar, kullanım süresi sonu hesaplanır; sayfa hatası yok |
+
+## Oturum 22'de eklenenler (W33)
+
+1. **Kalem düzeyinde saklama kuralları** (isteğe bağlı, tüm parçalara zorunlu değil): MSL (1–6/2a/5a), kullanım süresi (paket açık, saat), raf ömrü (kapalı paket, gün), saklama koşulu (serbest metin), çıkış politikası (FIFO/FEFO). Yeni izin: `item.storage.manage` (kalite + depo rollerine varsayılan verildi).
+2. **Lot düzeyinde üretim/son kullanma tarihi**: elle girilir (`POST /api/lots/:id/expiry`); sunucu hiçbir tarihi hesaplamaz/uydurmaz.
+3. **Paket açılışı**: `POST /api/lots/:id/open` bir kez kaydedilir (409 tekrar); kullanım süresi sonu, açılış anı + kalemin `floorLifeHours` değerinden hesaplanır.
+4. **Lot listesi**: `GET /api/items/:id/lots` kalemin çıkış politikasına göre (FEFO: son kullanmaya göre, FIFO: girişe göre) sıralı lot listesi + `expired`/`expiring_soon`/`ok`/`unknown` durumu döner.
+5. Web: Depo & Lot sayfasında kalem seçilince "saklama & lot ömrü" bölümü (düzenleme formu, lot tablosu, tarih girme ve paket açma aksiyonları).
+6. Mobil: barkod/lot sorgu ekranında MSL, son kullanma tarihi (süresi geçmişse uyarı), paket açık bilgisi ve saklama koşulu gösterilir.
+7. `storage.test.ts`: 5 yeni test (148/148 tam paket).
 
 ## Oturum 21'de eklenenler (W29 devamı)
 
@@ -234,5 +245,5 @@ Son güncelleme: 24.09.2026 — oturum 21 (W29 devamı: alternatif kanıtına da
 
 1. W36 devamı: gerçek entegratör/kargo firması sözleşmesi imzalanınca canlı bağlanma (sağlayıcı kararı şirkete ait).
 2. W27 devamı: mobil uygulamaya tam kanal/dosya-eki arayüzü (şimdilik yalnız web; mobilde yalnız bahsetme özeti var).
-3. W33: MSL, raf ömrü, ambalaj ve koşul takibi (depo/kalite, planlandı — henüz başlanmadı).
+3. W33 devamı: kurutma/yeniden uygunluk takibi (üretici prosedürüne bağlı, şirket karar verince eklenebilir); iş emri malzeme çıkışında FEFO sırasına göre lot önerisi (şu an yalnız görüntüleme var, otomatik seçim yok).
 4. Kalanların çoğu (W03, W30–W32, W35, W39–W42) dış sağlayıcı kararı, gerçek AI kapsamı veya iş/pilot süreci gerektiriyor; kod ile ilerletilebilecek yeni iş paketi kalmadıkça bu liste güncellenecek.

@@ -34,7 +34,7 @@
 | W30 | Yönetici raporu ve stratejik AI | W25, W08 | Yönetim | planlandı | — |
 | W31 | AI önerisini göreve alma ve etki ölçme | W10, W26, W30 | Yönetim | planlandı | — |
 | W32 | Fason portalı, dosya ve malzeme teyidi | W13, W15, W18, W20 | Üretim, satın alma | planlandı | — |
-| W33 | MSL, raf ömrü, ambalaj ve koşul | W15, W19 | Depo, kalite | planlandı | — |
+| W33 | MSL, raf ömrü, ambalaj ve koşul | W15, W19 | Depo, kalite | tamamlandı | Kalemde isteğe bağlı MSL/kullanım süresi/raf ömrü/saklama koşulu/FIFO-FEFO, lotta elle üretim-SKT, paket açılış kaydı, sıralı+durumlu lot listesi, web depo paneli, mobil lot sorgu uyarısı |
 | W34 | İade, saha arızası ve cihaz geçmişi | W21, W23, W24 | Kalite, satış | geliştiriliyor | Seri/lot iadesi, garanti hesabı, iade kabul alanı, inceleme + kök neden + ECR, tamir/değişim/hurda/stoğa al/olduğu gibi iade, geri gönderim, cihaz geçmişi (web + mobil teslim alma); alacak belgesi yalnızca muhasebe görevi |
 | W35 | Senaryo, maliyet/termin kıyası ve uygulama | W16, W25, W29 | Yönetim | planlandı | — |
 | W36 | Muhasebe/e-belge ve kargo adaptörleri | W03, W23, W24 | Muhasebe, depo | geliştiriliyor | E-belge (6 sağlayıcı) ve kargo (6 firma) bağlayıcı çerçevesi, yalnız TEST modu (sentetik ETTN/takip no, işaretli), kesilmiş faturadan e-belge gönderimi, paketlenmiş sevkiyattan kargo etiketi, değişmez dispatch kaydı; gerçek entegrasyon yok |

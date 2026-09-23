@@ -1,9 +1,138 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ItemAvailability, StockBalance } from "@apisfactory/shared";
-import { auth, get } from "../lib/api";
-import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, useCan } from "../lib/ui";
+import { auth, get, post } from "../lib/api";
+import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, fmtDate, useCan } from "../lib/ui";
 import { LotCosts } from "./Reports";
+
+const MSL_LEVELS = ["1", "2", "2a", "3", "4", "5", "5a", "6"];
+const SHELF_STATUS: Record<string, string> = { expired: "SÜRESİ GEÇTİ", expiring_soon: "YAKINDA DOLUYOR", ok: "İYİ", unknown: "—" };
+
+/** W33 — MSL, raf ömrü, ambalaj ve koşul: kalem saklama kuralları isteğe bağlıdır, AI süre uydurmaz. */
+function StorageSection({ itemId, itemCode }: { itemId: string; itemCode: string }) {
+  const can = useCan();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["itemLots", itemId], queryFn: () => get<{ item: any; lots: any[] }>(`/api/items/${itemId}/lots`) });
+  const [form, setForm] = useState<{ mslLevel: string; floorLifeHours: string; shelfLifeDays: string; storageCondition: string; issuePolicy: string } | null>(null);
+  const [expiryFor, setExpiryFor] = useState<{ id: string; mfgDate: string; expiresAt: string } | null>(null);
+
+  const saveStorage = useMutation({
+    mutationFn: () =>
+      post(`/api/items/${itemId}/storage`, {
+        mslLevel: form!.mslLevel || null,
+        floorLifeHours: form!.floorLifeHours ? Number(form!.floorLifeHours) : null,
+        shelfLifeDays: form!.shelfLifeDays ? Number(form!.shelfLifeDays) : null,
+        storageCondition: form!.storageCondition || null,
+        issuePolicy: form!.issuePolicy,
+      }),
+    onSuccess: () => { setForm(null); qc.invalidateQueries({ queryKey: ["itemLots", itemId] }); },
+  });
+  const saveExpiry = useMutation({
+    mutationFn: () => post(`/api/lots/${expiryFor!.id}/expiry`, { mfgDate: expiryFor!.mfgDate || null, expiresAt: expiryFor!.expiresAt || null }),
+    onSuccess: () => { setExpiryFor(null); qc.invalidateQueries({ queryKey: ["itemLots", itemId] }); },
+  });
+  const openLot = useMutation({
+    mutationFn: (id: string) => post(`/api/lots/${id}/open`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["itemLots", itemId] }),
+  });
+
+  const item = q.data?.item;
+  return (
+    <section className="card">
+      <div className="row between"><h2>{itemCode} — saklama & lot ömrü</h2></div>
+      {q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />}
+      {item ? (
+        form ? (
+          <div className="grid4">
+            <label className="field">MSL
+              <select value={form.mslLevel} onChange={(e) => setForm({ ...form, mslLevel: e.target.value })}>
+                <option value="">Yok</option>
+                {MSL_LEVELS.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </label>
+            <label className="field">Kullanım süresi (paket açık, saat)
+              <input value={form.floorLifeHours} onChange={(e) => setForm({ ...form, floorLifeHours: e.target.value })} placeholder="ör. 168" />
+            </label>
+            <label className="field">Raf ömrü (kapalı paket, gün)
+              <input value={form.shelfLifeDays} onChange={(e) => setForm({ ...form, shelfLifeDays: e.target.value })} placeholder="ör. 365" />
+            </label>
+            <label className="field">Çıkış politikası
+              <select value={form.issuePolicy} onChange={(e) => setForm({ ...form, issuePolicy: e.target.value })}>
+                <option value="fifo">FIFO (ilk giren ilk çıkar)</option>
+                <option value="fefo">FEFO (önce süresi dolan çıkar)</option>
+              </select>
+            </label>
+            <label className="field" style={{ gridColumn: "1 / -1" }}>Saklama koşulu
+              <input value={form.storageCondition} onChange={(e) => setForm({ ...form, storageCondition: e.target.value })} placeholder="ör. ≤10°C, kuru dolap" />
+            </label>
+            <div className="row" style={{ gridColumn: "1 / -1" }}>
+              <button onClick={() => saveStorage.mutate()} disabled={saveStorage.isPending}>Kaydet</button>
+              <button className="ghost" onClick={() => setForm(null)}>Vazgeç</button>
+            </div>
+            <ErrorNotice error={saveStorage.error} />
+          </div>
+        ) : (
+          <div className="row between">
+            <div className="grid4">
+              <div className="stat"><small>MSL</small><b>{item.mslLevel ?? "—"}</b></div>
+              <div className="stat"><small>Kullanım süresi</small><b>{item.floorLifeHours ? `${item.floorLifeHours} sa` : "—"}</b></div>
+              <div className="stat"><small>Raf ömrü</small><b>{item.shelfLifeDays ? `${item.shelfLifeDays} gün` : "—"}</b></div>
+              <div className="stat"><small>Çıkış politikası</small><b>{item.issuePolicy.toUpperCase()}</b></div>
+              <div className="stat"><small>Saklama koşulu</small><b>{item.storageCondition ?? "—"}</b></div>
+            </div>
+            {can("item.storage.manage") ? (
+              <button onClick={() => setForm({ mslLevel: item.mslLevel ?? "", floorLifeHours: item.floorLifeHours ?? "", shelfLifeDays: item.shelfLifeDays ?? "", storageCondition: item.storageCondition ?? "", issuePolicy: item.issuePolicy })}>
+                Düzenle
+              </button>
+            ) : null}
+          </div>
+        )
+      ) : null}
+      {q.data?.lots.length === 0 ? <Empty>Bu kaleme ait lot yok.</Empty> : null}
+      {q.data && q.data.lots.length > 0 ? (
+        <table>
+          <thead><tr><th>Lot</th><th className="num">Miktar</th><th>Üretim</th><th>Son kullanma</th><th>Paket açıldı</th><th>Durum</th>{can("item.storage.manage") || can("inventory.issue") ? <th /> : null}</tr></thead>
+          <tbody>
+            {q.data.lots.map((l: any) => (
+              <tr key={l.id}>
+                <td className="mono">{l.lotNo}</td>
+                <td className="num">{fmt(l.qty)}</td>
+                <td className="muted">{l.mfgDate ?? "—"}</td>
+                <td className="muted">{l.expiresAt ? l.expiresAt.slice(0, 10) : "—"}</td>
+                <td className="muted">{l.openedAt ? fmtDate(l.openedAt) : "—"}{l.floorLifeExpiresAt ? <div className="muted">kullanım sonu: {fmtDate(l.floorLifeExpiresAt)}</div> : null}</td>
+                <td>{l.status !== "unknown" ? <span className={`badge ${l.status === "expired" ? "bad" : l.status === "expiring_soon" ? "warn" : ""}`}>{SHELF_STATUS[l.status]}</span> : "—"}</td>
+                {can("item.storage.manage") || can("inventory.issue") ? (
+                  <td>
+                    <div className="row">
+                      {can("item.storage.manage") ? <button onClick={() => setExpiryFor({ id: l.id, mfgDate: l.mfgDate ?? "", expiresAt: l.expiresAt ? l.expiresAt.slice(0, 10) : "" })}>Tarih gir</button> : null}
+                      {can("inventory.issue") && !l.openedAt ? <button onClick={() => openLot.mutate(l.id)} disabled={openLot.isPending}>Paketi aç</button> : null}
+                    </div>
+                  </td>
+                ) : null}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      {expiryFor ? (
+        <div className="card">
+          <h3>Lot üretim/son kullanma tarihi</h3>
+          <div className="row">
+            <label className="field">Üretim tarihi
+              <input type="date" value={expiryFor.mfgDate} onChange={(e) => setExpiryFor({ ...expiryFor, mfgDate: e.target.value })} />
+            </label>
+            <label className="field">Son kullanma tarihi
+              <input type="date" value={expiryFor.expiresAt} onChange={(e) => setExpiryFor({ ...expiryFor, expiresAt: e.target.value })} />
+            </label>
+            <button onClick={() => saveExpiry.mutate()} disabled={saveExpiry.isPending}>Kaydet</button>
+            <button className="ghost" onClick={() => setExpiryFor(null)}>Vazgeç</button>
+          </div>
+          <ErrorNotice error={saveExpiry.error} />
+        </div>
+      ) : null}
+    </section>
+  );
+}
 
 export function InventoryPage() {
   const can = useCan();
@@ -50,6 +179,7 @@ export function InventoryPage() {
           ) : null}
         </section>
       ) : null}
+      {item ? <StorageSection itemId={item.id} itemCode={item.code} /> : null}
       {lot ? (
         <section className="card">
           <div className="row between"><span /><button onClick={() => setLot(null)}>Kapat</button></div>

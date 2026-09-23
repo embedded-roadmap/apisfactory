@@ -60,7 +60,10 @@ export async function productRoutes(app: FastifyInstance) {
     const q = z.object({ q: z.string().optional(), kind: z.string().optional() }).parse(req.query);
     return tenant(req, "product.view", async (db) => {
       const r = await db.query(
-        `select id, code, name, kind, manufacturer, mpn, unit from items
+        `select id, code, name, kind, manufacturer, mpn, unit,
+                msl_level as "mslLevel", floor_life_hours as "floorLifeHours", shelf_life_days as "shelfLifeDays",
+                storage_condition as "storageCondition", issue_policy as "issuePolicy"
+           from items
           where ($1::text is null or code ilike '%'||$1||'%' or name ilike '%'||$1||'%' or mpn ilike '%'||$1||'%')
             and ($2::text is null or kind = $2)
           order by code limit 200`,

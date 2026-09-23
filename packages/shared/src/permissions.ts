@@ -17,6 +17,7 @@ export const PERMISSIONS = [
   "inventory.receive",
   "inventory.import",
   "quality.incoming.decide",
+  "item.storage.manage",
   // Satış ve sevkiyat
   "sales.view",
   "sales.create",
@@ -129,11 +130,11 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
   },
   quality: {
     name: { tr: "Kalite", en: "Quality" },
-    permissions: ["product.view", "product.approve.quality", "bom.view", "inventory.view", "quality.incoming.decide", "task.view", "production.view", "production.test.record", "quality.final.release", "quality.plan.manage", "equipment.manage", "change.view", "change.create", "rma.view", "rma.create", "rma.decide", "report.view", "task.manage", "purchase.request.create"],
+    permissions: ["product.view", "product.approve.quality", "bom.view", "inventory.view", "quality.incoming.decide", "item.storage.manage", "task.view", "production.view", "production.test.record", "quality.final.release", "quality.plan.manage", "equipment.manage", "change.view", "change.create", "rma.view", "rma.create", "rma.decide", "report.view", "task.manage", "purchase.request.create"],
   },
   warehouse: {
     name: { tr: "Depo", en: "Warehouse" },
-    permissions: ["product.view", "inventory.view", "inventory.receive", "inventory.import", "task.view", "production.view", "inventory.issue", "sales.view", "shipment.create", "shipment.view", "shipment.deliver", "rma.view"],
+    permissions: ["product.view", "inventory.view", "inventory.receive", "inventory.import", "item.storage.manage", "task.view", "production.view", "inventory.issue", "sales.view", "shipment.create", "shipment.view", "shipment.deliver", "rma.view"],
   },
   sales: {
     name: { tr: "Satış", en: "Sales" },

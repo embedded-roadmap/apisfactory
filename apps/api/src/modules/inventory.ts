@@ -90,7 +90,9 @@ export async function inventoryRoutes(app: FastifyInstance) {
     return tenant(req, "inventory.view", async (db) => {
       const r = await db.query(
         `select l.id, l.lot_no as "lotNo", l.inspection_status as "inspectionStatus", l.date_code as "dateCode",
+                l.expires_at as "expiresAt", l.opened_at as "openedAt",
                 i.id as "itemId", i.code as "itemCode", i.name as "itemName", i.mpn, i.manufacturer,
+                i.msl_level as "mslLevel", i.floor_life_hours as "floorLifeHours", i.storage_condition as "storageCondition",
                 coalesce((select json_agg(json_build_object('locationCode', loc.code, 'locationType', loc.type, 'qty', b.qty))
                             from stock_balances b join locations loc on loc.id = b.location_id where b.lot_id = l.id), '[]') as balances
            from lots l join items i on i.id = l.item_id

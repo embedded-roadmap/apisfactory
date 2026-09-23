@@ -47,7 +47,7 @@ Durumlar: planlandı · geliştiriliyor · doğrulandı · entegrasyon bekliyor 
 | R40 | Fason üretici portalı ve dosya teyidi | W32 | planlandı | — | — | — | — |
 | R41 | Otomatik test verisi ve ekipman uygunluğu | W22 | geliştiriliyor | Ölçüm, plan limitleri, tekrar ayıklama; ekipman + değişmez kalibrasyon kaydı; hizmet dışı/süresi geçmiş ekipmanla test engeli ve olay; ekipmandan etkilenen testler listesi | test_runs, equipment, calibration_records, test_station_connectors/batches/rows | T12, quality.test.ts, station.test.ts, e2e | Adaptör TEST modunda; istasyona özgü biçimler ve klasör izleme yok |
 | R42 | Üretim miktarı ve tedarik senaryoları | W35 | planlandı | — | — | — | — |
-| R43 | MSL, raf ömrü, makara ve sahiplik | W33 | planlandı | Lot ve lot zinciri alanı (parent_lot_id) var | lots | — | MSL, raf ömrü, makara yok (W33) |
+| R43 | MSL, raf ömrü, makara ve sahiplik | W33 | tamamlandı (makara zaten vardı) | Lot ve lot zinciri alanı (parent_lot_id); MSL/kullanım süresi/raf ömrü/saklama koşulu kalemde, üretim/SKT ve paket açılışı lotta | lots, items | GET /api/items/:id/lots | Kurutma/yeniden uygunluk takibi henüz yok (üretici prosedürüne bağlı) |
 | R44 | Saha hatasının seri, lot ve revizyona bağlanması | W34 | planlandı | Cihaz geçmişi: seri → BOM sürümü, gerçek lotlar, testler | devices, material_issues | Üretim testi | Saha arızası kaydı yok (W34) |
 | R45 | Veri kaynağı ve güncellik görünümü | W17, W38 | karşılandı | Tüm bağlayıcılar için tek pano: mod, kota/önbellek isabeti, hata, son etkinlik | connector_calls, document_dispatches | ops.test.ts | Gerçek veri kaynağı yok |
 | R46 | Yedek, geri yükleme ve kesintide talimat erişimi | W37 | planlandı | — | — | — | — |

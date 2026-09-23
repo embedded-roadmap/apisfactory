@@ -10,6 +10,7 @@ import { distributorRoutes } from "./modules/distributors";
 import { alternateRoutes } from "./modules/alternates";
 import { dispatchRoutes } from "./modules/dispatch";
 import { opsRoutes } from "./modules/ops";
+import { storageRoutes } from "./modules/storage";
 import { planningRoutes } from "./modules/planning";
 import { costingRoutes } from "./modules/costing";
 import { returnRoutes } from "./modules/returns";
@@ -82,5 +83,6 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(alternateRoutes);
   await app.register(dispatchRoutes);
   await app.register(opsRoutes);
+  await app.register(storageRoutes);
   return app;
 }
