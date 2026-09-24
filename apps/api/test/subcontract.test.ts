@@ -144,4 +144,25 @@ describe("Fason üretici portalı (W32)", () => {
     expect(r.status).toBe(200);
     expect(r.body).toEqual([]);
   });
+
+  it("fasoncu performans raporu: yalnız iç yönetim görür; tamamlanan işten gerçek toplamlar ve termin/fire oranı hesaplanır", async () => {
+    expect((await call(w.app, "quality@a.test", A, "GET", "/api/subcontract-jobs/performance")).status).toBe(403);
+    expect((await call(w.app, "fason@ext.test", A, "GET", "/api/subcontract-jobs/performance")).status).toBe(403);
+    const rows = expectOk(await call(w.app, "production@a.test", A, "GET", "/api/subcontract-jobs/performance"));
+    const row = rows.find((r: any) => r.subcontractorUserId === subUserId);
+    expect(row).toBeTruthy();
+    expect(Number(row.jobsTotal)).toBe(1);
+    expect(Number(row.jobsCompleted)).toBe(1);
+    expect(Number(row.totalAcceptedGoodQty)).toBe(9);
+    expect(Number(row.totalDeclaredGoodQty)).toBe(9);
+    expect(Number(row.totalDeclaredScrapQty)).toBe(1);
+    expect(row.scrapRate).toBeCloseTo(1 / 10, 5);
+    // termin 2026-12-01, kesin kabul çok daha erken (test anı) verildiğinden zamanında sayılır
+    expect(Number(row.onTimeCompleted)).toBe(1);
+    expect(Number(row.lateCompleted)).toBe(0);
+    expect(row.onTimeRate).toBe(1);
+    // hiç işi olmayan/hiç kabul edilmemiş fasoncuda oranlar uydurulmaz, null döner
+    const other = rows.find((r: any) => r.subcontractorUserId === otherSubUserId);
+    expect(other).toBeUndefined(); // fason2@ext.test'e hiç iş atanmadı, raporda hiç satırı yok
+  });
 });

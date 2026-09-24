@@ -92,6 +92,42 @@ export async function subcontractRoutes(app: FastifyInstance) {
     tenant(req, null, async (db, actor) => (await db.query(`${SELECT} where j.subcontractor_user_id = $1 order by j.created_at desc`, [actor.userId])).rows),
   );
 
+  /**
+   * Fasoncu performans raporu (W32 devamı): mevcut subcontract_jobs kayıtlarından hesaplanır, yeni tablo yok.
+   * Termin karşılaştırması yalnız promised_date + accepted_at (şirketin kesin kabul tarihi) ikisi de doluysa
+   * yapılır; biri eksikse o iş "değerlendirilemedi" sayılır — uydurulmaz. Yalnız iç personel görür (ticari veri).
+   */
+  app.get("/api/subcontract-jobs/performance", async (req) =>
+    tenant(req, "subcontract.manage", async (db) => {
+      const r = await db.query(`
+        select j.subcontractor_user_id as "subcontractorUserId", u.name as "subcontractorName", u.email as "subcontractorEmail",
+               count(*) as "jobsTotal",
+               count(*) filter (where j.status = 'completed') as "jobsCompleted",
+               count(*) filter (where j.status = 'rejected') as "jobsRejected",
+               count(*) filter (where j.status not in ('completed', 'rejected', 'cancelled')) as "jobsActive",
+               count(*) filter (where j.status = 'completed' and j.promised_date is not null and j.accepted_at is not null and j.accepted_at::date <= j.promised_date) as "onTimeCompleted",
+               count(*) filter (where j.status = 'completed' and j.promised_date is not null and j.accepted_at is not null and j.accepted_at::date > j.promised_date) as "lateCompleted",
+               count(*) filter (where j.status = 'completed' and (j.promised_date is null or j.accepted_at is null)) as "unevaluatedCompleted",
+               coalesce(sum(j.accepted_good_qty) filter (where j.status = 'completed'), 0) as "totalAcceptedGoodQty",
+               coalesce(sum(j.declared_good_qty) filter (where j.declared_at is not null), 0) as "totalDeclaredGoodQty",
+               coalesce(sum(j.declared_scrap_qty) filter (where j.declared_at is not null), 0) as "totalDeclaredScrapQty",
+               coalesce(sum(j.declared_unused_qty) filter (where j.declared_at is not null), 0) as "totalDeclaredUnusedQty",
+               max(j.created_at) as "lastJobAt"
+          from subcontract_jobs j join users u on u.id = j.subcontractor_user_id
+         group by j.subcontractor_user_id, u.name, u.email
+         order by u.name`);
+      return r.rows.map((row) => {
+        const onTimeDenom = Number(row.onTimeCompleted) + Number(row.lateCompleted);
+        const declaredDenom = Number(row.totalDeclaredGoodQty) + Number(row.totalDeclaredScrapQty) + Number(row.totalDeclaredUnusedQty);
+        return {
+          ...row,
+          onTimeRate: onTimeDenom > 0 ? Number(row.onTimeCompleted) / onTimeDenom : null,
+          scrapRate: declaredDenom > 0 ? Number(row.totalDeclaredScrapQty) / declaredDenom : null,
+        };
+      });
+    }),
+  );
+
   app.get("/api/subcontract-jobs/:id", async (req) => {
     const { id } = req.params as { id: string };
     return tenant(req, null, (db) => authorize(req, db, id));

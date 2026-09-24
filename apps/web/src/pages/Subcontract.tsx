@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post } from "../lib/api";
-import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmtDate, useCan } from "../lib/ui";
+import { Empty, ErrorNotice, fmt, Loading, PageHeader, StateBadge, fmtDate, useCan } from "../lib/ui";
 
 const KIND_TR: Record<string, string> = { pcb: "PCB", dizgi: "Dizgi", mekanik: "Mekanik", kablo: "Kablo", montaj: "Montaj", dis_test: "Dış test" };
 const PROGRESS_NEXT: Record<string, string | null> = { accepted: "prep", prep: "in_production", in_production: "testing", testing: "ready_to_ship", ready_to_ship: null };
@@ -17,6 +17,7 @@ export function SubcontractJobsPage() {
   const qc = useQueryClient();
   const [openId, setOpenId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
+  const [showPerf, setShowPerf] = useState(false);
   const list = useQuery({ queryKey: ["subJobs", manage], queryFn: () => get<any[]>(manage ? "/api/subcontract-jobs" : "/api/subcontract-jobs/mine") });
 
   return (
@@ -24,8 +25,9 @@ export function SubcontractJobsPage() {
       <PageHeader
         title="Fason üretici işleri"
         sub={manage ? "PCB, dizgi, mekanik, kablo, montaj ve dış test hizmetleri; dış firma yalnız kendisine atanan işi görür." : "Size atanan fason işleri; başka müşteri veya şirket içi ticari veriye erişiminiz yoktur."}
-        actions={manage ? <button onClick={() => setShowNew(!showNew)}>{showNew ? "Vazgeç" : "Yeni iş"}</button> : null}
+        actions={manage ? <><button onClick={() => setShowPerf(!showPerf)}>{showPerf ? "Performansı gizle" : "Fasoncu performansı"}</button> <button onClick={() => setShowNew(!showNew)}>{showNew ? "Vazgeç" : "Yeni iş"}</button></> : null}
       />
+      {showPerf ? <SubcontractorPerformance /> : null}
       {showNew ? <NewJobForm onDone={() => { setShowNew(false); list.refetch(); }} /> : null}
       {openId ? <JobDetail id={openId} manage={manage} onClose={() => { setOpenId(null); list.refetch(); }} /> : null}
       <section className="card">
@@ -51,6 +53,43 @@ export function SubcontractJobsPage() {
         ) : null}
       </section>
     </>
+  );
+}
+
+/**
+ * Fasoncu performans raporu (W32 devamı): mevcut iş kayıtlarından hesaplanır, ayrı bir izleme tablosu tutulmaz.
+ * Termin oranı yalnız hem termin hem kesin kabul tarihi olan tamamlanmış işlerden hesaplanır; eksikse "—" gösterilir,
+ * uydurulmaz. Yalnız iç yönetim görür (ticari veri, dış kullanıcı erişemez).
+ */
+function SubcontractorPerformance() {
+  const q = useQuery({ queryKey: ["subJobsPerformance"], queryFn: () => get<any[]>("/api/subcontract-jobs/performance") });
+  const pct = (x: number | null) => (x === null ? "—" : `%${Math.round(x * 100)}`);
+  return (
+    <section className="card">
+      <h2>Fasoncu performansı</h2>
+      <p className="muted" style={{ margin: 0 }}>Tamamlanan işlerden hesaplanır. Termin/kabul tarihi eksik işler orana katılmaz; hiç işi olmayan fasoncu listede görünmez.</p>
+      {q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />}
+      {q.data?.length === 0 ? <Empty>Henüz tamamlanmış veya devam eden iş yok.</Empty> : null}
+      {q.data && q.data.length > 0 ? (
+        <table>
+          <thead><tr><th>Fasoncu</th><th className="num">Toplam iş</th><th className="num">Tamamlanan</th><th className="num">Reddedilen</th><th className="num">Zamanında/geç</th><th className="num">Termin oranı</th><th className="num">Kabul edilen adet</th><th className="num">Fire oranı</th></tr></thead>
+          <tbody>
+            {q.data.map((r) => (
+              <tr key={r.subcontractorUserId}>
+                <td>{r.subcontractorName} <span className="muted">{r.subcontractorEmail}</span></td>
+                <td className="num">{r.jobsTotal}</td>
+                <td className="num">{r.jobsCompleted}</td>
+                <td className="num">{r.jobsRejected}</td>
+                <td className="num">{r.onTimeCompleted} / {r.lateCompleted}{Number(r.unevaluatedCompleted) > 0 ? <div className="muted">{r.unevaluatedCompleted} değerlendirilemedi</div> : null}</td>
+                <td className="num">{pct(r.onTimeRate)}</td>
+                <td className="num">{fmt(r.totalAcceptedGoodQty)}</td>
+                <td className="num">{pct(r.scrapRate)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+    </section>
   );
 }
 
