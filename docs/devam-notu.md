@@ -1,6 +1,6 @@
 # Devam notu
 
-Son güncelleme: 24.09.2026 — oturum 25 (W33 devamı: iş emri malzeme çıkışında FEFO/FIFO lot önerisi)
+Son güncelleme: 24.09.2026 — oturum 26 (W27 devamı: mobilde tam konuşma/kanal/dosya-eki arayüzü)
 
 ## Son doğrulanan durum
 
@@ -33,6 +33,16 @@ Son güncelleme: 24.09.2026 — oturum 25 (W33 devamı: iş emri malzeme çıkı
 | Playwright uçtan uca (oturum 23) | Yönetici senaryo sayfasında 1000 adet + fason senaryosu ve ek vardiya senaryosu hesaplar; temin süresi tanımsız kalemde dürüstçe "hesaplanamadı" gösterilir; sayfa hatası yok |
 | Playwright uçtan uca (oturum 24) | Üretim fason iş önerir; dış kullanıcı (fason firma) kendi girişinde kabul eder; üretim kabulden hemen sonra malzeme fasona gönderir ve bir miktar fireyi imha eder (gerçek stok düşüşü); dış kullanıcı ileri yönde ilerletir (hazırlık→üretimde→testte→sevke hazır) ve sağlam/fire/kullanılmayan beyan eder; üretim çıktıyı kesin kabul eder (yeni lot + giriş kalite görevi, "tamamlandı"); liste satırı durumu her adımda canlı güncellenir; sayfa hatası yok |
 | Playwright uçtan uca (oturum 25) | FEFO politikalı kalemin üç lotu (süresi geçmiş/yakında dolacak/iyi) olduğu bir iş emrinde depo "Çıkış yap" açar; lot açılır listesi süresi en yakın (geçmiş) lotu otomatik önerir, SKT ve "SÜRESİ GEÇTİ" etiketiyle; kırmızı uyarı bandı gösterilir; sayfa hatası yok |
+| Mobil (oturum 26) | `tsc --noEmit` temiz, `EXPO_OFFLINE=1 expo export --platform android` başarılı (yeni bağımlılıklar expo-document-picker/expo-file-system dahil paketlendi); gerçek cihazda/simülatörde çalıştırılmadı (bu ortamda mobil emülatör yok — önceki oturumlardaki gibi derleme+tip denetimiyle doğrulandı) |
+
+## Oturum 26'da eklenenler (W27 devamı)
+
+1. **Mobilde tam konuşma arayüzü**: `apps/mobile/src/screens.tsx`'e web'deki `Discussion` bileşeninin sade bir mobil karşılığı eklendi — aynı uçları kullanır (`GET/POST /api/threads/:entityType/:entityId`, `.../mentionable`, `.../messages`, `.../read`, `POST /api/messages/:id/retract` şimdilik hariç tutuldu — kapsam dışı bırakıldı, aşağıda not edildi). Mesaj listesi, yanıtlama, @bahsetme (kişi rozetleri, web'deki açılır liste yerine dokunmalı rozet listesi), okundu işaretleme (mount'ta otomatik).
+2. **Dosya/fotoğraf eki (mobil)**: `expo-document-picker` + `expo-file-system` eklendi (pnpm add, SDK 57 uyumlu sürümler). Seçilen dosya base64'e çevrilip aynı web doğrulamasıyla (tür: png/jpeg/webp/gif/pdf/metin/csv, 3 dosya/mesaj, dosya başına 3 MB) gönderiliyor. Görsel ekler dokununca `expo-file-system`'in `downloadAsync` (yetkili başlıklarla) ile cihaza indirilip bir modal içinde önizleniyor; görsel olmayan ekler şimdilik yalnız rozet olarak görünüyor (isim+boyut) — mobilde açılamıyor, bu bilinen bir sadelik.
+3. **Bahsedilen mesajlar artık mobilde de ayrıntılı**: `Mentions` bileşeni (İşlerim ekranı) artık bir mesaja dokununca konuşmayı yerinde açıyor (önceden yalnız "okundu" işaretlenebiliyordu, ayrıntı/yanıt için web'e yönlendiriyordu — bu kısıtlama kaldırıldı).
+4. **Kanallar sekmesi (mobil)**: yeni "Kanallar" sekmesi (`task.view` izni, web'deki nav izniyle aynı) — liste (aktif/arşivlenmiş), yeni kanal oluşturma, kanala dokununca yerinde açılan (satır içi, gezinme yığını olmadan — mobil uygulamanın var olan "satır içi genişletme" deseni korundu) konuşma + arşivleme formu.
+5. **Değişiklik yapılmayanlar (bilinçli kapsam dışı)**: mesaj geri çekme (retract) mobilde yok — web'de zaten var, mobilde ekleme kararı ertelendi (az kullanılan, düşük öncelik); video eki desteklenmiyor (proje genelinde henüz yok); görsel olmayan eklerin mobilde açılması (yalnız rozet gösteriliyor).
+6. Backend'de değişiklik yok (test sayısı sabit, 163/163); web'de değişiklik yok. `pnpm -r exec tsc --noEmit` temiz; `EXPO_OFFLINE=1 expo export --platform android` başarılı.
 
 ## Oturum 25'de eklenenler (W33 devamı)
 
@@ -277,7 +287,7 @@ Son güncelleme: 24.09.2026 — oturum 25 (W33 devamı: iş emri malzeme çıkı
 ## Sıradaki uygulanabilir iş
 
 1. W36 devamı: gerçek entegratör/kargo firması sözleşmesi imzalanınca canlı bağlanma (sağlayıcı kararı şirkete ait).
-2. W27 devamı: mobil uygulamaya tam kanal/dosya-eki arayüzü (şimdilik yalnız web; mobilde yalnız bahsetme özeti var).
+2. W27 devamı (küçük kalanlar): mobilde mesaj geri çekme (retract); video eki (proje genelinde); mobilde görsel olmayan eklerin (PDF/metin) cihazda açılması (şimdilik yalnız rozet).
 3. W33 devamı: kurutma/yeniden uygunluk (bake-out) takibi — üretici prosedürüne bağlı, şirket karar verince eklenebilir (FEFO/FIFO lot önerisi oturum 25'te tamamlandı).
 4. W32 devamı: fason çıktı lotunun girdi lotlarına bileşen bazlı tam izlenebilirliği; revizyon geldiğinde devam/durdur/yeniden işle kararı otomasyonu; fasoncu performans raporlaması.
 5. Kalanların çoğu (W03, W28 devamı, W30, W31, W39–W42) dış sağlayıcı kararı, gerçek AI kapsamı veya iş/pilot süreci gerektiriyor; kod ile ilerletilebilecek yeni iş paketi kalmadıkça bu liste güncellenecek.

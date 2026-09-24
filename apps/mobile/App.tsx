@@ -5,7 +5,7 @@ import { StatusBar } from "expo-status-bar";
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Me } from "@apisfactory/shared";
 import { api, store } from "./src/api";
-import { CompanyScreen, InspectScreen, LoginScreen, LookupScreen, ProductionScreen, ReceiveScreen, TasksScreen } from "./src/screens";
+import { ChannelsScreen, CompanyScreen, InspectScreen, LoginScreen, LookupScreen, ProductionScreen, ReceiveScreen, TasksScreen } from "./src/screens";
 import { PackScreen } from "./src/pack";
 import { ErrorBox, Button } from "./src/ui";
 import { c, s } from "./src/theme";
@@ -43,6 +43,7 @@ const TABS = [
   { key: "inspect", label: "Kalite", perm: "inventory.view" },
   { key: "pack", label: "Sevk", perm: "shipment.create" },
   { key: "lookup", label: "Stok", perm: "inventory.view" },
+  { key: "channels", label: "Kanallar", perm: "task.view" },
 ] as const;
 
 function Main() {
@@ -77,6 +78,7 @@ function Main() {
         {tab === "inspect" ? <InspectScreen canDecide={perms.has("quality.incoming.decide")} /> : null}
         {tab === "pack" ? <PackScreen /> : null}
         {tab === "lookup" ? <LookupScreen /> : null}
+        {tab === "channels" ? <ChannelsScreen /> : null}
       </View>
       <View accessibilityRole="tablist" style={{ flexDirection: "row", borderTopWidth: 1, borderColor: c.line, backgroundColor: c.surface }}>
         {tabs.map((t) => (

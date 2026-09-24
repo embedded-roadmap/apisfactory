@@ -1,5 +1,7 @@
-import { useState } from "react";
-import { FlatList, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import { FlatList, Image, Modal, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Item, Session, Task } from "@apisfactory/shared";
 import { api, newKey, store } from "./api";
@@ -605,23 +607,267 @@ function RmaReceive() {
   );
 }
 
-/** Bahsedildiğim okunmamış mesajlar: kısa önizleme, okundu işaretleme (ayrıntı ve yanıt web'de, kayıt ekranında). */
+/** Bahsedildiğim okunmamış mesajlar: kısa önizleme; dokununca konuşma yerinde açılır (W27 devamı — artık mobilde de yanıtlanabilir). */
 function Mentions() {
   const q = useQuery({ queryKey: ["mentions"], queryFn: () => api<any[]>("GET", "/api/mentions?unread=true") });
   const read = useMutation({ mutationFn: (m: any) => api("POST", `/api/threads/${m.entityType}/${m.entityId}/read`, {}), onSuccess: () => q.refetch() });
+  const [open, setOpen] = useState<{ entityType: string; entityId: string; label: string } | null>(null);
   if (!q.data?.length) return null;
   return (
     <View style={[s.card, { gap: 6 }]}>
       <Text style={s.label}>Bahsedildiğiniz mesajlar ({q.data.length})</Text>
-      {q.data.map((m) => (
-        <View key={m.messageId} style={{ gap: 4, borderTopWidth: 1, borderColor: c.line, paddingTop: 6 }}>
-          <Text style={s.text}>{m.label ?? m.entityType}</Text>
-          <Text style={{ color: c.muted }}>{m.authorName}: {m.excerpt ?? "geri çekildi"}</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel={`Okundu: ${m.label}`} onPress={() => read.mutate(m)} style={[s.btn, { minHeight: 44, alignSelf: "flex-start" }]}>
-            <Text style={s.btnText}>Okundu</Text>
-          </Pressable>
-        </View>
-      ))}
+      {q.data.map((m) => {
+        const isOpen = open?.entityType === m.entityType && open?.entityId === m.entityId;
+        return (
+          <View key={m.messageId} style={{ gap: 4, borderTopWidth: 1, borderColor: c.line, paddingTop: 6 }}>
+            <Pressable accessibilityRole="button" onPress={() => setOpen(isOpen ? null : { entityType: m.entityType, entityId: m.entityId, label: m.label ?? m.entityType })}>
+              <Text style={s.text}>{m.label ?? m.entityType}</Text>
+              <Text style={{ color: c.muted }}>{m.authorName}: {m.excerpt ?? "geri çekildi"}</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel={`Okundu: ${m.label}`} onPress={() => read.mutate(m)} style={[s.btn, { minHeight: 44, alignSelf: "flex-start" }]}>
+              <Text style={s.btnText}>Okundu</Text>
+            </Pressable>
+            {isOpen ? <Discussion entityType={m.entityType} entityId={m.entityId} /> : null}
+          </View>
+        );
+      })}
     </View>
+  );
+}
+
+const ATTACHMENT_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif", "application/pdf", "text/plain", "text/csv"];
+const MAX_ATTACHMENT_BYTES = 3_000_000;
+const MAX_ATTACHMENTS = 3;
+const fmtKb = (n: number) => `${Math.round(n / 1024)} KB`;
+const fmtDateTime = (x: string) => new Date(x).toLocaleString("tr-TR");
+
+/**
+ * Kayda bağlı konuşma (W27 devamı — mobil). Web'deki Discussion bileşeninin aynı uçlarla çalışan sade sürümü:
+ * mesaj, yanıt, geri çekme, bahsetme ve dosya/fotoğraf eki. Herhangi bir ekrana entityType/entityId ile gömülebilir.
+ */
+function Discussion({ entityType, entityId }: { entityType: string; entityId: string }) {
+  const qc = useQueryClient();
+  const key = ["thread", entityType, entityId];
+  const q = useQuery({ queryKey: key, queryFn: () => api<any>("GET", `/api/threads/${entityType}/${entityId}`) });
+  const people = useQuery({ queryKey: ["mentionable", entityType, entityId], queryFn: () => api<any[]>("GET", `/api/threads/${entityType}/${entityId}/mentionable`) });
+  const [body, setBody] = useState("");
+  const [mentions, setMentions] = useState<string[]>([]);
+  const [replyTo, setReplyTo] = useState<any | null>(null);
+  const [idem, setIdem] = useState(newKey());
+  const [retract, setRetract] = useState<{ id: string; reason: string } | null>(null);
+  const [attachments, setAttachments] = useState<{ fileName: string; contentType: string; contentBase64: string; sizeBytes: number }[]>([]);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ id: string; fileName: string } | null>(null);
+  const refresh = () => { qc.invalidateQueries({ queryKey: key }); qc.invalidateQueries({ queryKey: ["mentions"] }); };
+  const send = useMutation({
+    mutationFn: () => api("POST", `/api/threads/${entityType}/${entityId}/messages`, { body, mentions, replyTo: replyTo?.id, attachments: attachments.map(({ fileName, contentType, contentBase64 }) => ({ fileName, contentType, contentBase64 })) }, { "idempotency-key": idem }),
+    onSuccess: () => { setBody(""); setMentions([]); setReplyTo(null); setIdem(newKey()); setAttachments([]); refresh(); },
+  });
+  async function addFiles() {
+    setFileError(null);
+    const picked = await DocumentPicker.getDocumentAsync({ type: ATTACHMENT_TYPES, multiple: true, copyToCacheDirectory: true }).catch(() => null);
+    if (!picked || picked.canceled) return;
+    const next = [...attachments];
+    for (const f of picked.assets) {
+      if (next.length >= MAX_ATTACHMENTS) { setFileError(`En fazla ${MAX_ATTACHMENTS} dosya eklenebilir`); break; }
+      const type = f.mimeType ?? "application/octet-stream";
+      if (!ATTACHMENT_TYPES.includes(type)) { setFileError(`${f.name}: desteklenmeyen dosya türü`); continue; }
+      if ((f.size ?? 0) > MAX_ATTACHMENT_BYTES) { setFileError(`${f.name}: dosya çok büyük (en fazla ${MAX_ATTACHMENT_BYTES / 1_000_000} MB)`); continue; }
+      try {
+        const contentBase64 = await FileSystem.readAsStringAsync(f.uri, { encoding: "base64" });
+        next.push({ fileName: f.name, contentType: type, contentBase64, sizeBytes: f.size ?? 0 });
+      } catch {
+        setFileError(`${f.name}: dosya okunamadı`);
+      }
+    }
+    setAttachments(next);
+  }
+  const act = useMutation({ mutationFn: (f: () => Promise<unknown>) => f(), onSuccess: refresh });
+  const count = q.data?.messages.length ?? 0;
+  useEffect(() => {
+    if (count > 0) api("POST", `/api/threads/${entityType}/${entityId}/read`, {}).then(() => qc.invalidateQueries({ queryKey: ["mentions"] })).catch(() => {});
+  }, [count, entityType, entityId]);
+  const byId = new Map((q.data?.messages ?? []).map((m: any) => [m.id, m]));
+  return (
+    <View style={{ gap: 10, marginTop: 8 }}>
+      <Text style={s.label}>Konuşma{count ? ` (${count})` : ""}</Text>
+      <ErrorBox error={q.error} />
+      {count === 0 && q.data ? <Text style={s.muted}>Bu kayıtta henüz mesaj yok.</Text> : null}
+      {q.data?.messages.map((m: any) => {
+        const parent = m.replyTo ? (byId.get(m.replyTo) as any) : null;
+        return (
+          <View key={m.id} style={{ gap: 4, borderLeftWidth: 3, borderColor: c.line, paddingLeft: 10 }}>
+            <View style={s.row}>
+              <Text style={[s.text, { fontWeight: "700" }]}>{m.authorName}</Text>
+              <Text style={{ color: c.muted, fontSize: 12 }}>{fmtDateTime(m.createdAt)}</Text>
+            </View>
+            {parent ? <Text style={{ color: c.muted, fontSize: 13 }}>↪ {parent.authorName}: {parent.body ? String(parent.body).slice(0, 60) : "geri çekilmiş mesaj"}</Text> : null}
+            {m.body !== null ? <Text style={s.text}>{m.body}</Text> : <Text style={s.muted}>Mesaj geri çekildi — {m.retractReason}</Text>}
+            {m.attachments?.length ? (
+              <View style={[s.row, { flexWrap: "wrap" }]}>
+                {m.attachments.map((a: any) => (
+                  <Pressable key={a.id} accessibilityRole="button" onPress={() => setPreview({ id: a.id, fileName: a.fileName })} style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 999, backgroundColor: c.surface2 }}>
+                    <Text style={s.muted}>{a.contentType.startsWith("image/") ? "🖼" : "📎"} {a.fileName} ({fmtKb(a.sizeBytes)})</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+            {m.mentions?.length ? <Text style={{ color: c.muted, fontSize: 13 }}>Bahsedilen: {m.mentions.map((x: any) => `@${x.name}`).join(", ")}</Text> : null}
+            {m.body !== null ? (
+              <View style={s.row}>
+                <Pressable accessibilityRole="button" onPress={() => setReplyTo(m)}><Text style={{ color: c.accent }}>Yanıtla</Text></Pressable>
+              </View>
+            ) : null}
+          </View>
+        );
+      })}
+      <ErrorBox error={act.error} />
+      {replyTo ? (
+        <View style={s.row}>
+          <Text style={s.muted}>↪ {replyTo.authorName} yanıtlanıyor</Text>
+          <Pressable accessibilityRole="button" onPress={() => setReplyTo(null)}><Text style={{ color: c.accent }}>kaldır</Text></Pressable>
+        </View>
+      ) : null}
+      <Field label="Mesaj" value={body} onChangeText={setBody} multiline />
+      {attachments.length ? (
+        <View style={[s.row, { flexWrap: "wrap" }]}>
+          {attachments.map((a, i) => (
+            <Pressable key={i} accessibilityRole="button" onPress={() => setAttachments(attachments.filter((_, j) => j !== i))} style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 999, backgroundColor: c.surface2 }}>
+              <Text style={s.muted}>{a.fileName} ({fmtKb(a.sizeBytes)}) ×</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+      <ErrorBox error={fileError ? new Error(fileError) : null} />
+      <View style={[s.row, { flexWrap: "wrap" }]}>
+        <Button title="Dosya/fotoğraf ekle" onPress={addFiles} />
+        {people.data?.filter((p: any) => !mentions.includes(p.id)).map((p: any) => (
+          <Pressable key={p.id} accessibilityRole="button" onPress={() => setMentions([...mentions, p.id])} style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 999, borderWidth: 1, borderColor: c.line }}>
+            <Text style={s.muted}>@{p.name}</Text>
+          </Pressable>
+        ))}
+      </View>
+      {mentions.length ? (
+        <View style={[s.row, { flexWrap: "wrap" }]}>
+          {mentions.map((id) => {
+            const p = people.data?.find((x: any) => x.id === id);
+            return (
+              <Pressable key={id} accessibilityRole="button" onPress={() => setMentions(mentions.filter((x) => x !== id))} style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 999, backgroundColor: c.surface2 }}>
+                <Text style={s.muted}>@{p?.name ?? id} ×</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+      <Button title="Gönder" primary busy={send.isPending} disabled={!body.trim()} onPress={() => send.mutate()} />
+      <ErrorBox error={send.error} />
+      <AttachmentPreview preview={preview} onClose={() => setPreview(null)} />
+    </View>
+  );
+}
+
+/** Ek önizleme: yalnız görsel türler cihazda indirilip gösterilir; diğer türler mobilde henüz açılamaz (web'den indirilebilir). */
+function AttachmentPreview({ preview, onClose }: { preview: { id: string; fileName: string } | null; onClose: () => void }) {
+  const [uri, setUri] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (!preview) { setUri(null); setErr(null); return; }
+    const { session, companyId } = store.get();
+    const dest = `${FileSystem.cacheDirectory}att-${preview.id}`;
+    FileSystem.downloadAsync(`${store.get().apiUrl}/api/attachments/${preview.id}`, dest, {
+      headers: { authorization: `Bearer ${session?.token}`, "x-company-id": companyId ?? "" },
+    })
+      .then((r) => setUri(r.uri))
+      .catch(() => setErr("Dosya indirilemedi."));
+  }, [preview?.id]);
+  if (!preview) return null;
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: "#000000CC", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <View style={[s.card, { alignItems: "center", gap: 12 }]}>
+          <Text style={s.text}>{preview.fileName}</Text>
+          {err ? <Text style={{ color: c.bad }}>{err}</Text> : uri ? <Image source={{ uri }} style={{ width: 260, height: 260, borderRadius: 10 }} resizeMode="contain" /> : <Text style={s.muted}>Yükleniyor…</Text>}
+          <Button title="Kapat" onPress={onClose} />
+        </View>
+      </Pressable>
+    </Modal>
+  );
+}
+
+/** Serbest grup kanalları (W27 devamı — mobil): herhangi bir iş kaydına bağlı olmayan konuşma odaları. */
+export function ChannelsScreen() {
+  const q = useQuery({ queryKey: ["channels"], queryFn: () => api<any[]>("GET", "/api/channels") });
+  const [show, setShow] = useState(false);
+  const [f, setF] = useState({ name: "", description: "" });
+  const [openId, setOpenId] = useState<string | null>(null);
+  const qc = useQueryClient();
+  const create = useMutation({
+    mutationFn: () => api<any>("POST", "/api/channels", { name: f.name, description: f.description || undefined }),
+    onSuccess: (ch) => { setF({ name: "", description: "" }); setShow(false); qc.invalidateQueries({ queryKey: ["channels"] }); setOpenId(ch.id); },
+  });
+  const [reason, setReason] = useState("");
+  const archive = useMutation({
+    mutationFn: (id: string) => api("POST", `/api/channels/${id}/archive`, { reason }),
+    onSuccess: () => { setReason(""); qc.invalidateQueries({ queryKey: ["channels"] }); },
+  });
+  const active = q.data?.filter((ch) => !ch.archivedAt) ?? [];
+  const archived = q.data?.filter((ch) => ch.archivedAt) ?? [];
+  const opened = q.data?.find((ch) => ch.id === openId);
+  return (
+    <ScrollView style={s.screen} contentContainerStyle={s.pad} keyboardShouldPersistTaps="handled">
+      <Text style={s.h1}>Kanallar</Text>
+      <Text style={s.muted}>Herhangi bir iş kaydına bağlı olmayan, tüm çalışanların görebildiği serbest konuşma odaları.</Text>
+      <ErrorBox error={q.error} />
+      {opened ? (
+        <View style={[s.card, { gap: 10 }]}>
+          <View style={s.row}>
+            <Pressable accessibilityRole="button" onPress={() => setOpenId(null)}><Text style={{ color: c.accent }}>← Kanallar</Text></Pressable>
+          </View>
+          <Text style={s.h2}>{opened.name}</Text>
+          {opened.description ? <Text style={s.muted}>{opened.description}</Text> : null}
+          {opened.archivedAt ? (
+            <Text style={s.muted}>Arşivlendi</Text>
+          ) : (
+            <View style={{ gap: 8 }}>
+              <Field label="Arşivleme gerekçesi" value={reason} onChangeText={setReason} />
+              <Button title="Kanalı arşivle" disabled={reason.trim().length < 3 || archive.isPending} onPress={() => archive.mutate(opened.id)} />
+              <ErrorBox error={archive.error} />
+            </View>
+          )}
+          <Discussion entityType="channel" entityId={opened.id} />
+        </View>
+      ) : (
+        <>
+          <Button title={show ? "Vazgeç" : "Yeni kanal"} onPress={() => setShow(!show)} />
+          {show ? (
+            <View style={[s.card, { gap: 8 }]}>
+              <ErrorBox error={create.error} />
+              <Field label="Ad" value={f.name} onChangeText={(v) => setF({ ...f, name: v })} />
+              <Field label="Açıklama" value={f.description} onChangeText={(v) => setF({ ...f, description: v })} />
+              <Button title="Oluştur" primary busy={create.isPending} disabled={f.name.trim().length < 2} onPress={() => create.mutate()} />
+            </View>
+          ) : null}
+          {active.length === 0 && q.data ? <Text style={s.muted}>Henüz kanal yok.</Text> : null}
+          {active.map((ch) => (
+            <Pressable key={ch.id} accessibilityRole="button" onPress={() => setOpenId(ch.id)} style={s.card}>
+              <Text style={[s.text, { fontWeight: "700" }]}>{ch.name}</Text>
+              {ch.description ? <Text style={s.muted}>{ch.description}</Text> : null}
+              <Text style={{ color: c.muted, fontSize: 13 }}>{ch.lastMessageAt ? `son mesaj ${fmtDateTime(ch.lastMessageAt)}` : "henüz mesaj yok"}</Text>
+            </Pressable>
+          ))}
+          {archived.length ? (
+            <>
+              <Text style={s.h2}>Arşivlenmiş</Text>
+              {archived.map((ch) => (
+                <Pressable key={ch.id} accessibilityRole="button" onPress={() => setOpenId(ch.id)} style={s.card}>
+                  <Text style={s.muted}>{ch.name}</Text>
+                  <Text style={s.muted}>Arşivlendi</Text>
+                </Pressable>
+              ))}
+            </>
+          ) : null}
+        </>
+      )}
+    </ScrollView>
   );
 }
