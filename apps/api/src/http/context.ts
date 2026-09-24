@@ -10,6 +10,7 @@ export type ReqCtx = {
   userId: string;
   sessionId: string;
   companyId: string | null;
+  isExternal: boolean;
   roles: string[];
   permissions: Set<string>;
   /** Vekâletle gelen izin → vekâlet veren kullanıcı (kendi izni olan eklenmez). */
@@ -50,7 +51,7 @@ export async function authenticate(req: FastifyRequest): Promise<ReqCtx> {
 
   const rawCompany = req.headers["x-company-id"];
   const companyId = typeof rawCompany === "string" && UUID.test(rawCompany) ? rawCompany : null;
-  if (!companyId) return { userId, sessionId, companyId: null, roles: [], permissions: new Set(), delegated: {}, delegators: [] };
+  if (!companyId) return { userId, sessionId, companyId: null, isExternal: false, roles: [], permissions: new Set(), delegated: {}, delegators: [] };
 
   const access = await withTenant({ companyId, userId }, async (db) => {
     const m = await db.query(
@@ -58,6 +59,7 @@ export async function authenticate(req: FastifyRequest): Promise<ReqCtx> {
       [userId],
     );
     if (m.rowCount !== 1) return null;
+    const isExternal: boolean = m.rows[0].is_external;
     const perms = await db.query(
       `select distinct r.code as role, rp.permission
          from membership_roles mr join roles r on r.id = mr.role_id
@@ -88,6 +90,7 @@ export async function authenticate(req: FastifyRequest): Promise<ReqCtx> {
       for (const p of granted) if (!own.has(p) && !delegated[p]) delegated[p] = d.delegator_user_id;
     }
     return {
+      isExternal,
       roles: [...new Set(perms.rows.map((r) => r.role as string))],
       permissions: new Set([...own, ...Object.keys(delegated)]),
       delegated,
@@ -107,6 +110,11 @@ export function requireCompany(req: FastifyRequest): ReqCtx & { companyId: strin
   const c = ctxOf(req);
   if (!c.companyId) throw badRequest("X-Company-Id başlığı gerekli");
   return c as ReqCtx & { companyId: string };
+}
+
+/** Dış (fason) kullanıcı mı: erişimi genel izinlerle değil, kendisine atanmış kayıtla sınırlanır. */
+export function isExternal(req: FastifyRequest): boolean {
+  return ctxOf(req).isExternal;
 }
 
 export function can(req: FastifyRequest, perm: Permission): boolean {

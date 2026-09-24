@@ -32,6 +32,7 @@ import { CargoConnectorsPage, ShipmentPage, ShipmentPrintPage, ShipmentsPage } f
 import { ChangePage, ChangesPage } from "./pages/Changes";
 import { DelegationsPage, WorkflowMonitorPage, WorkflowPage } from "./pages/Workflow";
 import { ScenariosPage } from "./pages/Scenarios";
+import { SubcontractJobsPage } from "./pages/Subcontract";
 
 function useAuthState() {
   return useSyncExternalStore(auth.subscribe, auth.get);
@@ -123,6 +124,7 @@ const NAV: { to: string; key: string; perm?: Permission }[] = [
   { to: "/imports", key: "nav.imports" },
   { to: "/reports", key: "nav.reports", perm: "report.view" },
   { to: "/scenarios", key: "nav.scenarios", perm: "report.view" },
+  { to: "/subcontract-jobs", key: "nav.subcontractJobs", perm: "subcontract.manage" },
   { to: "/workflow", key: "nav.workflow", perm: "task.view" },
   { to: "/collaboration/channels", key: "nav.channels", perm: "task.view" },
   { to: "/events", key: "nav.events", perm: "audit.view" },
@@ -130,6 +132,7 @@ const NAV: { to: string; key: string; perm?: Permission }[] = [
 ];
 
 function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) => void }) {
+  const t = useT();
   const qc = useQueryClient();
   const me = useQuery({ queryKey: ["me", auth.get().companyId], queryFn: () => get<Me>("/api/me") });
   const companies = useQuery({ queryKey: ["companies"], queryFn: () => get<{ id: string; name: string; isDemo: boolean }[]>("/api/companies") });
@@ -143,6 +146,8 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
   if (me.isLoading) return <div className="content"><Loading /></div>;
   if (me.error) return <div className="content"><ErrorNotice error={me.error} /><button onClick={() => auth.clear()}>Tekrar giriş yap</button></div>;
   const perms = new Set(me.data!.permissions);
+  // Fason/dış kullanıcı: genel menü ve günlük iş akışı yerine yalnız kendisine atanan işler (prompt §19).
+  const external = me.data!.roles.includes("subcontractor");
 
   return (
     <MeContext.Provider value={{ me: me.data!, locale, setLocale }}>
@@ -151,7 +156,7 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
           <div className="brand">
             <Logo /> apis<span>factory</span>
           </div>
-          <NavItems perms={perms} />
+          {external ? <NavLink to="/" end>{t("nav.subcontractJobs")}</NavLink> : <NavItems perms={perms} />}
           <div className="spacer" />
         </nav>
         <div className="main">
@@ -177,7 +182,8 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
           </header>
           <main className="content">
             <Routes>
-              <Route path="/" element={<TodayPage />} />
+              <Route path="/" element={external ? <SubcontractJobsPage /> : <TodayPage />} />
+              <Route path="/subcontract-jobs" element={<SubcontractJobsPage />} />
               <Route path="/products" element={<ProductsPage />} />
               <Route path="/products/alternates" element={<AlternatesPage />} />
               <Route path="/products/:id" element={<ProductDetailPage />} />

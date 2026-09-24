@@ -1,12 +1,12 @@
 # Devam notu
 
-Son güncelleme: 24.09.2026 — oturum 23 (W35: senaryo karşılaştırma — adet/kritik parça gecikmesi/onaylı alternatif/fason/ek vardiya)
+Son güncelleme: 24.09.2026 — oturum 24 (W32: fason üretici portalı — dış kullanıcı erişimi, iş yaşam döngüsü, malzeme teyidi, dosya paylaşımı)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 154/154 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6, payables 5, receivables 4, distributors 5, alternates 7, dispatch 5, collaboration 9, ops 4, storage 5, scenarios 6), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 163/163 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6, payables 5, receivables 4, distributors 5, alternates 7, dispatch 5, collaboration 9, ops 4, storage 5, scenarios 6, subcontract 9), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
@@ -31,6 +31,18 @@ Son güncelleme: 24.09.2026 — oturum 23 (W35: senaryo karşılaştırma — ad
 | Playwright uçtan uca (oturum 21) | Satın alma alternatif önerir, Ar-Ge ve üretim onaylar; üretim kanıt & tartışmayı açıp fotoğraf ekli mesaj gönderir; sayfa hatası yok |
 | Playwright uçtan uca (oturum 22) | Depo mal kabul yapar; kalite MSL/kullanım süresi/raf ömrü/FEFO ve lot son kullanma tarihini girer; depo paketi açar, kullanım süresi sonu hesaplanır; sayfa hatası yok |
 | Playwright uçtan uca (oturum 23) | Yönetici senaryo sayfasında 1000 adet + fason senaryosu ve ek vardiya senaryosu hesaplar; temin süresi tanımsız kalemde dürüstçe "hesaplanamadı" gösterilir; sayfa hatası yok |
+| Playwright uçtan uca (oturum 24) | Üretim fason iş önerir; dış kullanıcı (fason firma) kendi girişinde kabul eder; üretim kabulden hemen sonra malzeme fasona gönderir ve bir miktar fireyi imha eder (gerçek stok düşüşü); dış kullanıcı ileri yönde ilerletir (hazırlık→üretimde→testte→sevke hazır) ve sağlam/fire/kullanılmayan beyan eder; üretim çıktıyı kesin kabul eder (yeni lot + giriş kalite görevi, "tamamlandı"); liste satırı durumu her adımda canlı güncellenir; sayfa hatası yok |
+
+## Oturum 24'de eklenenler (W32)
+
+1. **Fason üretici portalı — dış kullanıcı erişim modeli**: mevcut ama kullanılmayan `memberships.is_external` alanı `ReqCtx.isExternal` alanına ve yeni `isExternal(req)` yardımcı fonksiyonuna bağlandı. Yeni `subcontractor` rolü **kasten izinsiz** (`DEFAULT_ROLES.subcontractor.permissions = []`) — dış kullanıcının genel erişimi yok, yalnız `subcontract_jobs.subcontractor_user_id` eşleşmesiyle kendi işini görür/işler (satır bazlı yetkilendirme, izin bazlı değil). Test: dış kullanıcının `/api/stock/balances` gibi bağlantısız uçlara 403 aldığı ve başka fasoncunun işini göremediği doğrulandı.
+2. **İş yaşam döngüsü**: `proposed` → (dış firma) `countered`/`accepted`/`rejected` → (iç, karşı teklif kabulü) `accepted` → (dış firma, yalnız ileri yönlü, atlama/geri gidiş 409) `prep` → `in_production` → `testing` → `ready_to_ship` → (dış firma) `declare` (sağlam/fire/kullanılmayan beyanı, şirketin kesin kabulünden ayrı alanlarda) → (iç, `accept-output`) `completed`.
+3. **Malzeme entegrasyonu**: iç personel gerçek `stock_moves` ile malzemeyi fason konumuna (`FSN`) transfer eder ve iade alır (fire→imha/`scrap`, kullanılmayan→depoya `return`); kesin kabulde çıktı yeni bir lot olarak `receive` hareketiyle giriş kalite konumuna (`GKK`) girer (mal kabul deseniyle aynı — negatif stok hatasından kaçınmak için yeni lota `transfer` değil `receive` kullanıldı).
+4. **Dosya paylaşımı**: fotoğraf/video/test raporu/teslim belgesi — her iki taraf görür, başka fasoncu göremez (base64/SHA-256/boyut doğrulamalı, `collaboration.ts`'teki desenin bağımsız kopyası — iş bazlı satır erişimi mevcut genel-izinli ek sistemine uymadığından).
+5. Yeni tablolar: `subcontract_jobs`, `subcontract_job_files` (değişmez, `forbid_mutation` tetikleyicili); RLS zorunlu.
+6. Web: yeni "Fason işleri" sayfası (`/subcontract-jobs`) — iç/dış kullanıcı için tek bileşen, `subcontract.manage` yetkisine göre dallanır; dış kullanıcı için kök rota (`/`) ve gezinme menüsü bu sayfaya yönlendirilir (izinsiz rolde boş menü görünmesini önler). Liste satırının durumu artık her mutasyonda (kabul/karşı teklif/ilerleme/beyan/kesin kabul) canlı yenileniyor — E2E sırasında bulunan bir eksiklik (yalnız detay paneli yenileniyordu) düzeltildi.
+7. `subcontract.test.ts`: 9 yeni test (163/163 tam paket). Mobilde bu oturumda değişiklik yok (masaüstü/yönetim özelliği; `expo export` hash değişmedi, doğrulandı).
+8. **Bilinen sadelikler** (prompt §19'un tam kapsamına göre): çıktı lotunun girdi lotlarına bileşen bazlı tam izlenebilirliği yok (yalnız toplam miktar teyidi); revizyon geldiğinde "devam et/durdur/yeniden işle" kararı otomasyonu yok; fasoncu performans raporlaması yok. Bu üçü sonraki bir oturumda ele alınabilir.
 
 ## Oturum 23'de eklenenler (W35)
 
@@ -256,5 +268,5 @@ Son güncelleme: 24.09.2026 — oturum 23 (W35: senaryo karşılaştırma — ad
 1. W36 devamı: gerçek entegratör/kargo firması sözleşmesi imzalanınca canlı bağlanma (sağlayıcı kararı şirkete ait).
 2. W27 devamı: mobil uygulamaya tam kanal/dosya-eki arayüzü (şimdilik yalnız web; mobilde yalnız bahsetme özeti var).
 3. W33 devamı: kurutma/yeniden uygunluk takibi (üretici prosedürüne bağlı, şirket karar verince eklenebilir); iş emri malzeme çıkışında FEFO sırasına göre lot önerisi (şu an yalnız görüntüleme var, otomatik seçim yok).
-4. W32: Fason üretici portalı (dış/fason kullanıcı tipi, kapsam/miktar/tarih/fiyat, malzeme teslim teyidi, ilerleme, dosya yükleme) — yeni bir dış-kullanıcı yetkilendirme modeli gerektirdiğinden ayrı, dikkatli bir oturumda ele alınmalı.
+4. W32 devamı: fason çıktı lotunun girdi lotlarına bileşen bazlı tam izlenebilirliği; revizyon geldiğinde devam/durdur/yeniden işle kararı otomasyonu; fasoncu performans raporlaması.
 5. Kalanların çoğu (W03, W28 devamı, W30, W31, W39–W42) dış sağlayıcı kararı, gerçek AI kapsamı veya iş/pilot süreci gerektiriyor; kod ile ilerletilebilecek yeni iş paketi kalmadıkça bu liste güncellenecek.

@@ -39,6 +39,7 @@ export const PERMISSIONS = [
   "workflow.manage",
   "delegation.manage",
   "purchase.request.create",
+  "subcontract.manage",
   // Üretim ve son kalite
   "production.view",
   "production.plan",
@@ -92,7 +93,8 @@ export type RoleCode =
   | "warehouse"
   | "sales"
   | "purchasing"
-  | "accounting";
+  | "accounting"
+  | "subcontractor";
 
 /**
  * Varsayılan rol şablonları. Şirket bunları kopyalayıp düzenleyebilir.
@@ -121,7 +123,7 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
   },
   production: {
     name: { tr: "Üretim sorumlusu", en: "Production lead" },
-    permissions: ["product.view", "product.approve.production", "bom.view", "inventory.view", "sales.view", "purchase.view", "task.view", "production.view", "production.plan", "production.execute", "change.view", "change.create", "capacity.manage", "report.view", "task.manage", "purchase.request.create"],
+    permissions: ["product.view", "product.approve.production", "bom.view", "inventory.view", "sales.view", "purchase.view", "task.view", "production.view", "production.plan", "production.execute", "change.view", "change.create", "capacity.manage", "report.view", "task.manage", "purchase.request.create", "subcontract.manage"],
   },
   technician: {
     name: { tr: "Teknisyen / operatör", en: "Technician / operator" },
@@ -142,11 +144,17 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
   },
   purchasing: {
     name: { tr: "Satın alma", en: "Purchasing" },
-    permissions: ["product.view", "bom.view", "inventory.view", "purchase.view", "purchase.request.approve", "task.view", "field.cost.view", "lot.cost.record", "purchase.request.create", "purchase.order.manage", "supplier.manage", "invoice.view"],
+    permissions: ["product.view", "bom.view", "inventory.view", "purchase.view", "purchase.request.approve", "task.view", "field.cost.view", "lot.cost.record", "purchase.request.create", "purchase.order.manage", "supplier.manage", "invoice.view", "subcontract.manage"],
   },
   accounting: {
     name: { tr: "Muhasebe", en: "Accounting" },
     permissions: ["product.view", "sales.view", "purchase.view", "task.view", "export.run", "field.cost.view", "field.price.view", "rma.view", "cost.manage", "lot.cost.record", "report.view", "invoice.view", "invoice.manage", "invoice.approve", "payment.record", "receivable.view", "receivable.manage", "credit.override"],
+  },
+  // Fason üretici / dış kullanıcı: yalnız kendisine atanmış işi görür; izin listesi kasten boştur —
+  // erişim genel izinlerle değil, subcontract_jobs.subcontractor_user_id eşleşmesiyle denetlenir (prompt §19).
+  subcontractor: {
+    name: { tr: "Fason üretici (dış kullanıcı)", en: "Subcontractor (external user)" },
+    permissions: [],
   },
 };
 

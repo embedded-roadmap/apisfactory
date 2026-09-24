@@ -12,6 +12,7 @@ import { dispatchRoutes } from "./modules/dispatch";
 import { opsRoutes } from "./modules/ops";
 import { storageRoutes } from "./modules/storage";
 import { scenarioRoutes } from "./modules/scenarios";
+import { subcontractRoutes } from "./modules/subcontract";
 import { planningRoutes } from "./modules/planning";
 import { costingRoutes } from "./modules/costing";
 import { returnRoutes } from "./modules/returns";
@@ -86,5 +87,6 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(opsRoutes);
   await app.register(storageRoutes);
   await app.register(scenarioRoutes);
+  await app.register(subcontractRoutes);
   return app;
 }
