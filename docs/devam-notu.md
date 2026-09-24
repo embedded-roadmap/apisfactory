@@ -1,6 +1,6 @@
 # Devam notu
 
-Son güncelleme: 24.09.2026 — oturum 24 (W32: fason üretici portalı — dış kullanıcı erişimi, iş yaşam döngüsü, malzeme teyidi, dosya paylaşımı)
+Son güncelleme: 24.09.2026 — oturum 25 (W33 devamı: iş emri malzeme çıkışında FEFO/FIFO lot önerisi)
 
 ## Son doğrulanan durum
 
@@ -32,6 +32,17 @@ Son güncelleme: 24.09.2026 — oturum 24 (W32: fason üretici portalı — dı�
 | Playwright uçtan uca (oturum 22) | Depo mal kabul yapar; kalite MSL/kullanım süresi/raf ömrü/FEFO ve lot son kullanma tarihini girer; depo paketi açar, kullanım süresi sonu hesaplanır; sayfa hatası yok |
 | Playwright uçtan uca (oturum 23) | Yönetici senaryo sayfasında 1000 adet + fason senaryosu ve ek vardiya senaryosu hesaplar; temin süresi tanımsız kalemde dürüstçe "hesaplanamadı" gösterilir; sayfa hatası yok |
 | Playwright uçtan uca (oturum 24) | Üretim fason iş önerir; dış kullanıcı (fason firma) kendi girişinde kabul eder; üretim kabulden hemen sonra malzeme fasona gönderir ve bir miktar fireyi imha eder (gerçek stok düşüşü); dış kullanıcı ileri yönde ilerletir (hazırlık→üretimde→testte→sevke hazır) ve sağlam/fire/kullanılmayan beyan eder; üretim çıktıyı kesin kabul eder (yeni lot + giriş kalite görevi, "tamamlandı"); liste satırı durumu her adımda canlı güncellenir; sayfa hatası yok |
+| Playwright uçtan uca (oturum 25) | FEFO politikalı kalemin üç lotu (süresi geçmiş/yakında dolacak/iyi) olduğu bir iş emrinde depo "Çıkış yap" açar; lot açılır listesi süresi en yakın (geçmiş) lotu otomatik önerir, SKT ve "SÜRESİ GEÇTİ" etiketiyle; kırmızı uyarı bandı gösterilir; sayfa hatası yok |
+
+## Oturum 25'de eklenenler (W33 devamı)
+
+1. **İş emri malzeme çıkışında FEFO/FIFO lot önerisi**: Üretim sayfasında "Çıkış yap" açıldığında lot listesi artık `GET /api/items/:id/lots` çağrısıyla zenginleştiriliyor (kalemin `issuePolicy`'sine göre sunucu tarafında zaten sıralı) ve bu sıraya göre yeniden düzenleniyor; kullanılamayan (stok dışı) konumlar sona atılıyor. Sunucu tarafında değişiklik yok — yalnız web istemcisi, zaten var olan iki uçtan gelen veriyi birleştiriyor.
+2. **Otomatik varsayılan seçim**: açılır liste artık boş "Seçin…" ile başlamıyor; kullanılabilir ilk (politika sırasına göre en öncelikli) lot otomatik seçili geliyor. Kullanıcı isterse değiştirebilir.
+3. **Süre uyarısı**: seçilen lot süresi geçmiş veya yakında dolacaksa (mevcut `expired`/`expiring_soon` durumları, storage.ts'teki hesaplamadan) seçenek metninde SKT + durum etiketi (SÜRESİ GEÇTİ / YAKINDA DOLUYOR — Inventory.tsx'teki aynı etiketler) gösteriliyor ve form altında kırmızı/turuncu bir uyarı bandı çıkıyor; çıkış engellenmiyor (karar yine kullanıcıda, sunucu da bunu zorunlu kılmıyor).
+4. Onaylı alternatif kalemlerin lotları da aynı FEFO/FIFO sıralamasından geçiyor (W29'daki alternatif-lot birleştirme deseni korundu).
+5. **Küçük düzeltme (W32'den)**: fason iş sayfasında liste satırının durum rozeti artık her mutasyonda (kabul/karşı teklif/ilerleme/beyan/kesin kabul) canlı yenileniyor; önceden yalnız açık detay paneli yenileniyordu, liste bir adım geride kalıyordu — bu oturumun E2E doğrulaması sırasında görüldü ve düzeltildi.
+6. Backend'de değişiklik yok (dolayısıyla test sayısı sabit, 163/163); `tsc`/`vite build` temiz; mobilde bu oturumda değişiklik yok (masaüstü/depo ekranı, `expo export` çalıştırılmadı — dokunulmadı).
+7. **Kalan (hâlâ W33 devamı olarak açık)**: kurutma/yeniden uygunluk (bake-out) takibi — üretici prosedürüne ve şirket kararına bağlı, bu oturumda ele alınmadı.
 
 ## Oturum 24'de eklenenler (W32)
 
@@ -267,6 +278,6 @@ Son güncelleme: 24.09.2026 — oturum 24 (W32: fason üretici portalı — dı�
 
 1. W36 devamı: gerçek entegratör/kargo firması sözleşmesi imzalanınca canlı bağlanma (sağlayıcı kararı şirkete ait).
 2. W27 devamı: mobil uygulamaya tam kanal/dosya-eki arayüzü (şimdilik yalnız web; mobilde yalnız bahsetme özeti var).
-3. W33 devamı: kurutma/yeniden uygunluk takibi (üretici prosedürüne bağlı, şirket karar verince eklenebilir); iş emri malzeme çıkışında FEFO sırasına göre lot önerisi (şu an yalnız görüntüleme var, otomatik seçim yok).
+3. W33 devamı: kurutma/yeniden uygunluk (bake-out) takibi — üretici prosedürüne bağlı, şirket karar verince eklenebilir (FEFO/FIFO lot önerisi oturum 25'te tamamlandı).
 4. W32 devamı: fason çıktı lotunun girdi lotlarına bileşen bazlı tam izlenebilirliği; revizyon geldiğinde devam/durdur/yeniden işle kararı otomasyonu; fasoncu performans raporlaması.
 5. Kalanların çoğu (W03, W28 devamı, W30, W31, W39–W42) dış sağlayıcı kararı, gerçek AI kapsamı veya iş/pilot süreci gerektiriyor; kod ile ilerletilebilecek yeni iş paketi kalmadıkça bu liste güncellenecek.

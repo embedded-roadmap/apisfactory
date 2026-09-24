@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, newKey, post } from "../lib/api";
@@ -176,6 +176,27 @@ export function WorkOrderPage() {
   );
 }
 
+const SHELF_STATUS: Record<string, string> = { expired: "SÜRESİ GEÇTİ", expiring_soon: "YAKINDA DOLUYOR" };
+
+/** Kalemin çıkış politikasına (FEFO/FIFO) göre sunucudan gelen sırayı korur; kullanılamayan konumları sona atar (W33 devamı). */
+function orderByFefo(balances: any[], info: any) {
+  const byId = new Map<string, any>((info?.lots ?? []).map((l: any) => [l.id, l]));
+  const rank = new Map((info?.lots ?? []).map((l: any, i: number) => [l.id, i]));
+  return balances
+    .map((l) => {
+      const meta = byId.get(l.lotId);
+      return { ...l, lotStatus: meta?.status ?? null, expiresAt: meta?.expiresAt ?? null };
+    })
+    .sort((a, b) => {
+      const usableA = a.locationType === "stock" ? 0 : 1;
+      const usableB = b.locationType === "stock" ? 0 : 1;
+      if (usableA !== usableB) return usableA - usableB;
+      const ra = rank.has(a.lotId) ? (rank.get(a.lotId) as number) : Number.MAX_SAFE_INTEGER;
+      const rb = rank.has(b.lotId) ? (rank.get(b.lotId) as number) : Number.MAX_SAFE_INTEGER;
+      return ra - rb;
+    });
+}
+
 function MaterialRow({ m, woId, canIssue, onDone }: { m: any; woId: string; canIssue: boolean; onDone: () => void }) {
   const [open, setOpen] = useState(false);
   const [lotNo, setLotNo] = useState("");
@@ -185,20 +206,33 @@ function MaterialRow({ m, woId, canIssue, onDone }: { m: any; woId: string; canI
     enabled: open,
     queryKey: ["lotsFor", m.itemId],
     queryFn: async () => {
-      const own = (await get<any[]>(`/api/stock/balances?itemId=${m.itemId}`)).map((l) => ({ ...l, alt: null as string | null }));
+      const ownBalances = (await get<any[]>(`/api/stock/balances?itemId=${m.itemId}`)).map((l) => ({ ...l, alt: null as string | null }));
+      const ownInfo = await get<any>(`/api/items/${m.itemId}/lots`).catch(() => null);
+      const own = orderByFefo(ownBalances, ownInfo);
       // W29: onaylı alternatiflerin lotları da seçilebilir (sunucu ürün kapsamını ayrıca doğrular)
       const alts = (await get<any[]>(`/api/alternates?status=approved&itemId=${m.itemId}`).catch(() => [])).filter((a) => a.itemId === m.itemId);
-      for (const a of alts) for (const l of await get<any[]>(`/api/stock/balances?itemId=${a.alternateItemId}`)) own.push({ ...l, alt: a.alternateCode });
+      for (const a of alts) {
+        const altBalances = (await get<any[]>(`/api/stock/balances?itemId=${a.alternateItemId}`)).map((l) => ({ ...l, alt: a.alternateCode }));
+        const altInfo = await get<any>(`/api/items/${a.alternateItemId}/lots`).catch(() => null);
+        own.push(...orderByFefo(altBalances, altInfo));
+      }
       return own;
     },
   });
+  // W33 devamı: en önce dolacak/giren kullanılabilir lot otomatik önerilir; kullanıcı isterse değiştirebilir.
+  useEffect(() => {
+    if (!open || lotNo || !lots.data) return;
+    const suggestion = lots.data.find((l) => l.locationType === "stock");
+    if (suggestion) setLotNo(suggestion.lotNo);
+  }, [open, lots.data, lotNo]);
+  const selected = lots.data?.find((l) => l.lotNo === lotNo);
   const issue = useMutation({
     mutationFn: async () => {
       const lot = lots.data?.find((l) => l.lotNo === lotNo);
       if (!lot) throw new Error("Lot seçin");
       return post(`/api/work-orders/${woId}/issue`, { lotId: lot.lotId, qty }, { "idempotency-key": key });
     },
-    onSuccess: () => { setOpen(false); setKey(newKey()); onDone(); },
+    onSuccess: () => { setOpen(false); setLotNo(""); setKey(newKey()); onDone(); },
   });
   return (
     <>
@@ -211,12 +245,12 @@ function MaterialRow({ m, woId, canIssue, onDone }: { m: any; woId: string; canI
         <tr>
           <td colSpan={6}>
             <div className="row">
-              <label className="field">Lot
+              <label className="field">Lot (öneri: kalemin politikasına göre önce dolacak/giren lot)
                 <select value={lotNo} onChange={(e) => setLotNo(e.target.value)}>
                   <option value="">Seçin…</option>
                   {lots.data?.map((l) => (
                     <option key={l.lotId + l.locationId} value={l.lotNo} disabled={l.locationType !== "stock"}>
-                      {l.lotNo} · {l.locationCode} · {fmt(l.qty)}{l.alt ? ` · onaylı alternatif ${l.alt}` : ""}{l.locationType !== "stock" ? " (kullanılamaz)" : ""}
+                      {l.lotNo} · {l.locationCode} · {fmt(l.qty)}{l.alt ? ` · onaylı alternatif ${l.alt}` : ""}{l.expiresAt ? ` · SKT ${String(l.expiresAt).slice(0, 10)}` : ""}{l.lotStatus && SHELF_STATUS[l.lotStatus] ? ` · ${SHELF_STATUS[l.lotStatus]}` : ""}{l.locationType !== "stock" ? " (kullanılamaz)" : ""}
                     </option>
                   ))}
                 </select>
@@ -224,6 +258,8 @@ function MaterialRow({ m, woId, canIssue, onDone }: { m: any; woId: string; canI
               <label className="field">Miktar<input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="decimal" /></label>
               <button className="primary" style={{ alignSelf: "flex-end" }} disabled={issue.isPending} onClick={() => issue.mutate()}>Çıkışı kaydet</button>
             </div>
+            {selected?.lotStatus === "expired" ? <p className="notice bad">Seçilen lotun kullanım/raf ömrü dolmuş; çıkışa devam etmeden önce kaliteye danışın.</p> : null}
+            {selected?.lotStatus === "expiring_soon" ? <p className="notice warn">Seçilen lotun süresi yakında doluyor.</p> : null}
             <ErrorNotice error={issue.error} />
           </td>
         </tr>
