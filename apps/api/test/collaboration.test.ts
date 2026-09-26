@@ -92,6 +92,21 @@ describe("Toplantı ve tutanak (W28)", () => {
     expect(up[0]).toMatchObject({ code: m.code, isParticipant: true });
   });
 
+  it("takvim daveti (.ics): standart iCalendar dosyası, başlık/tarih/yer/katılımcılar doğru; gerçek dış takvim bağlantısı yok", async () => {
+    const r = await call(w.app, "production@a.test", A, "GET", `/api/meetings/${meetingId}/ics`);
+    expect(r.status).toBe(200);
+    const ics = String(r.body);
+    expect(ics).toContain("BEGIN:VCALENDAR");
+    expect(ics).toContain("BEGIN:VEVENT");
+    expect(ics).toContain(`UID:meeting-${meetingId}@apisfactory`);
+    expect(ics).toContain("LOCATION:Toplantı odası");
+    expect(ics).toContain("Haftalık üretim toplantısı");
+    expect(ics).toMatch(/ORGANIZER;CN=.*:mailto:production@a\.test/);
+    expect(ics).toMatch(/ATTENDEE.*mailto:quality@a\.test/);
+    expect(ics).toContain("END:VEVENT");
+    expect(ics).toContain("END:VCALENDAR");
+  });
+
   it("aksiyon sorumlu + tarih ister; katılım işaretlenmeden tutanak kapanmaz", async () => {
     const other = await call(w.app, "quality@a.test", A, "POST", `/api/meetings/${meetingId}/items`, { kind: "decision", text: "Kalite kararı" });
     expect(other.status).toBe(200); // kalite de görev yöneticisi (task.manage)

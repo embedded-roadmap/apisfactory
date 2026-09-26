@@ -1,12 +1,12 @@
 # Devam notu
 
-Son güncelleme: 26.09.2026 — oturum 30 (W32 devamı: fason malzeme izlenebilirliği)
+Son güncelleme: 26.09.2026 — oturum 31 (W28 devamı: toplantı takvim daveti .ics)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 165/165 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6, payables 5, receivables 4, distributors 5, alternates 7, dispatch 5, collaboration 9, ops 4, storage 5, scenarios 6, subcontract 11), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 166/166 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 10, procurement 6, payables 5, receivables 4, distributors 5, alternates 7, dispatch 5, ops 4, storage 5, scenarios 6, subcontract 11), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
@@ -38,6 +38,14 @@ Son güncelleme: 26.09.2026 — oturum 30 (W32 devamı: fason malzeme izlenebili
 | Mobil (oturum 28) | `tsc --noEmit` temiz, `EXPO_OFFLINE=1 expo export --platform android` başarılı; backend/web dokunulmadı, tam test paketi (164/164) yine de yeniden çalıştırılıp doğrulandı; gerçek cihazda/simülatörde çalıştırılmadı (bu ortamda mobil emülatör yok) |
 | Mobil (oturum 29) | `tsc --noEmit` temiz, `EXPO_OFFLINE=1 expo export --platform android` başarılı (yeni bağımlılık expo-sharing dahil paketlendi); backend/web dokunulmadı; gerçek cihazda/simülatörde çalıştırılmadı |
 | Playwright uçtan uca (oturum 30) | Bir fason iş kabul→malzeme gönder (10)/fire imha (1)→ilerlet→beyan→kesin kabul (9) ile tamamlanır; iş detayında "Malzeme izlenebilirliği" paneli: girdi lotu USAGE-LOT1 için gönderilen 10 / iade 0 / fire 1 / net tüketilen 9, çıktı lotu USAGE-OUT-1 için 9 adet; sayfa hatası yok |
+| Playwright uçtan uca (oturum 31) | Yönetim toplantı açar (gündem, yer, katılımcı); toplantı detayında "Takvime ekle (.ics)" düğmesine tıklanır, tarayıcı gerçek bir dosya indirir (`toplanti-TOP-000001.ics`); indirilen dosya `BEGIN:VCALENDAR`, başlık, yer ve `mailto:` katılımcı satırlarını içerir; sayfa hatası yok |
+
+## Oturum 31'de eklenenler (W28 devamı)
+
+1. **Toplantı takvim daveti (.ics)**: "Bilinen sorunlar ve sınırlar" listesinde uzun süredir açık duran "takvim (ICS/Outlook) daveti yok" boşluğu kapatıldı. Yeni `GET /api/meetings/:id/ics` — standart bir RFC 5545 iCalendar dosyası üretir (satır katlama, kaçış karakterleri, `DTSTART`/`DTEND`/`SUMMARY`/`LOCATION`/`DESCRIPTION`/`ORGANIZER`/`ATTENDEE` alanları dahil, gündem + bağlı kayıt bilgisiyle); toplantının kendi tarih/süresinden hesaplanır, hiçbir şey uydurulmaz. Gerçek bir dış takvim/toplantı bağlayıcısı (Outlook/Google canlı senkron) hâlâ yok — bu, kullanıcının kendi takvim uygulamasına elle içe aktardığı statik bir dosya; bilinen sınır olarak öyle kalmaya devam ediyor, yalnızca eksik olan dosya üretimi eklendi.
+2. Web: toplantı detay sayfasında başlık satırına "Takvime ekle (.ics)" düğmesi eklendi (mevcut yetkili-fetch + blob-indirme deseni, `Inventory.tsx`'teki CSV dışa aktarımıyla aynı desen).
+3. `collaboration.test.ts`'e 1 yeni test (10/10, tam paket 166/166): üretilen dosyanın `BEGIN:VCALENDAR`/`BEGIN:VEVENT`/`UID`/`LOCATION`/başlık/`ORGANIZER`/`ATTENDEE`/`END:VEVENT`/`END:VCALENDAR` alanlarını doğru içerdiği doğrulandı.
+4. Backend dışında değişiklik az: web'de tek düğme eklendi; mobilde değişiklik yok. `tsc`/`vite build` temiz; Playwright E2E ile gerçek dosya indirmesi doğrulandı.
 
 ## Oturum 30'da eklenenler (W32 devamı)
 
@@ -311,7 +319,7 @@ Son güncelleme: 26.09.2026 — oturum 30 (W32 devamı: fason malzeme izlenebili
 - İade: tamir sonrası tekrar test yalnızca geçti/kaldı olarak girilir (test planı ölçümleri iade tamirine bağlanmadı). Karantinadaki iade ürününün sonraki analizi ve hurda/yeniden işleme kararı stok ekranından yapılmalı (ayrı akış yok). Geri gönderim sevkiyat listesinde ayrı satır olarak görünmez; iade kaydında izlenir.
 - Paketleme rotada ayrı iş merkezi değil; sevkiyat modülünde yapılır.
 - Planlama: Gantt'ta kaynak kapasitesi ve vardiya yok; iş emri çubukları salt okunur.
-- İletişim: kayıttan bağımsız birebir/grup sohbet, dosya/fotoğraf eki, anlık (canlı) güncelleme yok (sayfa yenilenince/işlemde güncellenir); sesli/görüntülü görüşme, kayıt ve transkript yok (dış bağlayıcı gerekir); takvim (ICS/Outlook) daveti yok; mobilde konuşma yazma yok.
+- İletişim: kayıttan bağımsız birebir sohbet, anlık (canlı) güncelleme yok (sayfa yenilenince/işlemde güncellenir); sesli/görüntülü görüşme, kayıt ve transkript yok (dış bağlayıcı gerekir). Toplantı için takvim daveti dosyası (.ics) var (oturum 31); gerçek canlı takvim senkronu (Outlook/Google bağlayıcısı) yok.
 - Satın alma: tedarikçiye gerçek gönderim (e-posta/EDI/portal) yok; teklifler elle, fiyat dosyasından veya TEST kataloğundan (gerçek distribütör API'si yok); çok kalemli RFQ/sipariş yok (talep başına bir satır); kur dönüşümü yok (farklı para birimli teklif sapma hesaplanmaz); sipariş onay limiti (W10 politikası) sipariş aşamasına bağlanmadı.
 - Borçlar: e-fatura (GİB) alımı yok (fatura elle girilir, W36); banka/ödeme bağlantısı yok (yalnız kayıt); kur farkı, stopaj ve iade faturası (fiyat farkı/iade) yok; iade/fiyat farkı (alacak dekontu) yok; kısmi sevkiyatta sipariş toplamı değil sevk edilen miktar faturalanır; kur dönüşümü olmadığından kredi riski yalnız müşterinin kredi para biriminde hesaplanır; muhasebe fişi/entegrasyonu yok.
 - Akış: politika yalnızca beş onay türü için; satın alma dışındaki türlerde parasal limit yok. Yükseltme tek seviye (üst rolün de süresi dolarsa ikinci yükseltme yok). Bildirim yalnızca çıkış kutusunda (e-posta/anlık bildirim bağlanmadı). Vekâlet mobilde gösterilmiyor. Tahmini tutar son lot maliyetinden; tedarikçi teklifi/fiyat listesi yok (W18).
@@ -323,4 +331,5 @@ Son güncelleme: 26.09.2026 — oturum 30 (W32 devamı: fason malzeme izlenebili
 2. W27 devamı (tek küçük kalan): video eki desteği (proje genelinde henüz yok) — mesaj geri çekme oturum 28'de, görsel olmayan eklerin mobilde açılması oturum 29'da tamamlandı.
 3. W33 devamı: kurutma/yeniden uygunluk (bake-out) takibi — üretici prosedürüne bağlı, şirket karar verince eklenebilir (FEFO/FIFO lot önerisi oturum 25'te tamamlandı).
 4. W32 devamı (küçük kalan): revizyon geldiğinde devam/durdur/yeniden işle kararı otomasyonu — net iş kuralı spesifikasyonu yok, şirket kararı/daha fazla ayrıntı gerekiyor (performans raporu oturum 27'de, girdi lotu bazlı malzeme izlenebilirliği oturum 30'da tamamlandı).
-5. Kalanların çoğu (W03, W27 devamı — video eki, W28 devamı, W30, W31, W39–W42) dış sağlayıcı kararı, gerçek AI kapsamı veya iş/pilot süreci gerektiriyor; kod ile ilerletilebilecek net kalan iş paketi kalmadı — yeni bir iş paketi tanımlanmadıkça (kullanıcıdan gelecek kapsam/karar) bu liste bundan sonra büyük ölçüde sabit kalacak.
+5. W28 devamı (tek küçük kalan): toplantı takvim daveti (.ics) oturum 31'de tamamlandı; kalan (görüşme/kayıt/transkript, gerçek Outlook/Google canlı senkronu) dış bağlayıcı kararı gerektiriyor.
+6. Kalanların çoğu (W03, W27 devamı — video eki, W28 devamı — canlı takvim senkronu, W30, W31, W39–W42) dış sağlayıcı kararı, gerçek AI kapsamı veya iş/pilot süreci gerektiriyor; kod ile ilerletilebilecek net kalan iş paketi kalmadı — yeni bir iş paketi tanımlanmadıkça (kullanıcıdan gelecek kapsam/karar) bu liste bundan sonra büyük ölçüde sabit kalacak.

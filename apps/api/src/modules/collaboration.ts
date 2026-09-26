@@ -110,6 +110,68 @@ async function loadMeeting(db: Db, id: string) {
   return { ...row, entityLabel: entityLabelText, entityLink: row.entityType ? ENTITY[row.entityType]?.link(row.entityId) ?? null : null, participants: participants.rows, items: items.rows };
 }
 
+/** RFC 5545 metin kaçışı (virgül, noktalı virgül, ters eğik çizgi, satır sonu). */
+function icsEscape(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+}
+
+/** RFC 5545 satır katlama: 75 oktetten uzun satırlar devam satırına (boşlukla başlayan) bölünür. */
+function icsFold(line: string): string {
+  const bytes = Buffer.from(line, "utf8");
+  if (bytes.length <= 75) return line;
+  const parts: string[] = [];
+  let start = 0;
+  let limit = 75;
+  while (start < bytes.length) {
+    let end = Math.min(start + limit, bytes.length);
+    // çok baytlı bir karakterin ortasından kesmemek için geri çekil
+    while (end < bytes.length && (bytes[end]! & 0xc0) === 0x80) end--;
+    parts.push(bytes.subarray(start, end).toString("utf8"));
+    start = end;
+    limit = 74; // devam satırındaki baştaki boşluk 1 bayt yer kaplar
+  }
+  return parts.join("\r\n ");
+}
+
+function icsDate(d: Date): string {
+  return d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+/** Toplantıdan standart bir iCalendar (.ics) davet dosyası üretir — gerçek dış takvim bağlayıcısı yok, elle içe aktarılır. */
+function buildMeetingIcs(
+  m: Awaited<ReturnType<typeof loadMeeting>>,
+  organizer: { email: string; name: string } | undefined,
+  attendees: { email: string; name: string }[],
+) {
+  const start = new Date(m.startsAt);
+  const end = new Date(start.getTime() + m.durationMinutes * 60_000);
+  const status = m.status === "cancelled" ? "CANCELLED" : m.status === "closed" ? "CONFIRMED" : "CONFIRMED";
+  const descParts = [m.agenda ? `Gündem: ${m.agenda}` : null, m.entityLabel ? `Bağlı kayıt: ${m.entityLabel}` : null].filter(Boolean);
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//apisfactory//TR",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "BEGIN:VEVENT",
+    `UID:meeting-${m.id}@apisfactory`,
+    `DTSTAMP:${icsDate(new Date())}`,
+    `DTSTART:${icsDate(start)}`,
+    `DTEND:${icsDate(end)}`,
+    `SUMMARY:${icsEscape(`${m.code} ${m.title}`)}`,
+    m.location ? `LOCATION:${icsEscape(m.location)}` : null,
+    descParts.length ? `DESCRIPTION:${icsEscape(descParts.join("\n"))}` : null,
+    `STATUS:${status}`,
+    organizer?.email ? `ORGANIZER;CN=${icsEscape(organizer.name)}:mailto:${organizer.email}` : null,
+    ...attendees.filter((a) => a.email).map((a) => `ATTENDEE;CN=${icsEscape(a.name)};ROLE=REQ-PARTICIPANT:mailto:${a.email}`),
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].filter((l): l is string => l !== null);
+  const content = lines.map(icsFold).join("\r\n") + "\r\n";
+  const safeCode = m.code.replace(/[^A-Za-z0-9_-]/g, "");
+  return { content, fileName: `toplanti-${safeCode}.ics` };
+}
+
 export async function collaborationRoutes(app: FastifyInstance) {
   // ---- Mesajlaşma ------------------------------------------------------------------------
   app.get("/api/threads/:entityType/:entityId", async (req) => {
@@ -374,6 +436,26 @@ export async function collaborationRoutes(app: FastifyInstance) {
   });
 
   app.get("/api/meetings/:id", async (req) => tenant(req, "task.view", (db) => loadMeeting(db, (req.params as { id: string }).id)));
+
+  /**
+   * Takvim daveti (.ics) — gerçek bir dış takvim/toplantı bağlayıcısı yok (bilinen sınır); bunun yerine
+   * standart bir iCalendar dosyası üretilir, katılımcı kendi takvim uygulamasına (Outlook/Google/…) elle
+   * içe aktarır. Sunucu hiçbir zamanı uydurmaz — toplantının kendi tarih/süresi kullanılır.
+   */
+  app.get("/api/meetings/:id/ics", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const ics = await tenant(req, "task.view", async (db) => {
+      const m = await loadMeeting(db, id);
+      const organizer = (await db.query(`select u.email, u.name from users u where u.id = $1`, [m.organizerId])).rows[0];
+      const attendeeEmails = await db.query(
+        `select u.email, u.name from meeting_participants p join users u on u.id = p.user_id where p.meeting_id = $1 order by u.name`,
+        [id],
+      );
+      return buildMeetingIcs(m, organizer, attendeeEmails.rows);
+    });
+    reply.header("content-type", "text/calendar; charset=utf-8").header("content-disposition", `attachment; filename="${ics.fileName}"`);
+    return ics.content;
+  });
 
   /** Düzenleme yetkisi: düzenleyen veya görev yöneticisi. */
   async function editable(db: Db, id: string, userId: string, canManage: boolean) {

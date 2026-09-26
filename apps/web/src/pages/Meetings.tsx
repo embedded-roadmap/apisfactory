@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { get, newKey, post } from "../lib/api";
+import { auth, get, newKey, post } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, fmtDate, useCan, useMe } from "../lib/ui";
 import { Tabs } from "./Planning";
 import { History } from "./Sales";
@@ -83,6 +83,18 @@ export function MeetingsPage() {
   );
 }
 
+/** Takvim daveti indir (.ics) — gerçek dış takvim bağlayıcısı yok; standart dosya, katılımcı kendi takvimine elle içe aktarır. */
+async function downloadIcs(id: string, code: string) {
+  const { session, companyId } = auth.get();
+  const res = await fetch(`/api/meetings/${id}/ics`, { headers: { authorization: `Bearer ${session?.token}`, "x-company-id": companyId ?? "" } });
+  if (!res.ok) return;
+  const blob = await res.blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `toplanti-${code}.ics`;
+  a.click();
+}
+
 export function MeetingPage() {
   const { id } = useParams();
   const can = useCan();
@@ -105,7 +117,7 @@ export function MeetingPage() {
       <PageHeader
         title={`${m.code} — ${m.title}`}
         sub={<>{fmtDate(m.startsAt)} · {m.durationMinutes} dk{m.location ? ` · ${m.location}` : ""} · düzenleyen {m.organizerName}{m.entityLink ? <> · bağlı kayıt <Link to={m.entityLink}>{m.entityLabel}</Link></> : null} · <Link to="/planning/meetings">← Toplantılar</Link></>}
-        actions={<span className={`badge ${STATUS[m.status]![1]}`}>{STATUS[m.status]![0]}</span>}
+        actions={<><button className="ghost" onClick={() => downloadIcs(id!, m.code)}>Takvime ekle (.ics)</button> <span className={`badge ${STATUS[m.status]![1]}`}>{STATUS[m.status]![0]}</span></>}
       />
       <ErrorNotice error={act.error} />
       {m.status === "cancelled" ? <div className="notice">İptal edildi: {m.cancelReason}</div> : null}
