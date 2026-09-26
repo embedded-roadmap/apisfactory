@@ -133,6 +133,9 @@ const tr = {
   "cr.implemented": "Uygulandı",
   "eq.active": "Aktif",
   "eq.out_of_service": "Hizmet dışı",
+  "dryout.in_progress": "Devam ediyor",
+  "dryout.completed": "Tamamlandı",
+  "dryout.aborted": "Yarıda kesildi",
 } as const;
 
 export type MessageKey = keyof typeof tr;
@@ -267,6 +270,9 @@ const en: Record<MessageKey, string> = {
   "cr.implemented": "Implemented",
   "eq.active": "Active",
   "eq.out_of_service": "Out of service",
+  "dryout.in_progress": "In progress",
+  "dryout.completed": "Completed",
+  "dryout.aborted": "Aborted",
 };
 
 export const MESSAGES: Record<Locale, Record<MessageKey, string>> = { tr, en };

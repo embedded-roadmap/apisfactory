@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ItemAvailability, StockBalance } from "@apisfactory/shared";
 import { auth, get, post } from "../lib/api";
@@ -35,6 +35,7 @@ function StorageSection({ itemId, itemCode }: { itemId: string; itemCode: string
     mutationFn: (id: string) => post(`/api/lots/${id}/open`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["itemLots", itemId] }),
   });
+  const [dryoutFor, setDryoutFor] = useState<string | null>(null);
 
   const item = q.data?.item;
   return (
@@ -94,22 +95,28 @@ function StorageSection({ itemId, itemCode }: { itemId: string; itemCode: string
           <thead><tr><th>Lot</th><th className="num">Miktar</th><th>Üretim</th><th>Son kullanma</th><th>Paket açıldı</th><th>Durum</th>{can("item.storage.manage") || can("inventory.issue") ? <th /> : null}</tr></thead>
           <tbody>
             {q.data.lots.map((l: any) => (
-              <tr key={l.id}>
-                <td className="mono">{l.lotNo}</td>
-                <td className="num">{fmt(l.qty)}</td>
-                <td className="muted">{l.mfgDate ?? "—"}</td>
-                <td className="muted">{l.expiresAt ? l.expiresAt.slice(0, 10) : "—"}</td>
-                <td className="muted">{l.openedAt ? fmtDate(l.openedAt) : "—"}{l.floorLifeExpiresAt ? <div className="muted">kullanım sonu: {fmtDate(l.floorLifeExpiresAt)}</div> : null}</td>
-                <td>{l.status !== "unknown" ? <span className={`badge ${l.status === "expired" ? "bad" : l.status === "expiring_soon" ? "warn" : ""}`}>{SHELF_STATUS[l.status]}</span> : "—"}</td>
-                {can("item.storage.manage") || can("inventory.issue") ? (
-                  <td>
-                    <div className="row">
-                      {can("item.storage.manage") ? <button onClick={() => setExpiryFor({ id: l.id, mfgDate: l.mfgDate ?? "", expiresAt: l.expiresAt ? l.expiresAt.slice(0, 10) : "" })}>Tarih gir</button> : null}
-                      {can("inventory.issue") && !l.openedAt ? <button onClick={() => openLot.mutate(l.id)} disabled={openLot.isPending}>Paketi aç</button> : null}
-                    </div>
-                  </td>
+              <Fragment key={l.id}>
+                <tr>
+                  <td className="mono">{l.lotNo}</td>
+                  <td className="num">{fmt(l.qty)}</td>
+                  <td className="muted">{l.mfgDate ?? "—"}</td>
+                  <td className="muted">{l.expiresAt ? l.expiresAt.slice(0, 10) : "—"}</td>
+                  <td className="muted">{l.openedAt ? fmtDate(l.openedAt) : "—"}{l.floorLifeExpiresAt ? <div className="muted">kullanım sonu: {fmtDate(l.floorLifeExpiresAt)}</div> : null}</td>
+                  <td>{l.status !== "unknown" ? <span className={`badge ${l.status === "expired" ? "bad" : l.status === "expiring_soon" ? "warn" : ""}`}>{SHELF_STATUS[l.status]}</span> : "—"}</td>
+                  {can("item.storage.manage") || can("inventory.issue") || can("production.execute") ? (
+                    <td>
+                      <div className="row">
+                        {can("item.storage.manage") ? <button onClick={() => setExpiryFor({ id: l.id, mfgDate: l.mfgDate ?? "", expiresAt: l.expiresAt ? l.expiresAt.slice(0, 10) : "" })}>Tarih gir</button> : null}
+                        {can("inventory.issue") && !l.openedAt ? <button onClick={() => openLot.mutate(l.id)} disabled={openLot.isPending}>Paketi aç</button> : null}
+                        {can("production.execute") && item?.mslLevel && l.openedAt ? <button onClick={() => setDryoutFor(dryoutFor === l.id ? null : l.id)}>{dryoutFor === l.id ? "Kapat" : "Kurutma"}</button> : null}
+                      </div>
+                    </td>
+                  ) : null}
+                </tr>
+                {dryoutFor === l.id ? (
+                  <tr><td colSpan={7}><DryoutPanel lotId={l.id} onChanged={() => qc.invalidateQueries({ queryKey: ["itemLots", itemId] })} /></td></tr>
                 ) : null}
-              </tr>
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -131,6 +138,87 @@ function StorageSection({ itemId, itemCode }: { itemId: string; itemCode: string
         </div>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * Kurutma (bake-out) çevrimi: JEDEC J-STD-033 tablosu burada sabit kodlanmaz (cihaz kalınlığına ve
+ * üretici prosedürüne göre değişir); reçete kalite ekibi tarafından sürümlü tanımlanır. Tamamlanan bir
+ * çevrim yalnızca kullanım süresi (floor life) saatini sıfırlar — raf ömrünü etkilemez.
+ */
+function DryoutPanel({ lotId, onChanged }: { lotId: string; onChanged: () => void }) {
+  const can = useCan();
+  const qc = useQueryClient();
+  const cycles = useQuery({ queryKey: ["dryoutCycles", lotId], queryFn: () => get<any[]>(`/api/lots/${lotId}/dryout`) });
+  const recipes = useQuery({ queryKey: ["dryoutRecipes"], queryFn: () => get<any[]>("/api/dryout-recipes") });
+  const equipment = useQuery({ queryKey: ["equipment"], queryFn: () => get<any[]>("/api/equipment") });
+  const ovens = (equipment.data ?? []).filter((e: any) => e.kind === "oven");
+  const [recipeId, setRecipeId] = useState("");
+  const [equipmentId, setEquipmentId] = useState("");
+  const open = cycles.data?.find((c: any) => c.status === "in_progress");
+  const [complete, setComplete] = useState({ actualTemperatureC: "", actualDurationHours: "" });
+
+  const start = useMutation({
+    mutationFn: () => post(`/api/lots/${lotId}/dryout/start`, { recipeId, equipmentId }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["dryoutCycles", lotId] }); onChanged(); },
+  });
+  const finish = useMutation({
+    mutationFn: (status: "completed" | "aborted") =>
+      post(`/api/lots/${lotId}/dryout/${open!.id}/complete`, {
+        status,
+        actualTemperatureC: complete.actualTemperatureC ? Number(complete.actualTemperatureC) : undefined,
+        actualDurationHours: complete.actualDurationHours ? Number(complete.actualDurationHours) : undefined,
+      }),
+    onSuccess: () => { setComplete({ actualTemperatureC: "", actualDurationHours: "" }); qc.invalidateQueries({ queryKey: ["dryoutCycles", lotId] }); onChanged(); },
+  });
+
+  return (
+    <div className="stack">
+      <b>Kurutma (bake-out) geçmişi</b>
+      <ErrorNotice error={start.error ?? finish.error} />
+      {cycles.data?.length === 0 ? <span className="muted">Kayıt yok.</span> : null}
+      {cycles.data?.length ? (
+        <table><tbody>
+          {cycles.data.map((c: any) => (
+            <tr key={c.id}>
+              <td><StateBadge value={c.status} prefix="dryout" /></td>
+              <td className="muted">reçete v{c.recipeVersionNo} ({c.recipeTemperatureC}°C · {c.recipeDurationHours} sa)</td>
+              <td className="muted">{c.equipmentCode}</td>
+              <td className="muted">{fmtDate(c.startedAt)} → {c.endedAt ? fmtDate(c.endedAt) : "—"}</td>
+              <td className="muted">{c.actualTemperatureC ? `gerçekleşen ${c.actualTemperatureC}°C · ${c.actualDurationHours} sa` : ""}</td>
+            </tr>
+          ))}
+        </tbody></table>
+      ) : null}
+      {open ? (
+        can("production.execute") ? (
+          <form className="row" onSubmit={(e) => { e.preventDefault(); finish.mutate("completed"); }}>
+            <span className="muted">Açık çevrim ({fmtDate(open.startedAt)} başladı) — gerçekleşen değerleri girip kapatın:</span>
+            <label className="field" style={{ width: 110 }}>Sıcaklık (°C)<input inputMode="decimal" value={complete.actualTemperatureC} onChange={(e) => setComplete({ ...complete, actualTemperatureC: e.target.value })} /></label>
+            <label className="field" style={{ width: 110 }}>Süre (sa)<input inputMode="decimal" value={complete.actualDurationHours} onChange={(e) => setComplete({ ...complete, actualDurationHours: e.target.value })} /></label>
+            <button className="primary" disabled={finish.isPending}>Tamamlandı</button>
+            <button type="button" className="ghost" disabled={finish.isPending} onClick={() => finish.mutate("aborted")}>Yarıda kesildi</button>
+          </form>
+        ) : null
+      ) : can("production.execute") ? (
+        <form className="row" onSubmit={(e) => { e.preventDefault(); start.mutate(); }}>
+          <label className="field" style={{ flex: 1 }}>Reçete
+            <select required value={recipeId} onChange={(e) => setRecipeId(e.target.value)}>
+              <option value="">Seçin</option>
+              {(recipes.data ?? []).map((r: any) => <option key={r.id} value={r.id}>v{r.versionNo} — {r.temperatureC}°C / {r.durationHours} sa{r.mslLevel ? ` (MSL ${r.mslLevel})` : ""}{r.itemCode ? ` (${r.itemCode})` : ""}</option>)}
+            </select>
+          </label>
+          <label className="field" style={{ flex: 1 }}>Fırın
+            <select required value={equipmentId} onChange={(e) => setEquipmentId(e.target.value)}>
+              <option value="">Seçin</option>
+              {ovens.map((o: any) => <option key={o.id} value={o.id} disabled={o.status !== "active" || o.calibrationExpired}>{o.code} — {o.name}{o.status !== "active" ? " (hizmet dışı)" : o.calibrationExpired ? " (kalibrasyon geçti)" : ""}</option>)}
+            </select>
+          </label>
+          <button className="primary" style={{ alignSelf: "flex-end" }} disabled={start.isPending}>Çevrimi başlat</button>
+        </form>
+      ) : null}
+      {!recipes.data?.length && can("item.storage.manage") ? <p className="muted" style={{ margin: 0 }}>Henüz kurutma reçetesi tanımlı değil (kalite ekibi tanımlar — üreticinin datasheet/prosedürüne göre).</p> : null}
+    </div>
   );
 }
 

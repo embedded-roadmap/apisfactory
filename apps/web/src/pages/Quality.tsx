@@ -4,7 +4,7 @@ import { api, get, post } from "../lib/api";
 import { QualityTabs } from "./Station";
 import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmtDate, useCan } from "../lib/ui";
 
-const KIND: Record<string, string> = { test_station: "Test istasyonu", measuring: "Ölçüm cihazı", fixture: "Fikstür", programmer: "Programlayıcı" };
+const KIND: Record<string, string> = { test_station: "Test istasyonu", measuring: "Ölçüm cihazı", fixture: "Fikstür", programmer: "Programlayıcı", oven: "Kurutma fırını" };
 
 /** Ekipman ve kalibrasyon; iş merkezi kapasitesi ve tatiller (termin hesabının girdileri). */
 export function QualityPage() {
@@ -42,8 +42,51 @@ export function QualityPage() {
         ) : null}
       </section>
       {affectedOf ? <Affected e={affectedOf} onClose={() => setAffectedOf(null)} /> : null}
+      <DryoutRecipes />
       <Capacity />
     </>
+  );
+}
+
+const MSL_LEVELS = ["1", "2", "2a", "3", "4", "5", "5a", "6"];
+
+/**
+ * Kurutma (bake-out) reçeteleri (W33 devamı): sıcaklık/süre üreticinin datasheet/prosedürüne göre
+ * kalite tarafından sürümlü tanımlanır — JEDEC J-STD-033 tablosu burada sabit kodlanmaz. Sürümler
+ * değişmez, yeni sürüm eskisini geçersiz kılmaz (cost_policies ile aynı desen).
+ */
+function DryoutRecipes() {
+  const can = useCan();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["dryoutRecipes"], queryFn: () => get<any[]>("/api/dryout-recipes") });
+  const [f, setF] = useState({ mslLevel: "", temperatureC: "", durationHours: "", source: "", note: "" });
+  const add = useMutation({
+    mutationFn: () => post("/api/dryout-recipes", { mslLevel: f.mslLevel || null, temperatureC: Number(f.temperatureC), durationHours: Number(f.durationHours), source: f.source, note: f.note || undefined }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["dryoutRecipes"] }); setF({ ...f, temperatureC: "", durationHours: "", source: "", note: "" }); },
+  });
+  return (
+    <section className="card">
+      <h2>Kurutma (bake-out) reçeteleri</h2>
+      <p className="muted" style={{ margin: 0 }}>Standart bir JEDEC tablosu burada uygulanmaz (cihaz kalınlığı ve üreticiye göre değişir) — her reçete üreticinin datasheet/prosedürüne dayanmalı ve kaynağı belirtilmelidir.</p>
+      <ErrorNotice error={add.error} />
+      {q.data?.length === 0 ? <Empty>Tanımlı reçete yok.</Empty> : null}
+      {q.data?.length ? (
+        <table>
+          <thead><tr><th>Sürüm</th><th>MSL</th><th>Kalem</th><th className="num">Sıcaklık</th><th className="num">Süre</th><th>Kaynak</th><th>Not</th></tr></thead>
+          <tbody>{q.data.map((r: any) => <tr key={r.id}><td>v{r.versionNo}</td><td>{r.mslLevel ?? "genel"}</td><td className="mono">{r.itemCode ?? "genel"}</td><td className="num">{r.temperatureC}°C</td><td className="num">{r.durationHours} sa</td><td className="muted">{r.source}</td><td className="muted">{r.note ?? ""}</td></tr>)}</tbody>
+        </table>
+      ) : null}
+      {can("item.storage.manage") ? (
+        <form className="row" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>
+          <label className="field">MSL<select value={f.mslLevel} onChange={(e) => setF({ ...f, mslLevel: e.target.value })}><option value="">Genel</option>{MSL_LEVELS.map((m) => <option key={m} value={m}>{m}</option>)}</select></label>
+          <label className="field" style={{ width: 100 }}>Sıcaklık (°C)<input required inputMode="decimal" value={f.temperatureC} onChange={(e) => setF({ ...f, temperatureC: e.target.value })} /></label>
+          <label className="field" style={{ width: 100 }}>Süre (sa)<input required inputMode="decimal" value={f.durationHours} onChange={(e) => setF({ ...f, durationHours: e.target.value })} /></label>
+          <label className="field" style={{ flex: 1 }}>Kaynak (datasheet/prosedür)<input required minLength={3} value={f.source} onChange={(e) => setF({ ...f, source: e.target.value })} /></label>
+          <label className="field" style={{ flex: 1 }}>Not<input value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></label>
+          <button className="primary" style={{ alignSelf: "flex-end" }} disabled={add.isPending}>Yeni sürüm</button>
+        </form>
+      ) : null}
+    </section>
   );
 }
 
