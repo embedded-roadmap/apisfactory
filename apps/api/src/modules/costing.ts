@@ -56,7 +56,7 @@ async function activePolicy(db: Db, onDate: string) {
  */
 export async function computeWorkOrderCost(db: Db, woId: string, today = new Date().toISOString().slice(0, 10)) {
   const w = await db.query(
-    `select w.id, w.code, w.status, w.qty, w.product_revision_id, p.code as product_code, p.item_id, pr.rev
+    `select w.id, w.code, w.status, w.qty, w.product_revision_id, w.migrated, p.code as product_code, p.item_id, pr.rev
        from work_orders w join product_revisions pr on pr.id = w.product_revision_id join products p on p.id = pr.product_id where w.id = $1`,
     [woId],
   );
@@ -143,7 +143,11 @@ export async function computeWorkOrderCost(db: Db, woId: string, today = new Dat
   );
   const dev = d.rows[0];
   if (wo.status !== "completed") gaps.push(`İş emri "${wo.status}": ara maliyet (henüz tamamlanmadı)`);
-  const unitCost = dev.good > 0 ? divM(total, toMicro(String(dev.good))) : null;
+  // Tarihsel geçişle eklenen iş emrinde malzeme/işçilik/genel gider bu motorla ayrıştırılmadı (bkz. imports.ts) —
+  // bu motorun sıfır girdilerden ürettiği bir birim maliyet, gerçek maliyetin sıfır olduğu anlamına gelmez;
+  // bu yüzden burada asla hesaplanmaz (uydurulmaz). Verilen birim maliyet varsa doğrudan lota kaydedilmiştir.
+  if (wo.migrated) gaps.push("Bu iş emri tarihsel geçişle (W39 devamı) eklendi; malzeme/işçilik/genel gider bu motorla ayrıştırılmadı — birim maliyet, verilmişse doğrudan bitmiş ürün lotuna kaydedilmiştir (lot maliyet geçmişine bakın), bu motorla hesaplanmaz");
+  const unitCost = !wo.migrated && dev.good > 0 ? divM(total, toMicro(String(dev.good))) : null;
   const result = {
     workOrder: { id: wo.id, code: wo.code, status: wo.status, product: `${wo.product_code} Rev.${wo.rev}`, qty: fromMicro(toMicro(wo.qty)) },
     policy: policy ? { id: policy.id, versionNo: policy.versionNo, validFrom: policy.validFrom, currency: policy.currency, laborRatePerHour: fromMicro(toMicro(policy.laborRatePerHour)), overheadPerLaborHour: fromMicro(toMicro(policy.overheadPerLaborHour)), overheadPctOfMaterial: fromMicro(toMicro(policy.overheadPctOfMaterial)) } : null,
@@ -157,7 +161,11 @@ export async function computeWorkOrderCost(db: Db, woId: string, today = new Dat
     externalNote: subJobs.rows.length ? null : "Bu iş emrine bağlı fason iş yok",
     devices: dev,
     unitCost: unitCost === null ? null : money(unitCost),
-    unitCostNote: unitCost === null ? `Sağlam adet 0: birim maliyet hesaplanamaz; toplam kayıp ${money(total)}${currency ? ` ${currency}` : ""}` : `Hurda maliyeti sağlam adetlere yüklenir (${dev.scrapped} hurda)`,
+    unitCostNote: wo.migrated
+      ? "Tarihsel geçiş: bu motorla hesaplanmaz (yukarıdaki eksikler bölümüne bakın)"
+      : unitCost === null
+        ? `Sağlam adet 0: birim maliyet hesaplanamaz; toplam kayıp ${money(total)}${currency ? ` ${currency}` : ""}`
+        : `Hurda maliyeti sağlam adetlere yüklenir (${dev.scrapped} hurda)`,
     gaps,
     complete: gaps.length === 0,
   };

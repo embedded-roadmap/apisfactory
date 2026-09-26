@@ -82,7 +82,8 @@ export async function loadWorkOrder(db: Db, id: string) {
             w.production_need_id as "productionNeedId", w.released_at as "releasedAt", w.completed_at as "completedAt",
             p.code as "productCode", p.name as "productName", pr.rev, b.version_no as "bomVersionNo",
             so.code as "salesOrderCode", w.hold_reason as "holdReason", w.firmware_version as "firmwareVersion",
-            w.firmware_sha256 as "firmwareSha256", w.test_plan_id as "testPlanId", w.routing_id as "routingId", rt.version_no as "routingVersionNo"
+            w.firmware_sha256 as "firmwareSha256", w.test_plan_id as "testPlanId", w.routing_id as "routingId", rt.version_no as "routingVersionNo",
+            w.migrated
        from work_orders w left join routings rt on rt.id = w.routing_id join product_revisions pr on pr.id = w.product_revision_id join products p on p.id = pr.product_id
        join bom_versions b on b.id = w.bom_version_id
        left join production_needs pn on pn.id = w.production_need_id

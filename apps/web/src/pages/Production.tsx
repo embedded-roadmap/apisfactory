@@ -92,6 +92,15 @@ export function WorkOrderPage() {
       />
       <ErrorNotice error={act.error} />
       {wo.status === "on_hold" ? <div className="notice bad"><strong>İş emri beklemede:</strong> {wo.holdReason}</div> : null}
+      {wo.migrated ? (
+        <div className="notice">
+          Bu iş emri tarihsel geçişle (W39 devamı) eklendi — operasyon, malzeme çıkışı ve cihaz bazlı test
+          geçmişi bu sistemde ayrıca izlenmedi (uydurulmadı); aşağıdaki "Malzeme" tablosundaki "Kalan" rakamları
+          gerçek bir eksikliği göstermez. Seri numaraları bu geçişte sistem tarafından üretilmiştir; sağlam
+          adetler bitmiş ürün lotuna girmiştir, hurda adetler ayrı iz sürülür. Maliyet, verilmişse doğrudan
+          bitmiş ürün lotuna kaydedilmiştir (aşağıdaki maliyet motoru bunu ayrıştırmaz).
+        </div>
+      ) : null}
       <HoldAndChange wo={wo} onDone={refresh} />
       <div className="grid4">
         <div className="stat"><small>Miktar</small><b>{fmt(wo.qty)}</b></div>

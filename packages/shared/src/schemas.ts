@@ -168,6 +168,30 @@ export const ArInvoiceImportPreviewInput = z.object({
   decimalSeparator: z.enum([".", ","]).default("."),
 });
 
+// W39 devamı: tarihsel üretim (iş emri) geçişi. Canlı akıştan (planla → yayımla → seri üret → operasyon →
+// test → kalite kapısı → serbest bırak) bilinçli olarak farklı — geçmiş bir iş emrinin hangi operasyonlardan
+// hangi sürede geçtiği, hangi malzeme lotlarının tüketildiği ve cihaz bazlı test geçmişi bu sistemde
+// izlenmediğinden HİÇBİR ŞEKİLDE uydurulmaz (operasyon kaydı açılmaz, malzeme çıkışı yazılmaz, test_runs
+// oluşturulmaz). Yalnızca bilinen gerçek toplamlar kaydedilir: sağlam adet bitmiş ürün lotuna girer (canlı
+// "son kalite serbest bırakma" ile aynı stok etkisiyle), hurda adet ayrı seri numaralarıyla iz sürülür (stok
+// etkisi yok), verilen birim maliyet varsa doğrudan bitmiş ürün lotuna kaydedilir (maliyet motoru bu ayrımı
+// açıkça gösterir — bkz. costing.ts).
+export const WorkOrderImportPreviewInput = z.object({
+  fileName: z.string().min(1),
+  content: z.string().min(1).max(5_000_000),
+  mapping: z.object({
+    woCode: z.string().optional(),
+    productCode: z.string(),
+    rev: z.string().optional(),
+    qtyGood: z.string(),
+    qtyScrap: z.string().optional(),
+    completedDate: z.string(),
+    unitCost: z.string().optional(),
+    currency: z.string().optional(),
+  }),
+  decimalSeparator: z.enum([".", ","]).default("."),
+});
+
 export const GoodsReceiptInput = z.object({
   supplierName: z.string().min(1).max(200),
   purchaseOrderLineId: Uuid.optional(),

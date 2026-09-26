@@ -8,6 +8,7 @@ import {
   SalesOrderImportPreviewInput,
   StockImportPreviewInput,
   SupplierImportPreviewInput,
+  WorkOrderImportPreviewInput,
   type BomDiff,
   type BomLine,
   type BomVersion,
@@ -52,6 +53,19 @@ type PurchaseOrderRowValues = {
   currency: string;
   requestedDate: string;
   confirmedDate: string;
+};
+type WorkOrderRowValues = {
+  woCode: string;
+  productCode: string;
+  rev: string;
+  productRevisionId?: string;
+  bomVersionId?: string;
+  itemId?: string;
+  qtyGood: string;
+  qtyScrap: string;
+  completedDate: string;
+  unitCost: string;
+  currency: string;
 };
 type ArInvoiceRowValues = {
   invoiceNo: string;
@@ -723,6 +737,101 @@ export async function importRoutes(app: FastifyInstance) {
     });
   });
 
+  /**
+   * W39 devamı: tarihsel üretim (iş emri) geçişi. **Canlı akıştan (planla → yayımla → seri üret →
+   * operasyon → test → kalite kapısı → serbest bırak) bilinçli olarak farklıdır**: geçmiş bir iş emrinin
+   * hangi operasyonlardan geçtiği, hangi malzeme lotlarının tüketildiği ve cihaz bazlı test geçmişi bu
+   * sistemde izlenmediğinden bunlar HİÇBİR ŞEKİLDE uydurulmaz — operasyon kaydı açılmaz, malzeme çıkışı
+   * yazılmaz, test_runs oluşturulmaz. Yalnızca bilinen gerçek toplamlar kaydedilir: her satır bir iş emri;
+   * ürün/revizyon (revizyon boşsa son yayımlanan), sağlam adet, hurda adet (opsiyonel) ve tamamlanma
+   * tarihi zorunlu/verilir. Sağlam+hurda adet kadar sistem tarafından üretilen seri numaralı cihaz kaydı
+   * açılır (canlı "yayımla" akışıyla aynı numaralandırma) — sağlam olanlar doğrudan bitmiş ürün lotuna
+   * girer (canlı "son kalite serbest bırakma" ile aynı stok etkisi), hurda olanlar iz sürülür ama stok
+   * etkisi yaratmaz. Bu, cihaz bazlı test geçmişini uydurmadan mevcut gösterge/maliyet altyapısıyla tutarlı
+   * kalmayı sağlar (bkz. computeWorkOrderCost'taki migrated koruması).
+   */
+  app.post("/api/imports/work-orders/preview", async (req): Promise<ImportPreview> => {
+    const input = parse(WorkOrderImportPreviewInput, req.body);
+    return tenant(req, "production.plan", async (db, actor) => {
+      const hash = sha256(input.content);
+      const { rows } = parseCsv(input.content);
+      const m = input.mapping;
+      const out: ImportPreviewRow[] = [];
+      const seen = new Set<string>();
+      for (const [i, raw] of rows.entries()) {
+        const v: WorkOrderRowValues = {
+          woCode: m.woCode ? (raw[m.woCode] ?? "").trim() : "",
+          productCode: (raw[m.productCode] ?? "").trim(),
+          rev: m.rev ? (raw[m.rev] ?? "").trim() : "",
+          qtyGood: (raw[m.qtyGood] ?? "").trim(),
+          qtyScrap: m.qtyScrap ? (raw[m.qtyScrap] ?? "").trim() : "",
+          completedDate: (raw[m.completedDate] ?? "").trim(),
+          unitCost: m.unitCost ? (raw[m.unitCost] ?? "").trim() : "",
+          currency: m.currency ? (raw[m.currency] ?? "").trim() : "",
+        };
+        const messages: string[] = [];
+
+        if (!v.currency) v.currency = "TRY";
+        else if (!/^[A-Z]{3}$/.test(v.currency)) messages.push(`Para birimi geçersiz: "${v.currency}"`);
+
+        let good = 0;
+        if (!/^\d+$/.test(v.qtyGood)) messages.push(`Sağlam adet geçersiz (tam sayı olmalı): "${v.qtyGood}"`);
+        else good = Number(v.qtyGood);
+
+        let scrap = 0;
+        if (v.qtyScrap) {
+          if (!/^\d+$/.test(v.qtyScrap)) messages.push(`Hurda adet geçersiz (tam sayı olmalı): "${v.qtyScrap}"`);
+          else scrap = Number(v.qtyScrap);
+        } else v.qtyScrap = "0";
+
+        if (good + scrap <= 0) messages.push("Sağlam + hurda adet toplamı sıfırdan büyük olmalı");
+        if (good + scrap > 10000) messages.push("Tek iş emrinde en fazla 10.000 seri kaydedilebilir");
+
+        if (v.unitCost) {
+          const cost = normalizeDecimal(v.unitCost, input.decimalSeparator);
+          if (!cost || Number(cost) < 0) messages.push(`Birim maliyet geçersiz: "${v.unitCost}"`);
+          else v.unitCost = cost;
+        }
+
+        if (!v.completedDate || Number.isNaN(Date.parse(v.completedDate))) messages.push(`Tamamlanma tarihi geçersiz: "${v.completedDate}"`);
+
+        if (!v.productCode) messages.push("Ürün kodu boş");
+        else {
+          const p = await db.query(`select id, item_id from products where code = $1`, [v.productCode]);
+          if (!p.rows[0]) messages.push(`Ürün bulunamadı: ${v.productCode}`);
+          else {
+            v.itemId = p.rows[0].item_id;
+            let rev;
+            if (v.rev) {
+              rev = (await db.query(`select id, status, bom_version_id from product_revisions where product_id = $1 and rev = $2`, [p.rows[0].id, v.rev])).rows[0];
+              if (!rev) messages.push(`Revizyon bulunamadı: ${v.productCode} Rev.${v.rev}`);
+              else if (rev.status !== "released") messages.push(`Revizyon yayımlanmamış (released değil): ${v.productCode} Rev.${v.rev}`);
+            } else {
+              rev = (await db.query(`select id, bom_version_id from product_revisions where product_id = $1 and status = 'released' order by released_at desc nulls last limit 1`, [p.rows[0].id])).rows[0];
+              if (!rev) messages.push(`Ürünün yayımlanmış (released) revizyonu yok, revizyon sütunu belirtilmeli: ${v.productCode}`);
+            }
+            if (rev) { v.productRevisionId = rev.id; v.bomVersionId = rev.bom_version_id; }
+          }
+        }
+
+        if (v.woCode) {
+          if (seen.has(v.woCode)) messages.push("Dosyada mükerrer iş emri kodu");
+          seen.add(v.woCode);
+          const existing = await db.query(`select id from work_orders where code = $1`, [v.woCode]);
+          if (existing.rows[0]) messages.push(`İş emri kodu zaten kullanımda: ${v.woCode}`);
+        }
+
+        out.push({ row: i + 2, status: messages.length ? "error" : "ok", messages, values: v as unknown as Record<string, string> });
+      }
+      const job = await db.query(
+        `insert into import_jobs (company_id, kind, file_name, file_hash, mapping, preview, created_by)
+         values (app_company_id(), 'work_orders', $1, $2, $3, $4, $5) returning id`,
+        [input.fileName, hash, JSON.stringify(m), JSON.stringify(out), actor.userId],
+      );
+      return { jobId: job.rows[0].id, fileHash: hash, duplicateOf: await existingCommitted(db, "work_orders", null, hash), rows: out, summary: summarize(out) };
+    });
+  });
+
   /** Onay: hatalı veya çözümsüz belirsiz satır varken işlenmez. Aynı dosya aynı hedefe ikinci kez işlenmez (T13). */
   app.post("/api/imports/:id/commit", async (req) => {
     const { id } = req.params as { id: string };
@@ -738,6 +847,7 @@ export async function importRoutes(app: FastifyInstance) {
         : job.kind === "ap_invoices" ? "invoice.manage"
         : job.kind === "purchase_orders" ? "purchase.order.manage"
         : job.kind === "ar_invoices" ? "receivable.manage"
+        : job.kind === "work_orders" ? "production.plan"
         : "inventory.import";
       if (!can(req, perm)) throw forbidden(perm);
       if (job.status !== "previewed") throw conflict("import_state", `İş durumu uygun değil: ${job.status}`);
@@ -993,6 +1103,67 @@ export async function importRoutes(app: FastifyInstance) {
           });
         }
         result = { invoices: invoicesCreated, receipts: receiptsRecorded };
+      } else if (job.kind === "work_orders") {
+        // Tarihsel geçiş: operasyon/malzeme çıkışı/test geçmişi bu sistemde izlenmediğinden uydurulmaz
+        // (bkz. önizleme uç noktasındaki açıklama). Yalnızca bilinen gerçek toplamlar kaydedilir.
+        const finished = (await db.query(`select id from locations where type = 'finished' order by code limit 1`)).rows[0];
+        if (!finished) throw conflict("location_missing", `"finished" tipinde konum tanımlı değil`);
+        let workOrdersCreated = 0;
+        let devicesCreated = 0;
+        for (const r of rows) {
+          const v = r.values as unknown as WorkOrderRowValues;
+          const good = Number(v.qtyGood);
+          const scrap = Number(v.qtyScrap || "0");
+          const total = good + scrap;
+          const code = v.woCode || (await nextCode(db, actor.companyId, "work_order", "IE"));
+          const wo = await db.query(
+            `insert into work_orders (company_id, code, product_revision_id, bom_version_id, qty, status, migrated, created_by, released_at, completed_at)
+             values (app_company_id(), $1, $2, $3, $4, 'completed', true, $5, $6, $6) returning id`,
+            [code, v.productRevisionId, v.bomVersionId, String(total), actor.userId, v.completedDate],
+          );
+          workOrdersCreated++;
+          let lotId: string | null = null;
+          if (good > 0) {
+            const lot = await db.query(
+              `insert into lots (company_id, item_id, lot_no, product_revision_id) values (app_company_id(), $1, $2, $3)
+               on conflict (company_id, item_id, lot_no) do update set lot_no = excluded.lot_no returning id`,
+              [v.itemId, code, v.productRevisionId],
+            );
+            lotId = lot.rows[0].id;
+            await db.query(
+              `insert into stock_moves (company_id, item_id, lot_id, to_location_id, qty, move_type, ref_type, ref_id, created_by)
+               values (app_company_id(), $1, $2, $3, $4, 'produce', 'work_order', $5, $6)`,
+              [v.itemId, lotId, finished.id, String(good), wo.rows[0].id, actor.userId],
+            );
+            if (v.unitCost) {
+              await recordLotCost(db, importActor, lotId!, { unitCost: v.unitCost, currency: v.currency, source: "production", reference: `${code} tarihsel geçiş (W39 devamı) — verilen birim maliyet` });
+            }
+          }
+          for (let g = 1; g <= good; g++) {
+            await db.query(
+              `insert into devices (company_id, serial, work_order_id, product_revision_id, status, finished_lot_id)
+               values (app_company_id(), $1, $2, $3, 'released', $4)`,
+              [`${code}-${String(g).padStart(5, "0")}`, wo.rows[0].id, v.productRevisionId, lotId],
+            );
+            devicesCreated++;
+          }
+          for (let s = 1; s <= scrap; s++) {
+            await db.query(
+              `insert into devices (company_id, serial, work_order_id, product_revision_id, status)
+               values (app_company_id(), $1, $2, $3, 'scrapped')`,
+              [`${code}-${String(good + s).padStart(5, "0")}`, wo.rows[0].id, v.productRevisionId],
+            );
+            devicesCreated++;
+          }
+          await recordEvent(db, importActor, {
+            entityType: "work_order",
+            entityId: wo.rows[0].id,
+            eventType: "imported",
+            after: { code, qtyGood: good, qtyScrap: scrap, note: "tarihsel geçiş — operasyon/malzeme çıkışı/test geçmişi izlenmedi" },
+            source: `import:${id}`,
+          });
+        }
+        result = { workOrders: workOrdersCreated, devices: devicesCreated };
       } else {
         // Açılış stoğu: miktar doğrudan yazılmaz, "opening" hareketi oluşturulur. Dış işlem tetiklenmez (prompt §4).
         let moves = 0;
@@ -1032,6 +1203,7 @@ export async function importRoutes(app: FastifyInstance) {
       : kind === "stock_opening" ? Number(result.moves ?? 0)
       : kind === "customers" || kind === "suppliers" ? Number(result.created ?? 0) + Number(result.updated ?? 0)
       : kind === "ap_invoices" || kind === "ar_invoices" ? Number(result.invoices ?? 0)
+      : kind === "work_orders" ? Number(result.workOrders ?? 0)
       : null;
     return { sourceRows: previewLen, targetRows, matched: targetRows === null ? null : targetRows === previewLen };
   }

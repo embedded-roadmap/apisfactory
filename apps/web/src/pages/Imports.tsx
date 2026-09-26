@@ -199,6 +199,37 @@ export function ImportsPage() {
           />
         </section>
       ) : null}
+      {can("production.plan") ? (
+        <section className="card">
+          <h2>Tarihsel üretim (iş emri) geçişi (W39 devamı — tarihsel geçiş)</h2>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Geçmiş bir iş emrinin hangi operasyonlardan geçtiği, hangi malzeme lotlarının tüketildiği ve cihaz
+            bazlı test geçmişi bu sistemde izlenmediğinden bunlar <b>uydurulmaz</b> — yalnızca bilinen gerçek
+            toplamlar (sağlam adet, hurda adet, tamamlanma tarihi, varsa verilen birim maliyet) kaydedilir.
+            Sağlam adet kadar sistem tarafından üretilen seri numarası bitmiş ürün lotuna girer; hurda adet ayrı
+            seri numaralarıyla iz sürülür ama stok etkisi yaratmaz. İş emri detayında bu geçiş açıkça belirtilir.
+          </p>
+          <CsvWizard
+            columns={["woCode", "productCode", "rev", "qtyGood", "qtyScrap", "completedDate", "unitCost", "currency"]}
+            fields={[
+              { key: "woCode", label: "İş emri kodu (opsiyonel — boşsa üretilir)", guesses: ["iş emri kodu", "work order code", "wo code"] },
+              { key: "productCode", label: "Ürün kodu", required: true, guesses: ["ürün kodu", "product code"] },
+              { key: "rev", label: "Revizyon (opsiyonel — boşsa son yayımlanan)", guesses: ["rev", "revizyon", "revision"] },
+              { key: "qtyGood", label: "Sağlam adet", required: true, guesses: ["sağlam adet", "sağlam", "good qty", "qty good"] },
+              { key: "qtyScrap", label: "Hurda adet (opsiyonel)", guesses: ["hurda adet", "hurda", "scrap qty"] },
+              { key: "completedDate", label: "Tamamlanma tarihi", required: true, guesses: ["tamamlanma tarihi", "completed date", "tarih"] },
+              { key: "unitCost", label: "Birim maliyet (opsiyonel)", guesses: ["birim maliyet", "unit cost"] },
+              { key: "currency", label: "Para birimi (opsiyonel, varsayılan TRY)", guesses: ["para birimi", "currency", "kur"] },
+            ]}
+            onPreview={(a) => post<ImportPreview>("/api/imports/work-orders/preview", a)}
+            onCommit={async (jobId) => {
+              const r = await post(`/api/imports/${jobId}/commit`, {});
+              qc.invalidateQueries({ queryKey: ["imports"] });
+              return r;
+            }}
+          />
+        </section>
+      ) : null}
       <section className="card">
         <h2>Geçmiş işler</h2>
         <p className="muted" style={{ marginTop: 0 }}>Uzlaşma: kaynak dosyadaki işlenebilir satır sayısı ile hedefte gerçekte oluşan kayıt sayısı karşılaştırılır (W39 devamı).</p>
@@ -234,4 +265,4 @@ export function ImportsPage() {
   );
 }
 
-const JOB_KIND_LABEL: Record<string, string> = { bom: "BOM", stock_opening: "Açılış stoğu", customers: "Müşteriler", suppliers: "Tedarikçiler", sales_orders: "Satış siparişleri", ap_invoices: "Tedarikçi faturaları", purchase_orders: "Satın alma siparişleri", ar_invoices: "Müşteri faturaları" };
+const JOB_KIND_LABEL: Record<string, string> = { bom: "BOM", stock_opening: "Açılış stoğu", customers: "Müşteriler", suppliers: "Tedarikçiler", sales_orders: "Satış siparişleri", ap_invoices: "Tedarikçi faturaları", purchase_orders: "Satın alma siparişleri", ar_invoices: "Müşteri faturaları", work_orders: "İş emirleri" };
