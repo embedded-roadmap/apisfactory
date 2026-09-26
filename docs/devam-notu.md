@@ -1,6 +1,6 @@
 # Devam notu
 
-Son güncelleme: 27.09.2026 — oturum 39 devamı (kullanıcının 2026-09-26 "devam talimatları" belgesi, bkz. proje dokümanı `claude/devam-talimatlari-2026-09.md`; en son: W39 devamı — açık alacak (AR) tarihsel geçişi)
+Son güncelleme: 27.09.2026 — oturum 39 devamı (kullanıcının 2026-09-26 "devam talimatları" belgesi, bkz. proje dokümanı `claude/devam-talimatlari-2026-09.md`; en son: W39 devamı — tarihsel üretim (iş emri) geçişi — **W39'un tüm sub-kalemleri artık tamamlandı**)
 
 ## Kapsam eşleştirme ve durum matrisi (talimat §0/§12 — 2026-09-26)
 
@@ -20,7 +20,7 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | W33 MSL/kurutma altyapısı | **otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | Oturum 22: MSL, kullanım süresi, raf ömrü, lot SKT, paket açılışı (`storage.ts`, 5 test). Oturum 39: sürümlü kurutma (bake-out) reçetesi + gerçek çevrim kaydı eklendi (bkz. aşağıda) — JEDEC J-STD-033 tablosu hâlâ **sabit kodlanmadı** (bilinçli tasarım kararı, aşağıda gerekçesi var), şirketin kendi tanımladığı kaynağa dayalı reçete var. |
 | W36 E-belge/kargo bağlayıcı | **uygulandı (TEST modu), otomatik testleri geçti** | `receivables.ts`/`shipping.ts`, sağlayıcı seçilebilir tasarım var ama yalnız TEST modu; gerçek entegratör/kargo API'si **dış bağımlılık bekliyor**. |
 | W03 API erişim matrisi | **geliştirilmedi** (matris dokümanı yok) | `distributors.ts` TEST/fiyat dosyası modlarını destekliyor (`distributors.test.ts` 5 test) ama resmî "her sağlayıcı için erişim matrisi" dokümanı hâlâ yok. |
-| W39 Tarihsel veri geçişi | **kısmen uygulandı, otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | BOM ve stok import sihirbazı vardı; oturum 39 devamında aynı desenle müşteri/tedarikçi ana veri içe aktarımı (upsert), tüm import türleri için kaynak-hedef uzlaşma göstergesi, açık satış siparişi tarihsel geçişi, açık tedarikçi borcu (AP) tarihsel geçişi, açık satın alma siparişi tarihsel geçişi ve açık alacak (AR) tarihsel geçişi eklendi (bkz. aşağıda). Yalnızca tarihsel üretim/kalite/maliyet kayıtları (iş emri geçişi) hâlâ **geliştirilmedi** — W39'un tek açık sub-kalemi budur. |
+| W39 Tarihsel veri geçişi | **uygulandı, otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | BOM ve stok import sihirbazı vardı; oturum 39 devamında aynı desenle müşteri/tedarikçi ana veri içe aktarımı (upsert), tüm import türleri için kaynak-hedef uzlaşma göstergesi, açık satış siparişi tarihsel geçişi, açık tedarikçi borcu (AP) tarihsel geçişi, açık satın alma siparişi tarihsel geçişi, açık alacak (AR) tarihsel geçişi ve tarihsel üretim (iş emri) geçişi eklendi (bkz. aşağıda). **W39'un tüm sub-kalemleri artık tamamlandı.** |
 | W40 Uçtan uca/yük/dayanıklılık | **kısmen uygulandı, otomatik testleri geçti** | 26 test dosyasında iş kuralı/yetki/RLS testleri var (204/204) — bunlar fonksiyonel kabul testidir. Oturum 39 devamında `apps/api/scripts/loadtest.mjs` (autocannon, `pnpm --filter @apisfactory/api loadtest`) eklendi ve gerçek yerel API + Postgres'e karşı çalıştırıldı: 20 eşzamanlı bağlantı × 20 sn ile `GET /api/items` (ort. 427 istek/sn, ort. gecikme 46 ms, p99 89 ms), `GET /api/stock/balances` (ort. 388 istek/sn, ort. 51 ms, p99 80 ms), `GET /api/imports` (ort. 456 istek/sn, ort. 43 ms, p99 71 ms) — üçünde de 0 hata/0 zaman aşımı. **Bu, prompt'taki 100.000 komponent/1M kayıt/100 eşzamanlı kullanıcı hedefinin tam ölçekli bir testi değildir** (sandbox disk/süre bütçesi elvermiyor; demo veri seti küçük) — yalnızca gerçek ölçülmüş, düşük ölçekli bir taban çizgisi. Gerçek ölçekli yük testi ve dayanıklılık (uzun süreli/kesinti senaryoları) hâlâ **geliştirilmedi**. |
 | W41 Eğitim/destek | **uygulandı, gerçek tarayıcıda doğrulandı (yerel)** | `/help` sayfası: rol bazlı görev rehberleri (8 rol), örnek eğitim şirketi notu, `DEFAULT_ROLES`'ten otomatik üretilen yetki matrisi, içe/dışa aktarma ve video/dosya rehberi, AI önerisi inceleme rehberi, hatalı işlem düzeltme rehberi, destek talebi öncelik/sorumlu/eskalasyon tablosu, canlı geçiş kontrol listesi (bkz. aşağıda). Otomatik test yok (yeni API yüzeyi eklemeyen, salt içerik/frontend işi); doğrulama gerçek tarayıcı ekran görüntüsüyle yapıldı. |
 | W42 SaaS/abonelik yaşam döngüsü | **geliştirilmedi** | Şirket izolasyonu (RLS, her tabloda `company_id`) var ve testli, ama abonelik durumu (deneme/aktif/gecikmiş/kısıtlı/iptal), paket hakları, kullanım sayacı, ödeme idempotency **geliştirilmedi**. |
@@ -36,6 +36,102 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | Distribütör API'leri (DigiKey/Mouser/Farnell/Nexar) | Her birinin kendi geliştirici hesabı + ticari kullanım lisansı | `DIGIKEY_CLIENT_ID` vb. (sağlayıcı başına) | Gerçek kimlik doğrulama + ticari yeniden gösterim izni |
 | Ödeme sağlayıcısı (W42, ileride) | Henüz seçilmedi | — | Seçim sonrası |
 | AI/LLM sağlayıcısı (W30 yorum katmanı) | Henüz seçilmedi (sağlayıcı ve model şirkete ait karar) | `AI_PROVIDER`, `AI_API_KEY` (sunucu tarafı secret store) | Sağlayıcı seçilip bağlanınca: gerçek yorum üretimi ve `ai_status='generated'` doğrulaması |
+
+## Oturum 39 devamı — W39 devamı: tarihsel üretim (iş emri) geçişi — W39'un son sub-kalemi
+
+**Durum: uygulandı, otomatik testleri geçti, gerçek tarayıcıda (yerel geliştirme ortamı) uçtan uca doğrulandı.** Dış bağımlılık gerektirmiyor.
+
+AR göçünden sonra W39'un son açık kalemi — tarihsel üretim/kalite/maliyet kayıtları (iş emri geçişi) — ele alındı.
+Bu, önceki dördünden daha karmaşıktı çünkü canlı üretim akışı çok katmanlı: planla → yayımla (seri numarası
+üretilir) → operasyon sırayla başlat/tamamla → cihaz bazlı test → kalite kapısı → son kalite serbest bırakma →
+kapat; ayrıca ayrı bir maliyet motoru (`computeWorkOrderCost`) operasyon süresi ve malzeme lot maliyetinden
+işçilik/malzeme/genel gider ayrıştırır.
+
+**Temel tasarım kararı — neyin uydurulmayacağı:** Geçmiş bir iş emrinin gerçekte hangi operasyonlardan hangi
+sürede geçtiği, hangi malzeme lotlarının tüketildiği ve cihaz bazlı test geçmişi (hangi cihaz hangi testten ne
+zaman geçti) bu sistemde ayrıca izlenmiyor olabilir — bir CSV'den bu ayrıntı düzeyi genellikle gelmez. Bu yüzden
+yeni `POST /api/imports/work-orders/preview` + commit akışı bunların HİÇBİRİNİ uydurmaz: `work_order_operations`
+satırı açılmaz, `material_issues` yazılmaz, `test_runs` oluşturulmaz. Yalnızca bilinen gerçek toplamlar
+kaydedilir: sağlam adet, hurda adet, tamamlanma tarihi ve (opsiyonel) verilen birim maliyet.
+
+**Cihaz kayıtlarının yine de oluşturulması — "uydurma" ile "iz sürülebilirlik" arasındaki çizgi:** Sağlam+hurda
+adet kadar, canlı "yayımla" akışıyla AYNI numaralandırma deseniyle (`{kod}-00001`…) sistem tarafından üretilen
+seri numaralı `devices` kaydı açılıyor — sağlam olanlar doğrudan `status='released'` ve bitmiş ürün lotuna
+bağlanıyor (canlı "son kalite serbest bırakma" ile aynı stok etkisi: `stock_moves` 'produce' hareketi), hurda
+olanlar `status='scrapped'` ile iz sürülüyor ama stok etkisi yaratmıyor. Bu bilinçli bir ayrım: seri numarası
+zaten canlı sistemde de kullanıcıdan gelmeyen, sistem tarafından üretilen dahili bir izlenebilirlik anahtarı
+(müşteriye görünen bir kimlik değil) — bunu üretmek test sonucu veya operasyon zamanlaması gibi bir "gerçek"i
+uydurmakla aynı şey değil. Alternatif (hiç cihaz kaydı açmamak) daha "güvenli" görünse de mevcut gösterge/maliyet
+altyapısının (ilk testte başarı, hurda oranı, maliyet motoru) 0 cihaz görüp "veri yok" göstermesine yol açardı —
+bu, bilinen gerçek sağlam/hurda adedini gizleyen, aktif olarak yanlış bir sonuç olurdu. Cihaz oluşturmak, hiçbir
+test/operasyon verisi uydurmadan bilinen sayıları doğru yansıtmanın yoludur.
+
+**Maliyet motorunun korunması — sıfır girdiden sahte "0 TL" üretmemesi:** `computeWorkOrderCost` malzeme
+lot maliyeti + operasyon süresi × saat ücretinden toplam maliyeti hesaplar. Migrated bir iş emrinde operasyon/
+malzeme çıkışı hiç yoktur, yani bu motora göre toplam = 0 olur; sağlam adet > 0 olduğu için motor "birim maliyet
+0 TL" gibi YANLIŞ ve tehlikeli bir sonuç üretebilirdi (gerçek maliyetin sıfır olduğu izlenimi verir). Bu, kod
+yazılırken önceden fark edilip düzeltildi: `wo.migrated` ise motor bir "eksik" (`gaps`) mesajı ekler, `complete`
+her zaman `false` kalır ve `unitCost` sağlam adet sayısından bağımsız olarak `null` döner — birim maliyet bu
+motorla ASLA hesaplanmaz. Verilen birim maliyet (varsa) doğrudan bitmiş ürün lotuna `lot_costs` tablosuna
+kaydedilir (source='production', aynı canlı serbest bırakma akışının kullandığı kaynak); bu, motorun ürettiği
+sahte 0'ın üzerine yazılmasını da önler (motor `complete=false` olduğu için otomatik lot maliyeti yazma yolu
+zaten tetiklenmez).
+
+**Proaktif arayüz incelemesi:** Kod yazılmadan önce `WorkOrderPage`/`DeviceRow`/`MaterialRow`/`HoldAndChange`
+bileşenleri okundu. Bulgular: (1) Malzeme tablosu migrated bir iş emri için "Kalan" sütununda tam BOM ihtiyacını
+gösterecekti (malzeme çıkışı hiç yazılmadığı için) — bu, tamamlanmış bir işin hâlâ malzeme beklediği izlenimi
+verebilir; çıkış butonu zaten `wo.status` "released"/"in_progress" değilse (migrated her zaman "completed")
+gizli olduğundan işlevsel bir hata değil ama yanıltıcı görünüm riski var — bunun için iş emri detayında açık bir
+"tarihsel geçiş" bilgi kutusu eklendi. (2) `DeviceRow` zaten cihaz durumuna göre doğru koşullu render ediyor
+(yalnızca `in_process`/`rework`/`test_failed` durumundaki cihazlar için eylem gösteriyor) — `released`/`scrapped`
+cihazlar için ek bir düzeltme gerekmedi. (3) `HoldAndChange` zaten `wo.status` aktif değilse ve değişiklik talebi
+yoksa hiç render edilmiyor — migrated (`completed`) iş emri için sorunsuz.
+
+**Ne yapıldı:**
+- `apps/api/migrations/040_work_order_import.sql`: `work_orders.migrated boolean not null default false`,
+  `import_jobs.kind` CHECK kısıtına `'work_orders'` eklendi.
+- `packages/shared/src/schemas.ts`: `WorkOrderImportPreviewInput` (ürün kodu/sağlam adet/tamamlanma tarihi
+  zorunlu; iş emri kodu/revizyon/hurda adet/birim maliyet/para birimi opsiyonel).
+- `apps/api/src/modules/imports.ts`: `POST /api/imports/work-orders/preview` (yetki: `production.plan`) —
+  ürün/revizyon çözümlenir (yalnızca yayımlanmış revizyon, revizyon boşsa son yayımlanan), sağlam/hurda adet tam
+  sayı ve toplamı >0 olmalı (en fazla 10.000), tamamlanma tarihi zorunlu, birim maliyet opsiyonel doğrulanır, iş
+  emri kodu verilmişse dosya-içi ve DB'de mükerrerlik kontrolü. Commit'te: her satır bir iş emri; `work_orders`
+  doğrudan `status='completed'`, `migrated=true` ile eklenir (operasyon kaydı açılmaz); sağlam adet varsa bitmiş
+  ürün lotu + `stock_moves` 'produce' hareketi (canlı serbest bırakmayla aynı desen) ve verilmişse `recordLotCost`
+  ile birim maliyet kaydı; sağlam+hurda adet kadar seri numaralı `devices` kaydı (sağlam→`released`+lot bağlı,
+  hurda→`scrapped`). İzin eşlemesine `work_orders → production.plan` eklendi; `reconcile()` genişletildi
+  (`work_orders` → `result.workOrders`).
+- `apps/api/src/modules/production.ts`: `loadWorkOrder`'ın SELECT listesine `w.migrated` eklendi (arayüzün bu
+  durumu gösterebilmesi için).
+- `apps/api/src/modules/costing.ts`: `computeWorkOrderCost` migrated iş emrinde motorun ürettiği sahte "0 TL"
+  birim maliyeti asla döndürmemesi için korumalar (yukarıda anlatıldı) — `wo.migrated` sorguya eklendi, `gaps`'e
+  açıklayıcı mesaj, `unitCost` her zaman `null`, `unitCostNote` migrated'e özel metin.
+- Web: `Imports.tsx`'e "Tarihsel üretim (iş emri) geçişi" bölümü (yetki: `production.plan`), geçmiş işler
+  tablosuna `work_orders: "İş emirleri"` etiketi eklendi. `Production.tsx`'teki `WorkOrderPage`'e yukarıda
+  anlatılan tarihsel geçiş bilgi kutusu eklendi.
+- Test: `apps/api/test/work-order-import.test.ts` (7 test) — yetkisiz rol reddi; geçerli iş emrinin doğru
+  kaydedilmesi (bitmiş ürün lotuna gerçek stok etkisi, 12 cihaz — 10 released + 2 scrapped —, verilen birim
+  maliyetin doğrudan lota kaydedildiğinin doğrulanması); **maliyet motorunun migrated iş emri için asla birim
+  maliyet hesaplamadığının (sahte 0 üretmediğinin) doğrudan doğrulanması**; yalnız hurda (sağlam adet 0) kaydı
+  ve bitmiş ürün lotu oluşmadığının doğrulanması; iş emri kodu boşken otomatik `IE-` üretimi; beş hata senaryosu
+  (bilinmeyen ürün/revizyon, geçersiz adet/tarih/maliyet, sıfır toplam adet, mükerrer iş emri kodu) ve bunların
+  onayı engellediği; uzlaşma göstergesinin doğru hesaplandığı.
+
+**Doğrulama (gerçek yerel Postgres + gerçek tarayıcı, sağlayıcı/canlı ortam DEĞİL):**
+- `pnpm -r exec tsc --noEmit` (api + web): hatasız.
+- `npx vite build` (web): başarılı.
+- `pnpm test` (api): **234/234** test geçti (önceki 227 + yeni 7), gerçek PostgreSQL 16.
+- Migration 040 gerçek yerel dev veritabanına uygulandı (`migration uygulandı: 040_work_order_import.sql`).
+- Playwright ile gerçek tarayıcıda (`uretim@demo.apisfactory.com`, DEMO şirketi; test için API üzerinden
+  yayımlanmış bir ürün revizyonu önceden hazırlandı): giriş → İçe aktarım sayfasında "Tarihsel üretim (iş emri)
+  geçişi" sihirbazı → CSV yükle (8 sağlam, 2 hurda, birim maliyet 12,75 TRY) → kolon otomatik eşleşmesi → Önizle
+  → Onayla ve işle → Üretim listesinde iş emri "Tamamlandı" durumunda görünüyor (10 miktar, 8 serbest, 2 hurda)
+  → iş emri detayında tarihsel geçiş bilgi kutusu görünüyor, 10 cihaz doğru seri numaralarıyla ve durumlarıyla
+  (8 "Serbest bırakıldı", 2 "Hurda") listeleniyor, operasyon tablosu boş (uydurulmadı), sayfa hatası yok.
+
+**W39'un tamamı artık tamamlandı**: müşteri/tedarikçi ana veri, açık satış siparişi, AP, açık satın alma
+siparişi, AR ve şimdi tarihsel üretim (iş emri) geçişi — hepsi aynı "bilinçli fark" desenini izliyor (canlı yan
+etkiler tetiklenmez, bilinmeyen ayrıntı asla uydurulmaz, yalnızca verilen/bilinen gerçek veriler kaydedilir).
 
 ## Oturum 39 devamı — W39 devamı: açık alacak (AR) tarihsel geçişi
 
