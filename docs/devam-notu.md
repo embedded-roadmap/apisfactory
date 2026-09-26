@@ -1,6 +1,6 @@
 # Devam notu
 
-Son güncelleme: 26.09.2026 — oturum 39 (kullanıcının 2026-09-26 "devam talimatları" belgesi, bkz. proje dokümanı `claude/devam-talimatlari-2026-09.md`; W33 devamı: kurutma/bake-out reçetesi ve çevrimi)
+Son güncelleme: 26.09.2026 — oturum 39 devamı (kullanıcının 2026-09-26 "devam talimatları" belgesi, bkz. proje dokümanı `claude/devam-talimatlari-2026-09.md`; en son: W39 devamı — açık tedarikçi borcu (AP) tarihsel geçişi)
 
 ## Kapsam eşleştirme ve durum matrisi (talimat §0/§12 — 2026-09-26)
 
@@ -20,7 +20,7 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | W33 MSL/kurutma altyapısı | **otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | Oturum 22: MSL, kullanım süresi, raf ömrü, lot SKT, paket açılışı (`storage.ts`, 5 test). Oturum 39: sürümlü kurutma (bake-out) reçetesi + gerçek çevrim kaydı eklendi (bkz. aşağıda) — JEDEC J-STD-033 tablosu hâlâ **sabit kodlanmadı** (bilinçli tasarım kararı, aşağıda gerekçesi var), şirketin kendi tanımladığı kaynağa dayalı reçete var. |
 | W36 E-belge/kargo bağlayıcı | **uygulandı (TEST modu), otomatik testleri geçti** | `receivables.ts`/`shipping.ts`, sağlayıcı seçilebilir tasarım var ama yalnız TEST modu; gerçek entegratör/kargo API'si **dış bağımlılık bekliyor**. |
 | W03 API erişim matrisi | **geliştirilmedi** (matris dokümanı yok) | `distributors.ts` TEST/fiyat dosyası modlarını destekliyor (`distributors.test.ts` 5 test) ama resmî "her sağlayıcı için erişim matrisi" dokümanı hâlâ yok. |
-| W39 Tarihsel veri geçişi | **kısmen uygulandı, otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | BOM ve stok import sihirbazı vardı; oturum 39 devamında aynı desenle müşteri/tedarikçi ana veri içe aktarımı (upsert) ve tüm import türleri için kaynak-hedef uzlaşma göstergesi eklendi (bkz. aşağıda). Açık sipariş/tarihsel üretim-kalite-maliyet/AP-AR göçü hâlâ **geliştirilmedi**. |
+| W39 Tarihsel veri geçişi | **kısmen uygulandı, otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | BOM ve stok import sihirbazı vardı; oturum 39 devamında aynı desenle müşteri/tedarikçi ana veri içe aktarımı (upsert), tüm import türleri için kaynak-hedef uzlaşma göstergesi, açık satış siparişi tarihsel geçişi ve açık tedarikçi borcu (AP) tarihsel geçişi eklendi (bkz. aşağıda). Tarihsel üretim/kalite/maliyet kayıtları ve AR (alacak) göçü hâlâ **geliştirilmedi** — AR, `customer_invoices.sales_order_id NOT NULL` kısıtı nedeniyle şema kararı gerektiriyor. |
 | W40 Uçtan uca/yük/dayanıklılık | **kısmen uygulandı, otomatik testleri geçti** | 26 test dosyasında iş kuralı/yetki/RLS testleri var (204/204) — bunlar fonksiyonel kabul testidir. Oturum 39 devamında `apps/api/scripts/loadtest.mjs` (autocannon, `pnpm --filter @apisfactory/api loadtest`) eklendi ve gerçek yerel API + Postgres'e karşı çalıştırıldı: 20 eşzamanlı bağlantı × 20 sn ile `GET /api/items` (ort. 427 istek/sn, ort. gecikme 46 ms, p99 89 ms), `GET /api/stock/balances` (ort. 388 istek/sn, ort. 51 ms, p99 80 ms), `GET /api/imports` (ort. 456 istek/sn, ort. 43 ms, p99 71 ms) — üçünde de 0 hata/0 zaman aşımı. **Bu, prompt'taki 100.000 komponent/1M kayıt/100 eşzamanlı kullanıcı hedefinin tam ölçekli bir testi değildir** (sandbox disk/süre bütçesi elvermiyor; demo veri seti küçük) — yalnızca gerçek ölçülmüş, düşük ölçekli bir taban çizgisi. Gerçek ölçekli yük testi ve dayanıklılık (uzun süreli/kesinti senaryoları) hâlâ **geliştirilmedi**. |
 | W41 Eğitim/destek | **uygulandı, gerçek tarayıcıda doğrulandı (yerel)** | `/help` sayfası: rol bazlı görev rehberleri (8 rol), örnek eğitim şirketi notu, `DEFAULT_ROLES`'ten otomatik üretilen yetki matrisi, içe/dışa aktarma ve video/dosya rehberi, AI önerisi inceleme rehberi, hatalı işlem düzeltme rehberi, destek talebi öncelik/sorumlu/eskalasyon tablosu, canlı geçiş kontrol listesi (bkz. aşağıda). Otomatik test yok (yeni API yüzeyi eklemeyen, salt içerik/frontend işi); doğrulama gerçek tarayıcı ekran görüntüsüyle yapıldı. |
 | W42 SaaS/abonelik yaşam döngüsü | **geliştirilmedi** | Şirket izolasyonu (RLS, her tabloda `company_id`) var ve testli, ama abonelik durumu (deneme/aktif/gecikmiş/kısıtlı/iptal), paket hakları, kullanım sayacı, ödeme idempotency **geliştirilmedi**. |
@@ -36,6 +36,68 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | Distribütör API'leri (DigiKey/Mouser/Farnell/Nexar) | Her birinin kendi geliştirici hesabı + ticari kullanım lisansı | `DIGIKEY_CLIENT_ID` vb. (sağlayıcı başına) | Gerçek kimlik doğrulama + ticari yeniden gösterim izni |
 | Ödeme sağlayıcısı (W42, ileride) | Henüz seçilmedi | — | Seçim sonrası |
 | AI/LLM sağlayıcısı (W30 yorum katmanı) | Henüz seçilmedi (sağlayıcı ve model şirkete ait karar) | `AI_PROVIDER`, `AI_API_KEY` (sunucu tarafı secret store) | Sağlayıcı seçilip bağlanınca: gerçek yorum üretimi ve `ai_status='generated'` doğrulaması |
+
+## Oturum 39 devamı — W39 devamı: açık tedarikçi borcu (AP) tarihsel geçişi
+
+Açık satış siparişi geçişinden sonra W39'un kalan iki sub-kalemi (tarihsel üretim/kalite/maliyet, AP/AR göçü) için
+şema incelemesi yapıldı: `customer_invoices.sales_order_id` **NOT NULL** (`021_receivables.sql`) — AR (alacak) göçü
+bu yüzden bir şema kararı (nullable + "göçmüş fatura" ayırt edici alanı, veya sahte sipariş üretme) gerektiriyor ve
+bu oturuma sığmayacak kadar dikkat istiyor. `supplier_invoices` tarafında ise böyle bir zorunlu sipariş bağlantısı
+yok (`po_line_id` satır bazında zaten nullable ve mevcut `match()` fonksiyonu bunu `po_missing` bayrağıyla zaten
+gracefully ele alıyor) — bu yüzden AP (borç) daha az riskli/daha iyi tanımlı seçildi, AR bir sonraki oturuma bırakıldı.
+
+**Tasarım — canlı fatura giriş akışından bilinçli fark:** `POST /api/supplier-invoices` her zaman sipariş–mal
+kabul–fatura üç yönlü eşleştirmesini (`match()`) çalıştırır ve eşleşmezse faturayı `variance` durumuna düşürüp
+muhasebeye onay görevi açar. Geçmişten taşınan bir fatura için bu mantığı olduğu gibi çalıştırmak, gerçekte var
+olmayan bir sipariş/mal kabul bağlantısı arayıp her faturayı yapay bir "fark" olarak işaretleyecekti — bu yüzden
+yeni `POST /api/imports/ap-invoices/preview` + commit akışı `match()`'i hiç çağırmıyor; fatura doğrudan `approved`
+(tamamı ödenmişse `paid`) kaydediliyor ve `match_result` alanına gerçek bir eşleştirme sonucu yerine dürüst bir
+işaretçi yazılıyor: `{ migrated: true, note: "Tarihsel geçiş — sipariş/mal kabul bağlantısı olmadığından üç yönlü
+eşleştirme çalıştırılmadı; fatura doğrudan onaylı kaydedildi" }`. Aynı gerekçeyle `writeLotCosts()` da çağrılmıyor
+(gerçek bir sipariş/lot bağlantısı olmadığından uydurma lot maliyeti yazılmaz). Ödeme tarihi verilmeden ödenen tutar
+kabul edilmez (ödemenin ne zaman yapıldığı uydurulmaz, "bugün" varsayılmaz).
+
+**Değişen davranış/dosyalar:**
+- `apps/api/migrations/037_ap_invoice_import.sql`: `import_jobs.kind` CHECK kısıtına `'ap_invoices'` eklendi.
+- `packages/shared/src/schemas.ts`: `ApInvoiceImportPreviewInput` (tedarikçi kodu, fatura no/tarihi, vade, kur,
+  net/KDV tutarı, açıklama, ödenen tutar/tarihi).
+- `apps/api/src/modules/imports.ts`: `POST /api/imports/ap-invoices/preview` (perm `invoice.manage`) — kur/tutar/
+  tarih doğrulaması, tedarikçi çözümü (ödeme vadesi günü de okunur), dosya-içi ve DB'ye karşı mükerrer tedarikçi+
+  fatura no denetimi; commit dalı (fatura + tek kalem + varsa ödeme kaydı, `recordEvent`); `reconcile()` genişletildi
+  (`ap_invoices` → `result.invoices`); commit route'undaki izin eşlemesine `ap_invoices → invoice.manage` eklendi.
+- Web: `Imports.tsx`'e "Açık tedarikçi borcu (W39 devamı — tarihsel geçiş)" bölümü (yetki: `invoice.manage`),
+  geçmiş işler tablosuna `ap_invoices: "Tedarikçi faturaları"` etiketi eklendi.
+- Test: `apps/api/test/ap-invoice-import.test.ts` (5 test) — yetkisiz rol reddi; geçerli fatura doğrudan onaylı
+  kaydedilir + vade tedarikçi ödeme vadesinden hesaplanır + üç yönlü eşleştirme çalışmaz + `lot_costs`'a satır
+  düşmez (öncesi/sonrası doğrudan DB sorgusuyla karşılaştırıldı); tam ödeme → `paid` + ödeme kaydı, kısmi ödeme →
+  `approved` kalır + ödeme kaydı; hatalı satırlar (bilinmeyen tedarikçi, geçersiz tutar/tarih, ödenen tutar verilip
+  ödeme tarihi verilmemesi, mükerrer fatura) onayı engeller; uzlaşma doğru hesaplanır.
+
+**E2E doğrulama sırasında bulunan ve düzeltilen gerçek hata:** Gerçek tarayıcıda göçmüş bir fatura açıldığında
+detay sayfası tamamen boş kalıyordu (JS hatası). Sebep: `apps/web/src/pages/Payables.tsx`'teki `InvoicePage`
+bileşeni `matchResult`'ın her zaman canlı `match()` çıktısının şeklinde olduğunu varsayıyordu
+(`m.tolerance.pricePct`, `m.headerFlags.map(...)`, `m.lines[k]`) — göçmüş faturanın `{ migrated: true, note }`
+şeklindeki `matchResult`'ında bu alanlar yok, `undefined.pricePct` erişimi sayfayı çökertiyordu. Düzeltme:
+`m?.migrated` doğruysa üç yönlü eşleştirme tablosu yerine göç notunu (ve fatura durumuna göre "onaylı"/"ödendi")
+gösteren ayrı bir dal eklendi; canlı akış (gerçek `match()` çıktısı) değişmedi. Bu, "test testleri geçti" ile
+"gerçekten kullanılabilir" arasındaki farkın somut bir örneği — API testleri (`ap-invoice-import.test.ts`) bu UI
+hatasını yakalayamazdı, yalnızca gerçek tarayıcıda uçtan uca gezinme yakaladı.
+
+**Doğrulama (gerçek yerel Postgres + gerçek tarayıcı, sağlayıcı/canlı ortam DEĞİL):**
+- `pnpm -r exec tsc --noEmit`: hatasız (hem ilk yazımdan hem UI düzeltmesinden sonra).
+- `npx vite build` (web): başarılı (hem ilk yazımdan hem UI düzeltmesinden sonra).
+- `pnpm test` (api): **214/214** test geçti (önceki 209 + yeni 5), gerçek PostgreSQL 16.
+- Migration 037 gerçek yerel dev veritabanına uygulandı (`migration uygulandı: 037_ap_invoice_import.sql`).
+- Playwright ile gerçek tarayıcıda (`muhasebe@demo.apisfactory.com`, DEMO şirketi, seed'deki `DEMO-DAG` tedarikçisi
+  kullanılarak): giriş → İçe aktarım sayfasında "Açık tedarikçi borcu" sihirbazı → CSV yükle → kolon otomatik
+  eşleşmesi → Önizle (1 satır, eşleşti) → Onayla ve işle (`{"invoices":1,"payments":0}`) → Geçmiş işler tablosunda
+  "İşlendi", uzlaşma "kaynak 1 / hedef 1" → Borçlar & ödeme listesinde fatura görünüyor, durum "ödemeye hazır"
+  (variance/fark YOK) → fatura detayında (UI düzeltmesinden sonra) "Bu fatura tarihsel geçişle (W39 devamı)
+  eklendi... üç yönlü eşleştirme çalıştırılmadı" notu ve dürüst göç açıklaması doğru görüntüleniyor, sayfa hatası
+  yok. Ekran görüntüleri teslimatla birlikte gönderildi.
+
+Kalan (W39'un hâlâ açık kısmı): tarihsel üretim/kalite/maliyet kayıtları ve AR (alacak) göçü — AR için önce şema
+kararı (yukarıda) gerekiyor.
 
 ## Oturum 39 devamı — W39 devamı: açık satış siparişi tarihsel geçişi
 
