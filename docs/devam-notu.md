@@ -1,6 +1,6 @@
 # Devam notu
 
-Son güncelleme: 26.09.2026 — oturum 31 (W28 devamı: toplantı takvim daveti .ics)
+Son güncelleme: 26.09.2026 — oturum 32 (mobilde vekâleten bekleyen işler görünürlüğü)
 
 ## Son doğrulanan durum
 
@@ -39,6 +39,13 @@ Son güncelleme: 26.09.2026 — oturum 31 (W28 devamı: toplantı takvim daveti 
 | Mobil (oturum 29) | `tsc --noEmit` temiz, `EXPO_OFFLINE=1 expo export --platform android` başarılı (yeni bağımlılık expo-sharing dahil paketlendi); backend/web dokunulmadı; gerçek cihazda/simülatörde çalıştırılmadı |
 | Playwright uçtan uca (oturum 30) | Bir fason iş kabul→malzeme gönder (10)/fire imha (1)→ilerlet→beyan→kesin kabul (9) ile tamamlanır; iş detayında "Malzeme izlenebilirliği" paneli: girdi lotu USAGE-LOT1 için gönderilen 10 / iade 0 / fire 1 / net tüketilen 9, çıktı lotu USAGE-OUT-1 için 9 adet; sayfa hatası yok |
 | Playwright uçtan uca (oturum 31) | Yönetim toplantı açar (gündem, yer, katılımcı); toplantı detayında "Takvime ekle (.ics)" düğmesine tıklanır, tarayıcı gerçek bir dosya indirir (`toplanti-TOP-000001.ics`); indirilen dosya `BEGIN:VCALENDAR`, başlık, yer ve `mailto:` katılımcı satırlarını içerir; sayfa hatası yok |
+| Mobil (oturum 32) | `tsc --noEmit` temiz, `EXPO_OFFLINE=1 expo export --platform android` başarılı; backend/web dokunulmadı (mevcut `/api/tasks/delegated` ucu yeniden kullanıldı), tam test paketi (166/166) yine de yeniden çalıştırılıp doğrulandı; gerçek cihazda/simülatörde çalıştırılmadı |
+
+## Oturum 32'de eklenenler ("Akış" bilinen sınırı: vekâlet mobilde gösterilmiyordu)
+
+1. **Mobilde vekâleten bekleyen işler**: "Bilinen sorunlar ve sınırlar" listesindeki "Vekâlet mobilde gösterilmiyor" notu kapatıldı. `apps/mobile/src/screens.tsx`'teki `TasksScreen`'e, web'in Günlük işler sayfasındaki "Vekâleten bekleyen işler" kartının salt okunur bir karşılığı eklendi — aynı mevcut uç (`GET /api/tasks/delegated`), yeni backend değişikliği yok. Liste başlığı + "vekâleten: <kimin adına>" + bitiş/gecikti bilgisini gösterir; web'deki gibi ayrı ekranlara derin bağlantı vermez (mobilde bu iş türlerinin çoğu için — satın alma, alacak vb. — zaten karşılık gelen bir ekran yok), yalnızca görünürlük sağlar.
+2. Backend/web'de değişiklik yok (test sayısı sabit, 166/166); `pnpm -r exec tsc --noEmit` temiz; `EXPO_OFFLINE=1 expo export --platform android` başarılı.
+3. Bu, oturum 30'daki ICS keşfiyle aynı yöntemle bulundu: "Bilinen sorunlar ve sınırlar" listesi tarandı, kod ile ilerletilebilecek küçük ve net bir kalan arandı.
 
 ## Oturum 31'de eklenenler (W28 devamı)
 
@@ -322,7 +329,7 @@ Son güncelleme: 26.09.2026 — oturum 31 (W28 devamı: toplantı takvim daveti 
 - İletişim: kayıttan bağımsız birebir sohbet, anlık (canlı) güncelleme yok (sayfa yenilenince/işlemde güncellenir); sesli/görüntülü görüşme, kayıt ve transkript yok (dış bağlayıcı gerekir). Toplantı için takvim daveti dosyası (.ics) var (oturum 31); gerçek canlı takvim senkronu (Outlook/Google bağlayıcısı) yok.
 - Satın alma: tedarikçiye gerçek gönderim (e-posta/EDI/portal) yok; teklifler elle, fiyat dosyasından veya TEST kataloğundan (gerçek distribütör API'si yok); çok kalemli RFQ/sipariş yok (talep başına bir satır); kur dönüşümü yok (farklı para birimli teklif sapma hesaplanmaz); sipariş onay limiti (W10 politikası) sipariş aşamasına bağlanmadı.
 - Borçlar: e-fatura (GİB) alımı yok (fatura elle girilir, W36); banka/ödeme bağlantısı yok (yalnız kayıt); kur farkı, stopaj ve iade faturası (fiyat farkı/iade) yok; iade/fiyat farkı (alacak dekontu) yok; kısmi sevkiyatta sipariş toplamı değil sevk edilen miktar faturalanır; kur dönüşümü olmadığından kredi riski yalnız müşterinin kredi para biriminde hesaplanır; muhasebe fişi/entegrasyonu yok.
-- Akış: politika yalnızca beş onay türü için; satın alma dışındaki türlerde parasal limit yok. Yükseltme tek seviye (üst rolün de süresi dolarsa ikinci yükseltme yok). Bildirim yalnızca çıkış kutusunda (e-posta/anlık bildirim bağlanmadı). Vekâlet mobilde gösterilmiyor. Tahmini tutar son lot maliyetinden; tedarikçi teklifi/fiyat listesi yok (W18).
+- Akış: politika yalnızca beş onay türü için; satın alma dışındaki türlerde parasal limit yok. Yükseltme tek seviye (üst rolün de süresi dolarsa ikinci yükseltme yok). Bildirim yalnızca çıkış kutusunda (e-posta/anlık bildirim bağlanmadı). Vekâleten bekleyen işler artık mobilde de görünür (oturum 32, salt okunur); işlem yine web'den yapılır. Tahmini tutar son lot maliyetinden; tedarikçi teklifi/fiyat listesi yok (W18).
 - Maliyet: kur dönüşümü yok (farklı para birimli satır "hesaplanamadı"); dış hizmet (fason) maliyeti yok; iade tamiri ve iade hurdası maliyete yansımıyor; bütçe modülü yok; prototip/pilot/seri ayrımı ve ekip performansı raporu (W26) yok. İşçilik yalnızca operasyon başlat/tamamla süresinden; hızlı tıklanan operasyon süre biriktirmez (uyarı olarak eksik listesine düşer). Mobilde maliyet ekranı yok (ofis işi).
 
 ## Sıradaki uygulanabilir iş
@@ -332,4 +339,5 @@ Son güncelleme: 26.09.2026 — oturum 31 (W28 devamı: toplantı takvim daveti 
 3. W33 devamı: kurutma/yeniden uygunluk (bake-out) takibi — üretici prosedürüne bağlı, şirket karar verince eklenebilir (FEFO/FIFO lot önerisi oturum 25'te tamamlandı).
 4. W32 devamı (küçük kalan): revizyon geldiğinde devam/durdur/yeniden işle kararı otomasyonu — net iş kuralı spesifikasyonu yok, şirket kararı/daha fazla ayrıntı gerekiyor (performans raporu oturum 27'de, girdi lotu bazlı malzeme izlenebilirliği oturum 30'da tamamlandı).
 5. W28 devamı (tek küçük kalan): toplantı takvim daveti (.ics) oturum 31'de tamamlandı; kalan (görüşme/kayıt/transkript, gerçek Outlook/Google canlı senkronu) dış bağlayıcı kararı gerektiriyor.
-6. Kalanların çoğu (W03, W27 devamı — video eki, W28 devamı — canlı takvim senkronu, W30, W31, W39–W42) dış sağlayıcı kararı, gerçek AI kapsamı veya iş/pilot süreci gerektiriyor; kod ile ilerletilebilecek net kalan iş paketi kalmadı — yeni bir iş paketi tanımlanmadıkça (kullanıcıdan gelecek kapsam/karar) bu liste bundan sonra büyük ölçüde sabit kalacak.
+6. "Akış" bilinen sınırı: vekâleten bekleyen işler mobilde görünürlüğü oturum 32'de tamamlandı.
+7. Kalanların çoğu (W03, W27 devamı — video eki, W28 devamı — canlı takvim senkronu, W30, W31, W39–W42) dış sağlayıcı kararı, gerçek AI kapsamı veya iş/pilot süreci gerektiriyor. Kod ile ilerletilebilecek net, küçük bir kalan bulmak için önce bu listeye, sonra "Bilinen sorunlar ve sınırlar" bölümüne bakılmalı (oturum 30/31/32'de ICS ve vekâlet görünürlüğü gibi küçük ama gerçek boşluklar oradan bulundu) — yeni bir iş paketi tanımlanmadıkça bu liste bundan sonra büyük ölçüde sabit kalacak.

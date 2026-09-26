@@ -62,6 +62,7 @@ const KIND_LABEL: Record<string, string> = {
 
 export function TasksScreen({ go }: { go: (tab: string) => void }) {
   const q = useQuery({ queryKey: ["tasks"], queryFn: () => api<(Task & { kind: string } & Record<string, any>)[]>("GET", "/api/tasks/mine") });
+  const delegated = useQuery({ queryKey: ["tasksDelegated"], queryFn: () => api<any[]>("GET", "/api/tasks/delegated") });
   const [openId, setOpenId] = useState<string | null>(null);
   return (
     <FlatList
@@ -69,13 +70,25 @@ export function TasksScreen({ go }: { go: (tab: string) => void }) {
       contentContainerStyle={s.pad}
       data={q.data ?? []}
       keyExtractor={(t) => t.id}
-      refreshControl={<RefreshControl refreshing={q.isFetching} onRefresh={() => q.refetch()} tintColor={c.accent} />}
+      refreshControl={<RefreshControl refreshing={q.isFetching} onRefresh={() => { q.refetch(); delegated.refetch(); }} tintColor={c.accent} />}
       ListHeaderComponent={
         <View style={{ gap: 8 }}>
           <Text style={s.h1}>İşlerim</Text>
           <ErrorBox error={q.error} />
           <Mentions />
           {q.data?.length === 0 ? <Text style={s.muted}>Açık işiniz yok.</Text> : null}
+          {delegated.data?.length ? (
+            <View style={[s.card, { gap: 6 }]}>
+              <Text style={[s.text, { fontWeight: "700" }]}>Vekâleten bekleyen işler</Text>
+              <Text style={s.muted}>Vekâlet süresince yaptığınız onaylar kimin adına yapıldığıyla birlikte kaydedilir.</Text>
+              {delegated.data.map((t) => (
+                <View key={t.id} style={{ gap: 2 }}>
+                  <Text style={s.text}>{t.title}</Text>
+                  <Text style={s.muted}>vekâleten: {t.onBehalfOfName}{t.dueAt ? ` · bitiş ${String(t.dueAt).slice(0, 10)}` : ""}{t.overdue ? " · gecikti" : ""}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
         </View>
       }
       renderItem={({ item }) => (
