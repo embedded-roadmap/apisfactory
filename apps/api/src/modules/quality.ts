@@ -119,7 +119,7 @@ export async function qualityRoutes(app: FastifyInstance) {
 
   app.post("/api/equipment", async (req) => {
     const input = parse(
-      z.object({ code: z.string().min(1).max(40), name: z.string().min(1).max(120), kind: z.enum(["test_station", "measuring", "fixture", "programmer"]), calibrationDue: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }),
+      z.object({ code: z.string().min(1).max(40), name: z.string().min(1).max(120), kind: z.enum(["test_station", "measuring", "fixture", "programmer", "oven"]), calibrationDue: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }),
       req.body,
     );
     return tenant(req, "equipment.manage", async (db, actor) => {
