@@ -20,7 +20,7 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | W33 MSL/kurutma altyapısı | **otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | Oturum 22: MSL, kullanım süresi, raf ömrü, lot SKT, paket açılışı (`storage.ts`, 5 test). Oturum 39: sürümlü kurutma (bake-out) reçetesi + gerçek çevrim kaydı eklendi (bkz. aşağıda) — JEDEC J-STD-033 tablosu hâlâ **sabit kodlanmadı** (bilinçli tasarım kararı, aşağıda gerekçesi var), şirketin kendi tanımladığı kaynağa dayalı reçete var. |
 | W36 E-belge/kargo bağlayıcı | **uygulandı (TEST modu), otomatik testleri geçti** | `receivables.ts`/`shipping.ts`, sağlayıcı seçilebilir tasarım var ama yalnız TEST modu; gerçek entegratör/kargo API'si **dış bağımlılık bekliyor**. |
 | W03 API erişim matrisi | **geliştirilmedi** (matris dokümanı yok) | `distributors.ts` TEST/fiyat dosyası modlarını destekliyor (`distributors.test.ts` 5 test) ama resmî "her sağlayıcı için erişim matrisi" dokümanı hâlâ yok. |
-| W39 Tarihsel veri geçişi | **kısmen uygulandı** | Yalnız BOM ve stok import sihirbazı var (`imports.ts`); müşteri/tedarikçi/açık sipariş/tarihsel üretim-kalite-maliyet/AP-AR göçü **geliştirilmedi**. Kaynak-hedef uzlaşma raporu yok. |
+| W39 Tarihsel veri geçişi | **kısmen uygulandı, otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | BOM ve stok import sihirbazı vardı; oturum 39 devamında aynı desenle müşteri/tedarikçi ana veri içe aktarımı (upsert) eklendi (bkz. aşağıda). Açık sipariş/tarihsel üretim-kalite-maliyet/AP-AR göçü ve kaynak-hedef uzlaşma raporu hâlâ **geliştirilmedi**. |
 | W40 Uçtan uca/yük/dayanıklılık | **kısmen uygulandı** | 22 test dosyasında iş kuralı/yetki/RLS testleri var (170/170) — bunlar fonksiyonel kabul testidir, **yük testi hiç çalıştırılmadı** (100.000 komponent/1M kayıt/100 eşzamanlı kullanıcı hedefleri test edilmedi). |
 | W41 Eğitim/destek | **geliştirilmedi** | Rol bazlı kısa rehber/yardım içeriği yok. |
 | W42 SaaS/abonelik yaşam döngüsü | **geliştirilmedi** | Şirket izolasyonu (RLS, her tabloda `company_id`) var ve testli, ama abonelik durumu (deneme/aktif/gecikmiş/kısıtlı/iptal), paket hakları, kullanım sayacı, ödeme idempotency **geliştirilmedi**. |
@@ -36,6 +36,22 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | Distribütör API'leri (DigiKey/Mouser/Farnell/Nexar) | Her birinin kendi geliştirici hesabı + ticari kullanım lisansı | `DIGIKEY_CLIENT_ID` vb. (sağlayıcı başına) | Gerçek kimlik doğrulama + ticari yeniden gösterim izni |
 | Ödeme sağlayıcısı (W42, ileride) | Henüz seçilmedi | — | Seçim sonrası |
 | AI/LLM sağlayıcısı (W30 yorum katmanı) | Henüz seçilmedi (sağlayıcı ve model şirkete ait karar) | `AI_PROVIDER`, `AI_API_KEY` (sunucu tarafı secret store) | Sağlayıcı seçilip bağlanınca: gerçek yorum üretimi ve `ai_status='generated'` doğrulaması |
+
+## Oturum 39 devamı — W39 devamı: müşteri/tedarikçi ana veri içe aktarımı
+
+**Durum: uygulandı, otomatik testleri geçti, gerçek tarayıcıda (yerel geliştirme ortamı) uçtan uca doğrulandı.** Dış bağımlılık gerektirmiyor.
+
+W33 işi teslim edildikten sonra §12 sırasına göre bir sonraki kod ile ilerletilebilecek net kalem olarak W39 (tarihsel veri geçişi) seçildi — dış sağlayıcı/pilot kararı gerektirmeyen, mevcut import altyapısını doğal olarak genişleten bir dilim: müşteri ve tedarikçi ana veri (master data) içe aktarımı.
+
+**Ne yapıldı:**
+- `apps/api/migrations/035_master_data_import.sql`: `import_jobs.kind` CHECK kısıtına `'customers'`/`'suppliers'` eklendi.
+- `packages/shared/src/schemas.ts`: `CustomerImportPreviewInput`, `SupplierImportPreviewInput`.
+- `apps/api/src/modules/imports.ts`: `POST /api/imports/customers/preview` (yetki: `sales.create`) ve `POST /api/imports/suppliers/preview` (yetki: `supplier.manage`) — BOM/stok ile aynı CSV → kolon eşleştirme → sunucu doğrulaması akışı, ama **hareket değil upsert**: kod eşleşirse ad (tedarikçide ayrıca iletişim e-postası/varsayılan teslim süresi) güncellenir, yoksa yeni kayıt açılır (`insert ... on conflict (company_id, code) do update ...`, `xmax = 0` ile oluşturuldu/güncellendi ayrımı). Bu yüzden BOM/stok'taki "yeni kalem"/"belirsiz" durumları burada yok — yalnız "ok"/"hatalı" (boş kod/ad, dosya içi mükerrer kod, tedarikçide geçersiz teslim süresi). Commit uç noktasındaki ortak T13 kuralı (aynı dosya aynı türe iki kez işlenemez) burada da geçerli.
+- Web: `Imports.tsx`'e mevcut `CsvWizard` bileşeni yeniden kullanılarak iki yeni bölüm eklendi (yetkiye göre gösterilir/gizlenir); geçmiş işler tablosundaki tür etiketi genişletildi.
+- **Testler**: `apps/api/test/master-data-import.test.ts` (3 yeni test: müşteri içe aktarımı — yeni/güncelleme/mükerrer/boş kod/hatalı satırla onay reddi/aynı dosya ikinci kez işlenmez; tedarikçi içe aktarımı — isteğe bağlı alanlar, geçersiz teslim süresi reddi; RLS izolasyonu). Toplam **203/203** otomatik test geçti; `tsc --noEmit` ve `vite build` temiz.
+- **Doğrulama**: migration yerel geliştirme veritabanına uygulandı; gerçek Chromium (Playwright) ile demo hesaplarla uçtan uca çalıştırıldı — satış kullanıcısı 2 satırlık bir müşteri CSV'sini içe aktardı (`created:2`), satın alma kullanıcısı iletişim e-postası ve teslim süresi olan bir tedarikçi CSV'sini içe aktardı (`created:1`); her ikisi de "Geçmiş işler" listesinde doğru etiketle (Müşteriler/Tedarikçiler) göründü.
+
+Kalan (W39'un hâlâ açık kısmı): açık sipariş, tarihsel üretim/kalite/maliyet kayıtları ve AP/AR (borç/alacak) göçü; kaynak-hedef uzlaşma raporu (içe aktarılan toplam vs kaynak dosya toplamı karşılaştırması). Bunlar da dış bağımlılık gerektirmiyor, ileri bir oturumda aynı desenle eklenebilir.
 
 ## Oturum 39'da eklenenler (W33 devamı: kurutma/yeniden uygunluk (bake-out) reçetesi ve çevrimi)
 
