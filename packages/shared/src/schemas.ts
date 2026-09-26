@@ -63,6 +63,25 @@ export const StockImportPreviewInput = z.object({
   decimalSeparator: z.enum([".", ","]).default("."),
 });
 
+/**
+ * W39 devamı (tarihsel veri geçişi): müşteri/tedarikçi ana veri içe aktarımı. BOM/açılış stoğundan farkı,
+ * bir hareket değil upsert olmasıdır (kod eşleşirse ad/iletişim güncellenir, yoksa yeni kayıt açılır) —
+ * bu yüzden ayrık "ambiguous"/"new_item" durumu yoktur, yalnızca "ok"/"error".
+ */
+export const CustomerImportPreviewInput = z.object({
+  fileName: z.string().min(1),
+  content: z.string().min(1).max(5_000_000),
+  mapping: z.object({ code: z.string(), name: z.string() }),
+  decimalSeparator: z.enum([".", ","]).default("."),
+});
+
+export const SupplierImportPreviewInput = z.object({
+  fileName: z.string().min(1),
+  content: z.string().min(1).max(5_000_000),
+  mapping: z.object({ code: z.string(), name: z.string(), contactEmail: z.string().optional(), leadTimeDays: z.string().optional() }),
+  decimalSeparator: z.enum([".", ","]).default("."),
+});
+
 export const GoodsReceiptInput = z.object({
   supplierName: z.string().min(1).max(200),
   purchaseOrderLineId: Uuid.optional(),

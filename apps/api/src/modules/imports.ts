@@ -1,7 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import {
   BomImportPreviewInput,
+  CustomerImportPreviewInput,
   StockImportPreviewInput,
+  SupplierImportPreviewInput,
   type BomDiff,
   type BomLine,
   type BomVersion,
@@ -18,6 +20,8 @@ import { recordLotCost } from "./costing";
 
 type BomRowValues = { mpn: string; manufacturer: string; qty: string; refdes: string; description: string; dnp: string; internalCode: string; itemId?: string };
 type StockRowValues = { itemCode: string; qty: string; lotNo: string; locationCode: string; rev: string; unitCost?: string; currency?: string; itemId?: string; locationId?: string; revisionId?: string };
+type CustomerRowValues = { code: string; name: string };
+type SupplierRowValues = { code: string; name: string; contactEmail: string; leadTimeDays: string };
 
 async function existingCommitted(db: Db, kind: string, targetId: string | null, hash: string) {
   const r = await db.query(
@@ -212,6 +216,76 @@ export async function importRoutes(app: FastifyInstance) {
     });
   });
 
+  /**
+   * W39 devamı (tarihsel veri geçişi): müşteri ana veri içe aktarımı. Hareket değil upsert'tir — kod
+   * eşleşirse ad güncellenir, yoksa yeni müşteri açılır; bu yüzden "ambiguous"/"new_item" yok, yalnız "ok"/"error".
+   */
+  app.post("/api/imports/customers/preview", async (req): Promise<ImportPreview> => {
+    const input = parse(CustomerImportPreviewInput, req.body);
+    return tenant(req, "sales.create", async (db, actor) => {
+      const hash = sha256(input.content);
+      const { rows } = parseCsv(input.content);
+      const m = input.mapping;
+      const out: ImportPreviewRow[] = [];
+      const seen = new Set<string>();
+      for (const [i, raw] of rows.entries()) {
+        const v: CustomerRowValues = { code: (raw[m.code] ?? "").trim(), name: (raw[m.name] ?? "").trim() };
+        const messages: string[] = [];
+        if (!v.code) messages.push("Müşteri kodu boş");
+        if (!v.name) messages.push("Müşteri adı boş");
+        if (v.code) {
+          if (seen.has(v.code)) messages.push("Dosyada mükerrer kod");
+          seen.add(v.code);
+        }
+        out.push({ row: i + 2, status: messages.length ? "error" : "ok", messages, values: v as unknown as Record<string, string> });
+      }
+      const job = await db.query(
+        `insert into import_jobs (company_id, kind, file_name, file_hash, mapping, preview, created_by)
+         values (app_company_id(), 'customers', $1, $2, $3, $4, $5) returning id`,
+        [input.fileName, hash, JSON.stringify(m), JSON.stringify(out), actor.userId],
+      );
+      return { jobId: job.rows[0].id, fileHash: hash, duplicateOf: await existingCommitted(db, "customers", null, hash), rows: out, summary: summarize(out) };
+    });
+  });
+
+  /** W39 devamı: tedarikçi ana veri içe aktarımı — aynı upsert deseni (bkz. müşteri içe aktarımı üstte). */
+  app.post("/api/imports/suppliers/preview", async (req): Promise<ImportPreview> => {
+    const input = parse(SupplierImportPreviewInput, req.body);
+    return tenant(req, "supplier.manage", async (db, actor) => {
+      const hash = sha256(input.content);
+      const { rows } = parseCsv(input.content);
+      const m = input.mapping;
+      const out: ImportPreviewRow[] = [];
+      const seen = new Set<string>();
+      for (const [i, raw] of rows.entries()) {
+        const v: SupplierRowValues = {
+          code: (raw[m.code] ?? "").trim(),
+          name: (raw[m.name] ?? "").trim(),
+          contactEmail: m.contactEmail ? (raw[m.contactEmail] ?? "").trim() : "",
+          leadTimeDays: m.leadTimeDays ? (raw[m.leadTimeDays] ?? "").trim() : "",
+        };
+        const messages: string[] = [];
+        if (!v.code) messages.push("Tedarikçi kodu boş");
+        if (!v.name) messages.push("Tedarikçi adı boş");
+        if (v.leadTimeDays) {
+          const n = Number(v.leadTimeDays);
+          if (!Number.isInteger(n) || n < 0 || n > 365) messages.push(`Teslim süresi geçersiz: "${v.leadTimeDays}"`);
+        }
+        if (v.code) {
+          if (seen.has(v.code)) messages.push("Dosyada mükerrer kod");
+          seen.add(v.code);
+        }
+        out.push({ row: i + 2, status: messages.length ? "error" : "ok", messages, values: v as unknown as Record<string, string> });
+      }
+      const job = await db.query(
+        `insert into import_jobs (company_id, kind, file_name, file_hash, mapping, preview, created_by)
+         values (app_company_id(), 'suppliers', $1, $2, $3, $4, $5) returning id`,
+        [input.fileName, hash, JSON.stringify(m), JSON.stringify(out), actor.userId],
+      );
+      return { jobId: job.rows[0].id, fileHash: hash, duplicateOf: await existingCommitted(db, "suppliers", null, hash), rows: out, summary: summarize(out) };
+    });
+  });
+
   /** Onay: hatalı veya çözümsüz belirsiz satır varken işlenmez. Aynı dosya aynı hedefe ikinci kez işlenmez (T13). */
   app.post("/api/imports/:id/commit", async (req) => {
     const { id } = req.params as { id: string };
@@ -220,7 +294,7 @@ export async function importRoutes(app: FastifyInstance) {
       const j = await db.query(`select * from import_jobs where id = $1 for update`, [id]);
       const job = j.rows[0];
       if (!job) throw notFound("İçe aktarım işi");
-      const perm = job.kind === "bom" ? "bom.import" : "inventory.import";
+      const perm = job.kind === "bom" ? "bom.import" : job.kind === "customers" ? "sales.create" : job.kind === "suppliers" ? "supplier.manage" : "inventory.import";
       if (!can(req, perm)) throw forbidden(perm);
       if (job.status !== "previewed") throw conflict("import_state", `İş durumu uygun değil: ${job.status}`);
       const dup = await existingCommitted(db, job.kind, job.target_id, job.file_hash);
@@ -263,6 +337,41 @@ export async function importRoutes(app: FastifyInstance) {
         }
         result = { bomVersionId: bom.rows[0].id, versionNo: next.rows[0].n, lines: rows.length, createdItems: created };
         await recordEvent(db, importActor, { entityType: "bom_version", entityId: bom.rows[0].id, eventType: "imported", after: result, source: `import:${id}` });
+      } else if (job.kind === "customers") {
+        // Ana veri upsert'i: kod eşleşirse ad güncellenir, yoksa yeni müşteri açılır. Hareket/rezervasyon etkilenmez.
+        let created = 0;
+        let updated = 0;
+        for (const r of rows) {
+          const v = r.values as unknown as CustomerRowValues;
+          const up = await db.query(
+            `insert into customers (company_id, code, name) values (app_company_id(), $1, $2)
+             on conflict (company_id, code) do update set name = excluded.name
+             returning (xmax = 0) as inserted`,
+            [v.code, v.name],
+          );
+          if (up.rows[0].inserted) created++;
+          else updated++;
+        }
+        result = { created, updated };
+        await recordEvent(db, importActor, { entityType: "import_job", entityId: id, eventType: "customers.imported", after: result, source: `import:${id}` });
+      } else if (job.kind === "suppliers") {
+        // Ana veri upsert'i: kod eşleşirse ad/iletişim/teslim süresi güncellenir, yoksa yeni tedarikçi açılır.
+        let created = 0;
+        let updated = 0;
+        for (const r of rows) {
+          const v = r.values as unknown as SupplierRowValues;
+          const up = await db.query(
+            `insert into suppliers (company_id, code, name, contact_email, default_lead_time_days) values (app_company_id(), $1, $2, $3, $4)
+             on conflict (company_id, code) do update set name = excluded.name, contact_email = coalesce(excluded.contact_email, suppliers.contact_email),
+               default_lead_time_days = coalesce(excluded.default_lead_time_days, suppliers.default_lead_time_days)
+             returning (xmax = 0) as inserted`,
+            [v.code, v.name, v.contactEmail || null, v.leadTimeDays ? Number(v.leadTimeDays) : null],
+          );
+          if (up.rows[0].inserted) created++;
+          else updated++;
+        }
+        result = { created, updated };
+        await recordEvent(db, importActor, { entityType: "import_job", entityId: id, eventType: "suppliers.imported", after: result, source: `import:${id}` });
       } else {
         // Açılış stoğu: miktar doğrudan yazılmaz, "opening" hareketi oluşturulur. Dış işlem tetiklenmez (prompt §4).
         let moves = 0;
