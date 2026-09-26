@@ -1,6 +1,6 @@
 # Devam notu
 
-Son güncelleme: 26.09.2026 — oturum 39 devamı (kullanıcının 2026-09-26 "devam talimatları" belgesi, bkz. proje dokümanı `claude/devam-talimatlari-2026-09.md`; en son: W39 devamı — açık tedarikçi borcu (AP) tarihsel geçişi)
+Son güncelleme: 26.09.2026 — oturum 39 devamı (kullanıcının 2026-09-26 "devam talimatları" belgesi, bkz. proje dokümanı `claude/devam-talimatlari-2026-09.md`; en son: W39 devamı — açık satın alma siparişi tarihsel geçişi)
 
 ## Kapsam eşleştirme ve durum matrisi (talimat §0/§12 — 2026-09-26)
 
@@ -20,7 +20,7 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | W33 MSL/kurutma altyapısı | **otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | Oturum 22: MSL, kullanım süresi, raf ömrü, lot SKT, paket açılışı (`storage.ts`, 5 test). Oturum 39: sürümlü kurutma (bake-out) reçetesi + gerçek çevrim kaydı eklendi (bkz. aşağıda) — JEDEC J-STD-033 tablosu hâlâ **sabit kodlanmadı** (bilinçli tasarım kararı, aşağıda gerekçesi var), şirketin kendi tanımladığı kaynağa dayalı reçete var. |
 | W36 E-belge/kargo bağlayıcı | **uygulandı (TEST modu), otomatik testleri geçti** | `receivables.ts`/`shipping.ts`, sağlayıcı seçilebilir tasarım var ama yalnız TEST modu; gerçek entegratör/kargo API'si **dış bağımlılık bekliyor**. |
 | W03 API erişim matrisi | **geliştirilmedi** (matris dokümanı yok) | `distributors.ts` TEST/fiyat dosyası modlarını destekliyor (`distributors.test.ts` 5 test) ama resmî "her sağlayıcı için erişim matrisi" dokümanı hâlâ yok. |
-| W39 Tarihsel veri geçişi | **kısmen uygulandı, otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | BOM ve stok import sihirbazı vardı; oturum 39 devamında aynı desenle müşteri/tedarikçi ana veri içe aktarımı (upsert), tüm import türleri için kaynak-hedef uzlaşma göstergesi, açık satış siparişi tarihsel geçişi ve açık tedarikçi borcu (AP) tarihsel geçişi eklendi (bkz. aşağıda). Tarihsel üretim/kalite/maliyet kayıtları ve AR (alacak) göçü hâlâ **geliştirilmedi** — AR, `customer_invoices.sales_order_id NOT NULL` kısıtı nedeniyle şema kararı gerektiriyor. |
+| W39 Tarihsel veri geçişi | **kısmen uygulandı, otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | BOM ve stok import sihirbazı vardı; oturum 39 devamında aynı desenle müşteri/tedarikçi ana veri içe aktarımı (upsert), tüm import türleri için kaynak-hedef uzlaşma göstergesi, açık satış siparişi tarihsel geçişi, açık tedarikçi borcu (AP) tarihsel geçişi ve açık satın alma siparişi tarihsel geçişi eklendi (bkz. aşağıda). Tarihsel üretim/kalite/maliyet kayıtları ve AR (alacak) göçü hâlâ **geliştirilmedi** — AR, `customer_invoices.sales_order_id NOT NULL` kısıtı nedeniyle şema kararı gerektiriyor. |
 | W40 Uçtan uca/yük/dayanıklılık | **kısmen uygulandı, otomatik testleri geçti** | 26 test dosyasında iş kuralı/yetki/RLS testleri var (204/204) — bunlar fonksiyonel kabul testidir. Oturum 39 devamında `apps/api/scripts/loadtest.mjs` (autocannon, `pnpm --filter @apisfactory/api loadtest`) eklendi ve gerçek yerel API + Postgres'e karşı çalıştırıldı: 20 eşzamanlı bağlantı × 20 sn ile `GET /api/items` (ort. 427 istek/sn, ort. gecikme 46 ms, p99 89 ms), `GET /api/stock/balances` (ort. 388 istek/sn, ort. 51 ms, p99 80 ms), `GET /api/imports` (ort. 456 istek/sn, ort. 43 ms, p99 71 ms) — üçünde de 0 hata/0 zaman aşımı. **Bu, prompt'taki 100.000 komponent/1M kayıt/100 eşzamanlı kullanıcı hedefinin tam ölçekli bir testi değildir** (sandbox disk/süre bütçesi elvermiyor; demo veri seti küçük) — yalnızca gerçek ölçülmüş, düşük ölçekli bir taban çizgisi. Gerçek ölçekli yük testi ve dayanıklılık (uzun süreli/kesinti senaryoları) hâlâ **geliştirilmedi**. |
 | W41 Eğitim/destek | **uygulandı, gerçek tarayıcıda doğrulandı (yerel)** | `/help` sayfası: rol bazlı görev rehberleri (8 rol), örnek eğitim şirketi notu, `DEFAULT_ROLES`'ten otomatik üretilen yetki matrisi, içe/dışa aktarma ve video/dosya rehberi, AI önerisi inceleme rehberi, hatalı işlem düzeltme rehberi, destek talebi öncelik/sorumlu/eskalasyon tablosu, canlı geçiş kontrol listesi (bkz. aşağıda). Otomatik test yok (yeni API yüzeyi eklemeyen, salt içerik/frontend işi); doğrulama gerçek tarayıcı ekran görüntüsüyle yapıldı. |
 | W42 SaaS/abonelik yaşam döngüsü | **geliştirilmedi** | Şirket izolasyonu (RLS, her tabloda `company_id`) var ve testli, ama abonelik durumu (deneme/aktif/gecikmiş/kısıtlı/iptal), paket hakları, kullanım sayacı, ödeme idempotency **geliştirilmedi**. |
@@ -36,6 +36,82 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | Distribütör API'leri (DigiKey/Mouser/Farnell/Nexar) | Her birinin kendi geliştirici hesabı + ticari kullanım lisansı | `DIGIKEY_CLIENT_ID` vb. (sağlayıcı başına) | Gerçek kimlik doğrulama + ticari yeniden gösterim izni |
 | Ödeme sağlayıcısı (W42, ileride) | Henüz seçilmedi | — | Seçim sonrası |
 | AI/LLM sağlayıcısı (W30 yorum katmanı) | Henüz seçilmedi (sağlayıcı ve model şirkete ait karar) | `AI_PROVIDER`, `AI_API_KEY` (sunucu tarafı secret store) | Sağlayıcı seçilip bağlanınca: gerçek yorum üretimi ve `ai_status='generated'` doğrulaması |
+
+## Oturum 39 devamı — W39 devamı: açık satın alma siparişi tarihsel geçişi
+
+**Durum: uygulandı, otomatik testleri geçti, gerçek tarayıcıda (yerel geliştirme ortamı) uçtan uca doğrulandı.** Dış bağımlılık gerektirmiyor.
+
+AP (tedarikçi borcu) geçişinden sonra W39'un "açık satın alma/satış/üretim emirleri" kapsamındaki üçüncü ve son
+sipariş türü — açık satın alma siparişi — ele alındı (satış siparişi ve AP daha önce tamamlanmıştı). Bu, AR
+(alacak) göçünün aksine bir şema değişikliği gerektirmiyordu: `purchase_order_lines.item_id` NOT NULL ama
+`purchase_request_id`/`quote_id` zaten satır bazında nullable, bu yüzden RFQ/teklif/talep bağlantısı olmadan da
+geçerli bir satır oluşturulabiliyor — sales_orders geçişiyle aynı risk sınıfında.
+
+**Tasarım — canlı akıştan bilinçli fark:** Canlı satın alma akışı her zaman RFQ açar → tedarikçilerden teklif
+alınır/karşılaştırılır → en uygun teklif gerekçeyle seçilir (`POST /api/rfqs/:id/award`) → bu award bir satın alma
+siparişi + satırı yaratır ve varsa bağlı satın alma talebini "converted" işaretler. Geçmişten taşınan bir sipariş
+için RFQ/teklif karşılaştırması veya satın alma talebi/üretim ihtiyacı bağlantısı üretmek, o siparişin geçmişte
+gerçekten nasıl bir teklif sürecinden geçtiğini bilmediğimiz halde uydurma bir karar geçmişi yaratmak olurdu — bu
+yüzden yeni `POST /api/imports/purchase-orders/preview` + commit akışı hiçbir RFQ/`rfq_quotes`/`purchase_requests`/
+`purchase_allocations` satırı oluşturmuyor; sipariş ve satırları **olduğu gibi** kaydediliyor.
+
+**İkinci ve daha ince bir "uydurmama" kararı — sipariş durumu:** Canlı sistemde satırlara teyit tarihi ve mal kabul
+işlendikçe sipariş başlığının durumu (`sent` → `confirmed`/`partially_received` → `received`) `refreshPoStatus()`
+fonksiyonuyla satırlardan **türetilir**, elle set edilmez. Göç akışı da AYNI fonksiyonu (procurement.ts'ten
+`export`lanmış hâliyle) çağırıyor — CSV'de teyit tarihi ve teslim alınan miktar verilmişse durum gerçekten o
+verilerden hesaplanıyor (örn. teslim alınan = sipariş miktarı → `received`; kısmi → `partially_received`; yalnız
+teyit tarihi → `confirmed`; hiçbiri yoksa → `sent`, ki bu zaten göçün taban durumu: "açık/dış sipariş" olarak
+tanımlanan bir kaydın tedarikçiye gönderilmiş olduğu bilinen bir gerçektir, ne zaman gönderildiği (`sentAt`) ise
+bilinmediği için `null` bırakılır ve arayüzde "TEST gönderimi" bildirimi bu yüzden hiç görünmez — dürüstçe boş).
+
+**Ne yapıldı:**
+- `apps/api/migrations/038_purchase_order_import.sql`: `import_jobs.kind` CHECK kısıtına `'purchase_orders'` eklendi.
+- `packages/shared/src/schemas.ts`: `PurchaseOrderImportPreviewInput` (sipariş kodu opsiyonel, tedarikçi/kalem kodu
+  zorunlu, sipariş miktarı zorunlu, teslim alınan miktar/birim fiyat/para birimi/istenen tarih/teyit tarihi opsiyonel).
+- `apps/api/src/modules/imports.ts`: `POST /api/imports/purchase-orders/preview` (yetki: `purchase.order.manage`) —
+  tedarikçi/kalem kodu çözümlenir; teslim alınan miktar sipariş miktarını aşamaz; aynı sipariş kodundaki satırlar
+  farklı tedarikçi veya para birimiyle kullanılırsa reddedilir; sipariş kodu DB'de zaten varsa reddedilir. Commit'te:
+  gruplar sırayla `purchase_orders` + `purchase_order_lines`'a yazılır (durum başlangıçta `'sent'`), ardından
+  `refreshPoStatus()` çağrılarak gerçek durum satırlardan türetilir; sipariş kodu boşsa aynı `nextCode(...,
+  "purchase_order", "SAS")` sayacı (canlı akışla aynı, çakışma olmaz) kullanılır. `procurement.ts`'ten
+  `refreshPoStatus` içe aktarıldı (döngüsel import riski yok — procurement.ts imports.ts'i hiç referans etmiyor).
+  Commit route'undaki izin eşlemesine `purchase_orders → purchase.order.manage` eklendi; `reconcile()` genişletildi
+  (`purchase_orders` → `result.lines`, `sales_orders` ile aynı desen).
+- Web: `Imports.tsx`'e "Açık satın alma siparişleri (W39 devamı — tarihsel geçiş)" bölümü (yetki:
+  `purchase.order.manage`), geçmiş işler tablosuna `purchase_orders: "Satın alma siparişleri"` etiketi eklendi.
+- **Bu kez UI'da hata çıkmadı** (AP faturasındaki `matchResult` hatasından sonra kod yazmadan önce
+  `PurchaseOrderPage` bileşeni özellikle incelendi — `null` alanlara (`sentAt`, `unitPrice`, `confirmedDate`,
+  `prCode`) zaten null-safe davrandığı ve RFQ'ya özgü hiçbir alanı varsaymadığı doğrulandı; bu yüzden ek bir
+  düzeltme gerekmedi).
+- Test: `apps/api/test/purchase-order-import.test.ts` (7 test) — yetkisiz rol reddi; çok satırlı sipariş
+  gruplama + **`rfqs`/`purchase_requests`/`purchase_allocations` tablolarına hiçbir satır düşmediğinin doğrudan DB
+  sorgusuyla doğrulanması** + teyit/teslim verilmezse durumun `sent` kalması + `sentAt`'in `null` kalması; tam
+  teslim + teyit tarihi verilince durumun `received` olarak (uydurulmadan, gerçekten `refreshPoStatus`'tan)
+  türetildiği; kısmi teslimde `partially_received`; sipariş kodu boşken her satırın ayrı sipariş olması; yedi farklı
+  hata senaryosu (bilinmeyen tedarikçi/kalem, geçersiz miktar/teslim-aşımı/tarih/kur, mükerrer sipariş kodu) ve
+  bunların onayı engellediği; uzlaşma göstergesinin doğru hesaplandığı.
+
+**Doğrulama (gerçek yerel Postgres + gerçek tarayıcı, sağlayıcı/canlı ortam DEĞİL):**
+- `pnpm -r exec tsc --noEmit`: hatasız.
+- `npx vite build` (web): başarılı.
+- `pnpm test` (api): **221/221** test geçti (önceki 214 + yeni 7), gerçek PostgreSQL 16.
+- Migration 038 gerçek yerel dev veritabanına uygulandı (`migration uygulandı: 038_purchase_order_import.sql`).
+- Playwright ile gerçek tarayıcıda (`satinalma@demo.apisfactory.com`, DEMO şirketi, seed'deki `DEMO-DAG` tedarikçisi
+  ve `CMP-CAP-01` kalemi kullanılarak): giriş → İçe aktarım sayfasında "Açık satın alma siparişleri" sihirbazı →
+  CSV yükle (500 sipariş, 150 teslim alınmış, teyit tarihi verilmiş) → kolon otomatik eşleşmesi → Önizle (1 satır,
+  eşleşti) → Onayla ve işle (`{"orders":1,"lines":1}`) → Geçmiş işler tablosunda "İşlendi", uzlaşma "kaynak 1 /
+  hedef 1" → Satın alma siparişleri listesinde sipariş görünüyor → sipariş detayında durum rozeti **"kısmi
+  teslim"** (`partially_received`, gerçekten türetilmiş — 150/500 verildiği için doğru), toplam 500 × 0,45 = 225
+  TRY doğru hesaplandı, teyit tarihi "2026-01-18 gecikti" (teslim tarihinden sonra ve eksik teslim olduğu için
+  doğru şekilde gecikmiş işaretlendi), "Gönderim TEST" bildirimi görünmüyor (sentAt bilinmediği için dürüstçe
+  boş), sayfa hatası yok.
+
+Kalan (W39'un hâlâ açık kısmı): tarihsel üretim/kalite/maliyet kayıtları ve AR (alacak) göçü — AR için önce şema
+kararı (yukarıda) gerekiyor. "Açık satın alma/satış/üretim emirleri" üçlüsünün sipariş kısmı (satış + satın alma)
+artık tamamlandı; kalan "üretim emirleri" (iş emirleri) tarihsel geçişi henüz ele alınmadı — bu da kendi başına
+dikkatli bir tasarım gerektiriyor (bir iş emrinin geçmişte hangi operasyonlardan hangi sürede geçtiğini, fire/hurda
+miktarlarını ve kaliteden geçip geçmediğini olduğu gibi kaydetmek, ama üretim planlama/kapasite/malzeme
+tüketimi gibi canlı yan etkileri tetiklememek gerekiyor — aynı "bilinçli fark" deseni, farklı domain).
 
 ## Oturum 39 devamı — W39 devamı: açık tedarikçi borcu (AP) tarihsel geçişi
 
