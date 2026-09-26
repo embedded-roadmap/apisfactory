@@ -150,8 +150,13 @@ export function CustomerInvoicePage() {
   if (!i) return q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />;
   return (
     <>
-      <PageHeader title={`${i.code} — ${i.customerName}`} sub={<>sipariş <Link to={`/sales/${i.salesOrderId}`}>{i.salesOrderCode}</Link>{i.shipmentId ? <> · sevkiyat <Link to={`/shipments/${i.shipmentId}`}>{i.shipmentCode}</Link></> : null} · hazırlayan {i.createdBy} · <Link to="/receivables">← Faturalar</Link></>}
+      <PageHeader title={`${i.code} — ${i.customerName}`} sub={<>{i.salesOrderId ? <>sipariş <Link to={`/sales/${i.salesOrderId}`}>{i.salesOrderCode}</Link></> : <span className="muted">sipariş bağlantısı yok (tarihsel geçiş)</span>}{i.shipmentId ? <> · sevkiyat <Link to={`/shipments/${i.shipmentId}`}>{i.shipmentCode}</Link></> : null} · hazırlayan {i.createdBy} · <Link to="/receivables">← Faturalar</Link></>}
         actions={<span className={`badge ${ST[i.status]![1]}`}>{ST[i.status]![0]}</span>} />
+      {i.migrated ? (
+        <div className="notice">
+          Bu fatura tarihsel geçişle (W39 devamı) eklendi — sipariş/sevkiyat bağlantısı olmadığından bir sipariş/sevkiyat kaydına bağlanmadı; fatura doğrudan {i.status === "paid" ? "tahsil edildi" : "kesildi"} olarak kaydedildi.
+        </div>
+      ) : null}
       {i.documentMode === "test" ? (
         <div className="notice warn">Belge modu <span className="badge mode warn">TEST</span>: {i.einvoiceKind === "e_fatura" ? "e-Fatura" : "e-Arşiv"} olarak {i.einvoiceConnector} üzerinden sentetik gönderildi (ETTN {i.einvoiceEttn}) — resmi değildir, GİB'e iletilmedi.</div>
       ) : (

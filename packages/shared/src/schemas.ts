@@ -146,6 +146,28 @@ export const PurchaseOrderImportPreviewInput = z.object({
   decimalSeparator: z.enum([".", ","]).default("."),
 });
 
+// W39 devamı: açık alacak (AR) tarihsel geçişi. Canlı fatura akışından (sevkiyattan taslak → kes) bilinçli olarak
+// farklı — burada bir satış siparişi/sevkiyat bağlantısı HİÇBİR ŞEKİLDE uydurulmaz (customer_invoices.sales_order_id
+// bu göç için nullable yapıldı, bkz. migration 039). Fatura doğrudan "issued" (tamamı tahsil edilmişse "paid")
+// kaydedilir ve `migrated=true` ile işaretlenir.
+export const ArInvoiceImportPreviewInput = z.object({
+  fileName: z.string().min(1),
+  content: z.string().min(1).max(5_000_000),
+  mapping: z.object({
+    invoiceNo: z.string().optional(),
+    customerCode: z.string(),
+    invoiceDate: z.string(),
+    dueDate: z.string().optional(),
+    currency: z.string().optional(),
+    netAmount: z.string(),
+    taxAmount: z.string().optional(),
+    description: z.string().optional(),
+    receivedAmount: z.string().optional(),
+    receivedDate: z.string().optional(),
+  }),
+  decimalSeparator: z.enum([".", ","]).default("."),
+});
+
 export const GoodsReceiptInput = z.object({
   supplierName: z.string().min(1).max(200),
   purchaseOrderLineId: Uuid.optional(),

@@ -167,6 +167,38 @@ export function ImportsPage() {
           />
         </section>
       ) : null}
+      {can("receivable.manage") ? (
+        <section className="card">
+          <h2>Açık alacak (W39 devamı — tarihsel geçiş)</h2>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Geçmişten taşınan faturalar doğrudan kesildi (tamamı tahsil edilmişse "tahsil edildi") olarak
+            kaydedilir; canlı fatura akışından (sevkiyattan taslak → kes) farklı olarak sipariş/sevkiyat
+            bağlantısı <b>uydurulmaz</b> — fatura kaydında bu durum açıkça belirtilir. KDV oranı, verdiğiniz net/KDV
+            tutarından hesaplanır. "Tahsil edilen tutar" verilirse "Tahsilat tarihi" de zorunludur.
+          </p>
+          <CsvWizard
+            columns={["invoiceNo", "customerCode", "invoiceDate", "dueDate", "currency", "netAmount", "taxAmount", "description", "receivedAmount", "receivedDate"]}
+            fields={[
+              { key: "invoiceNo", label: "Fatura no (opsiyonel — boşsa üretilir)", guesses: ["fatura no", "invoice no", "fatura numarası"] },
+              { key: "customerCode", label: "Müşteri kodu", required: true, guesses: ["müşteri kodu", "customer code", "kod"] },
+              { key: "invoiceDate", label: "Fatura tarihi", required: true, guesses: ["fatura tarihi", "invoice date", "tarih"] },
+              { key: "dueDate", label: "Vade tarihi (opsiyonel — boşsa müşteri ödeme vadesinden hesaplanır)", guesses: ["vade tarihi", "due date", "vade"] },
+              { key: "currency", label: "Para birimi (opsiyonel, varsayılan TRY)", guesses: ["para birimi", "currency", "kur"] },
+              { key: "netAmount", label: "Net tutar", required: true, guesses: ["net tutar", "net amount", "tutar"] },
+              { key: "taxAmount", label: "KDV tutarı (opsiyonel)", guesses: ["kdv", "vergi", "tax amount"] },
+              { key: "description", label: "Açıklama (opsiyonel)", guesses: ["açıklama", "description"] },
+              { key: "receivedAmount", label: "Tahsil edilen tutar (opsiyonel)", guesses: ["tahsil edilen tutar", "received amount"] },
+              { key: "receivedDate", label: "Tahsilat tarihi (tahsil edilen tutar verilmişse zorunlu)", guesses: ["tahsilat tarihi", "received date"] },
+            ]}
+            onPreview={(a) => post<ImportPreview>("/api/imports/ar-invoices/preview", a)}
+            onCommit={async (jobId) => {
+              const r = await post(`/api/imports/${jobId}/commit`, {});
+              qc.invalidateQueries({ queryKey: ["imports"] });
+              return r;
+            }}
+          />
+        </section>
+      ) : null}
       <section className="card">
         <h2>Geçmiş işler</h2>
         <p className="muted" style={{ marginTop: 0 }}>Uzlaşma: kaynak dosyadaki işlenebilir satır sayısı ile hedefte gerçekte oluşan kayıt sayısı karşılaştırılır (W39 devamı).</p>
@@ -202,4 +234,4 @@ export function ImportsPage() {
   );
 }
 
-const JOB_KIND_LABEL: Record<string, string> = { bom: "BOM", stock_opening: "Açılış stoğu", customers: "Müşteriler", suppliers: "Tedarikçiler", sales_orders: "Satış siparişleri", ap_invoices: "Tedarikçi faturaları", purchase_orders: "Satın alma siparişleri" };
+const JOB_KIND_LABEL: Record<string, string> = { bom: "BOM", stock_opening: "Açılış stoğu", customers: "Müşteriler", suppliers: "Tedarikçiler", sales_orders: "Satış siparişleri", ap_invoices: "Tedarikçi faturaları", purchase_orders: "Satın alma siparişleri", ar_invoices: "Müşteri faturaları" };

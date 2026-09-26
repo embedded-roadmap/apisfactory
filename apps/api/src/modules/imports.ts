@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import {
   ApInvoiceImportPreviewInput,
+  ArInvoiceImportPreviewInput,
   BomImportPreviewInput,
   CustomerImportPreviewInput,
   PurchaseOrderImportPreviewInput,
@@ -51,6 +52,21 @@ type PurchaseOrderRowValues = {
   currency: string;
   requestedDate: string;
   confirmedDate: string;
+};
+type ArInvoiceRowValues = {
+  invoiceNo: string;
+  customerCode: string;
+  customerId?: string;
+  paymentTermsDays?: number;
+  invoiceDate: string;
+  dueDate: string;
+  currency: string;
+  netAmount: string;
+  taxAmount: string;
+  taxRate: string;
+  description: string;
+  receivedAmount: string;
+  receivedDate: string;
 };
 type ApInvoiceRowValues = {
   supplierCode: string;
@@ -607,6 +623,106 @@ export async function importRoutes(app: FastifyInstance) {
     });
   });
 
+  /**
+   * W39 devamı: açık alacak (AR) tarihsel geçişi. **Canlı fatura akışından (sevkiyattan taslak → kes)
+   * bilinçli olarak farklıdır**: gerçek bir satış siparişi/sevkiyat bağlantısı HİÇBİR ŞEKİLDE uydurulmaz
+   * (`sales_order_id`/`shipment_id` boş bırakılır — bkz. migration 039). Fatura doğrudan `status='issued'`
+   * (tamamı tahsil edilmişse `'paid'`) kaydedilir ve `migrated=true` ile işaretlenir; arayüzde bu durum
+   * açıkça belirtilir. KDV oranı, verilen net/KDV tutarından geriye doğru hesaplanır (uydurulmaz) — oran
+   * %100'ü aşarsa (tutarlar tutarsızsa) satır reddedilir.
+   */
+  app.post("/api/imports/ar-invoices/preview", async (req): Promise<ImportPreview> => {
+    const input = parse(ArInvoiceImportPreviewInput, req.body);
+    return tenant(req, "receivable.manage", async (db, actor) => {
+      const hash = sha256(input.content);
+      const { rows } = parseCsv(input.content);
+      const m = input.mapping;
+      const out: ImportPreviewRow[] = [];
+      const seen = new Set<string>();
+      for (const [i, raw] of rows.entries()) {
+        const v: ArInvoiceRowValues = {
+          invoiceNo: m.invoiceNo ? (raw[m.invoiceNo] ?? "").trim() : "",
+          customerCode: (raw[m.customerCode] ?? "").trim(),
+          invoiceDate: (raw[m.invoiceDate] ?? "").trim(),
+          dueDate: m.dueDate ? (raw[m.dueDate] ?? "").trim() : "",
+          currency: m.currency ? (raw[m.currency] ?? "").trim() : "",
+          netAmount: (raw[m.netAmount] ?? "").trim(),
+          taxAmount: m.taxAmount ? (raw[m.taxAmount] ?? "").trim() : "",
+          taxRate: "",
+          description: m.description ? (raw[m.description] ?? "").trim() : "",
+          receivedAmount: m.receivedAmount ? (raw[m.receivedAmount] ?? "").trim() : "",
+          receivedDate: m.receivedDate ? (raw[m.receivedDate] ?? "").trim() : "",
+        };
+        const messages: string[] = [];
+
+        if (!v.currency) v.currency = "TRY";
+        else if (!/^[A-Z]{3}$/.test(v.currency)) messages.push(`Para birimi geçersiz: "${v.currency}"`);
+
+        const net = normalizeDecimal(v.netAmount, input.decimalSeparator);
+        let netValid = false;
+        if (!net || Number(net) < 0) messages.push(`Net tutar geçersiz: "${v.netAmount}"`);
+        else { v.netAmount = net; netValid = true; }
+
+        let taxValid = false;
+        if (v.taxAmount) {
+          const tax = normalizeDecimal(v.taxAmount, input.decimalSeparator);
+          if (!tax || Number(tax) < 0) messages.push(`KDV tutarı geçersiz: "${v.taxAmount}"`);
+          else { v.taxAmount = tax; taxValid = true; }
+        } else { v.taxAmount = "0"; taxValid = true; }
+
+        if (netValid && taxValid) {
+          const netN = Number(v.netAmount);
+          const taxN = Number(v.taxAmount);
+          const rate = netN > 0 ? Math.round((taxN / netN) * 10000) / 100 : 0;
+          if (rate > 100) messages.push(`KDV oranı net/KDV tutarından hesaplanamıyor (%${rate} > %100) — tutarları kontrol edin`);
+          else v.taxRate = rate.toFixed(2);
+        }
+
+        if (!v.invoiceDate || Number.isNaN(Date.parse(v.invoiceDate))) messages.push(`Fatura tarihi geçersiz: "${v.invoiceDate}"`);
+
+        if (v.dueDate) {
+          if (Number.isNaN(Date.parse(v.dueDate))) messages.push(`Vade tarihi geçersiz: "${v.dueDate}"`);
+          else if (v.invoiceDate && v.dueDate < v.invoiceDate) messages.push("Vade tarihi fatura tarihinden önce olamaz");
+        }
+
+        if (!v.customerCode) messages.push("Müşteri kodu boş");
+        else {
+          const c = await db.query(`select id, payment_terms_days from customers where code = $1`, [v.customerCode]);
+          if (!c.rows[0]) messages.push(`Müşteri bulunamadı: ${v.customerCode}`);
+          else {
+            v.customerId = c.rows[0].id;
+            v.paymentTermsDays = c.rows[0].payment_terms_days;
+          }
+        }
+
+        if (v.receivedAmount) {
+          const received = normalizeDecimal(v.receivedAmount, input.decimalSeparator);
+          const gross = Number(net || 0) + Number(v.taxAmount || 0);
+          if (!received || Number(received) < 0) messages.push(`Tahsil edilen tutar geçersiz: "${v.receivedAmount}"`);
+          else if (Number(received) > gross + 1e-9) messages.push(`Tahsil edilen tutar (${received}) brüt tutarı (${gross.toFixed(2)}) aşamaz`);
+          else v.receivedAmount = received;
+          if (!v.receivedDate) messages.push("Tahsil edilen tutar verilmişse tahsilat tarihi de gerekli");
+          else if (Number.isNaN(Date.parse(v.receivedDate))) messages.push(`Tahsilat tarihi geçersiz: "${v.receivedDate}"`);
+        }
+
+        if (v.invoiceNo) {
+          if (seen.has(v.invoiceNo)) messages.push("Dosyada mükerrer fatura no");
+          seen.add(v.invoiceNo);
+          const existing = await db.query(`select id from customer_invoices where code = $1`, [v.invoiceNo]);
+          if (existing.rows[0]) messages.push(`Fatura numarası zaten kullanımda: ${v.invoiceNo}`);
+        }
+
+        out.push({ row: i + 2, status: messages.length ? "error" : "ok", messages, values: v as unknown as Record<string, string> });
+      }
+      const job = await db.query(
+        `insert into import_jobs (company_id, kind, file_name, file_hash, mapping, preview, created_by)
+         values (app_company_id(), 'ar_invoices', $1, $2, $3, $4, $5) returning id`,
+        [input.fileName, hash, JSON.stringify(m), JSON.stringify(out), actor.userId],
+      );
+      return { jobId: job.rows[0].id, fileHash: hash, duplicateOf: await existingCommitted(db, "ar_invoices", null, hash), rows: out, summary: summarize(out) };
+    });
+  });
+
   /** Onay: hatalı veya çözümsüz belirsiz satır varken işlenmez. Aynı dosya aynı hedefe ikinci kez işlenmez (T13). */
   app.post("/api/imports/:id/commit", async (req) => {
     const { id } = req.params as { id: string };
@@ -621,6 +737,7 @@ export async function importRoutes(app: FastifyInstance) {
         : job.kind === "suppliers" ? "supplier.manage"
         : job.kind === "ap_invoices" ? "invoice.manage"
         : job.kind === "purchase_orders" ? "purchase.order.manage"
+        : job.kind === "ar_invoices" ? "receivable.manage"
         : "inventory.import";
       if (!can(req, perm)) throw forbidden(perm);
       if (job.status !== "previewed") throw conflict("import_state", `İş durumu uygun değil: ${job.status}`);
@@ -832,6 +949,50 @@ export async function importRoutes(app: FastifyInstance) {
           });
         }
         result = { orders: ordersCreated, lines: linesCreated };
+      } else if (job.kind === "ar_invoices") {
+        // Tarihsel geçiş: sipariş/sevkiyat bağlantısı uydurulmaz (bkz. önizleme uç noktasındaki açıklama);
+        // sales_order_id/shipment_id null kalır, migrated=true işaretlenir. Fatura önce 'draft' olarak
+        // eklenir (satır ekleme yalnızca 'draft' durumunda izinlidir — customer_invoice_lines_guard),
+        // satırı yazılır, sonra 'issued' (veya tamamı tahsil edilmişse 'paid') olarak işaretlenir —
+        // canlı "kes" akışıyla aynı sıra (draft → issued), guard tetiğini bilerek ihlal etmiyor.
+        let invoicesCreated = 0;
+        let receiptsRecorded = 0;
+        for (const r of rows) {
+          const v = r.values as unknown as ArInvoiceRowValues;
+          const net = Number(v.netAmount);
+          const tax = Number(v.taxAmount || "0");
+          const gross = net + tax;
+          const due = v.dueDate || new Date(Date.parse(`${v.invoiceDate}T00:00:00Z`) + (v.paymentTermsDays ?? 30) * 864e5).toISOString().slice(0, 10);
+          const code = v.invoiceNo || (await nextCode(db, actor.companyId, "customer_invoice_issued", "MF"));
+          const receivedFull = v.receivedAmount && Math.abs(Number(v.receivedAmount) - gross) < 0.005;
+          const inv = await db.query(
+            `insert into customer_invoices (company_id, code, customer_id, sales_order_id, shipment_id, status, migrated, invoice_date, due_date, currency, tax_rate, net_amount, tax_amount, gross_amount, created_by, issued_by, issued_at)
+             values (app_company_id(), $1, $2, null, null, 'draft', true, $3, $4, $5, $6, $7, $8, $9, $10, $10, now()) returning id`,
+            [code, v.customerId, v.invoiceDate, due, v.currency, v.taxRate, net.toFixed(2), tax.toFixed(2), gross.toFixed(2), actor.userId],
+          );
+          await db.query(
+            `insert into customer_invoice_lines (company_id, invoice_id, line_no, description, qty, unit_price, amount)
+             values (app_company_id(), $1, 1, $2, 1, $3, $3)`,
+            [inv.rows[0].id, v.description || `Tarihsel geçiş — ${code}`, net.toFixed(2)],
+          );
+          await db.query(`update customer_invoices set status = $2 where id = $1`, [inv.rows[0].id, receivedFull ? "paid" : "issued"]);
+          invoicesCreated++;
+          if (v.receivedAmount && Number(v.receivedAmount) > 0) {
+            await db.query(
+              `insert into customer_receipts (company_id, invoice_id, amount, received_on, reference, recorded_by) values (app_company_id(), $1, $2, $3, $4, $5)`,
+              [inv.rows[0].id, v.receivedAmount, v.receivedDate, `Tarihsel geçiş — import:${id}`, actor.userId],
+            );
+            receiptsRecorded++;
+          }
+          await recordEvent(db, importActor, {
+            entityType: "customer_invoice",
+            entityId: inv.rows[0].id,
+            eventType: "imported",
+            after: { code, gross: gross.toFixed(2), status: receivedFull ? "paid" : "issued" },
+            source: `import:${id}`,
+          });
+        }
+        result = { invoices: invoicesCreated, receipts: receiptsRecorded };
       } else {
         // Açılış stoğu: miktar doğrudan yazılmaz, "opening" hareketi oluşturulur. Dış işlem tetiklenmez (prompt §4).
         let moves = 0;
@@ -870,7 +1031,7 @@ export async function importRoutes(app: FastifyInstance) {
       kind === "bom" || kind === "sales_orders" || kind === "purchase_orders" ? Number(result.lines ?? 0)
       : kind === "stock_opening" ? Number(result.moves ?? 0)
       : kind === "customers" || kind === "suppliers" ? Number(result.created ?? 0) + Number(result.updated ?? 0)
-      : kind === "ap_invoices" ? Number(result.invoices ?? 0)
+      : kind === "ap_invoices" || kind === "ar_invoices" ? Number(result.invoices ?? 0)
       : null;
     return { sourceRows: previewLen, targetRows, matched: targetRows === null ? null : targetRows === previewLen };
   }
