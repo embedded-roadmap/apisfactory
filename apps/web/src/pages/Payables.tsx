@@ -187,22 +187,32 @@ export function InvoicePage() {
       </section>
       <section className="card">
         <h2>Üç yönlü eşleştirme</h2>
-        <p className="muted" style={{ margin: 0 }}>Tolerans: fiyat %{m?.tolerance.pricePct}, miktar %{m?.tolerance.qtyPct}, tutar {m?.tolerance.amount} · politika {m?.policyVersion ? `v${m.policyVersion}` : "varsayılan"} (kayıt anındaki).</p>
-        {m?.headerFlags.map((f: any) => <div key={f.code} className="notice warn">{f.message}</div>)}
-        <table>
-          <thead><tr><th>#</th><th>Sipariş</th><th>Kalem</th><th className="num">Fatura miktar</th><th className="num">Kabul</th><th className="num">Önceki fatura</th><th className="num">Fatura fiyat</th><th className="num">Sipariş fiyat</th><th className="num">Tutar</th><th>Sonuç</th></tr></thead>
-          <tbody>{i.lines.map((l: any, k: number) => {
-            const r = m?.lines[k] ?? {};
-            return (
-              <tr key={l.lineNo}>
-                <td>{l.lineNo}</td><td className="mono">{l.poCode ?? "—"}</td><td className="mono">{l.itemCode ?? l.description}</td>
-                <td className="num">{fmt(l.qty)}</td><td className="num">{r.accepted != null ? fmt(String(r.accepted)) : "—"}{r.pendingInspection ? <div className="muted">+{r.pendingInspection} bekliyor</div> : null}</td><td className="num">{r.invoicedBefore ?? "—"}</td>
-                <td className="num">{fmt(l.unitPrice)}</td><td className="num">{r.poPrice != null ? fmt(String(r.poPrice)) : "—"}{r.priceDeviationPct ? <div className="muted">%{r.priceDeviationPct}</div> : null}</td><td className="num">{fmt(l.amount)}</td>
-                <td>{r.flags?.length ? r.flags.map((f: any) => <div key={f.code}><span className="badge bad">{FLAG[f.code] ?? f.code}</span></div>) : <span className="badge ok">eşleşti</span>}</td>
-              </tr>
-            );
-          })}</tbody>
-        </table>
+        {m?.migrated ? (
+          <p className="notice" style={{ margin: 0 }}>
+            Bu fatura tarihsel geçişle (W39 devamı) eklendi — sipariş/mal kabul bağlantısı olmadığından üç yönlü
+            eşleştirme çalıştırılmadı; fatura doğrudan {i.status === "paid" ? "ödendi" : "onaylı"} olarak kaydedildi.
+            {m.note ? <><br /><span className="muted">{m.note}</span></> : null}
+          </p>
+        ) : (
+          <>
+            <p className="muted" style={{ margin: 0 }}>Tolerans: fiyat %{m?.tolerance.pricePct}, miktar %{m?.tolerance.qtyPct}, tutar {m?.tolerance.amount} · politika {m?.policyVersion ? `v${m.policyVersion}` : "varsayılan"} (kayıt anındaki).</p>
+            {m?.headerFlags.map((f: any) => <div key={f.code} className="notice warn">{f.message}</div>)}
+            <table>
+              <thead><tr><th>#</th><th>Sipariş</th><th>Kalem</th><th className="num">Fatura miktar</th><th className="num">Kabul</th><th className="num">Önceki fatura</th><th className="num">Fatura fiyat</th><th className="num">Sipariş fiyat</th><th className="num">Tutar</th><th>Sonuç</th></tr></thead>
+              <tbody>{i.lines.map((l: any, k: number) => {
+                const r = m?.lines[k] ?? {};
+                return (
+                  <tr key={l.lineNo}>
+                    <td>{l.lineNo}</td><td className="mono">{l.poCode ?? "—"}</td><td className="mono">{l.itemCode ?? l.description}</td>
+                    <td className="num">{fmt(l.qty)}</td><td className="num">{r.accepted != null ? fmt(String(r.accepted)) : "—"}{r.pendingInspection ? <div className="muted">+{r.pendingInspection} bekliyor</div> : null}</td><td className="num">{r.invoicedBefore ?? "—"}</td>
+                    <td className="num">{fmt(l.unitPrice)}</td><td className="num">{r.poPrice != null ? fmt(String(r.poPrice)) : "—"}{r.priceDeviationPct ? <div className="muted">%{r.priceDeviationPct}</div> : null}</td><td className="num">{fmt(l.amount)}</td>
+                    <td>{r.flags?.length ? r.flags.map((f: any) => <div key={f.code}><span className="badge bad">{FLAG[f.code] ?? f.code}</span></div>) : <span className="badge ok">eşleşti</span>}</td>
+                  </tr>
+                );
+              })}</tbody>
+            </table>
+          </>
+        )}
         {i.status === "variance" && can("invoice.approve") ? (
           i.enteredById === me?.user.id ? <p className="muted">Faturayı siz girdiniz; fark onayını başka yetkili vermeli (görev ayrılığı).</p> : (
             <div className="row">

@@ -102,6 +102,28 @@ export const SalesOrderImportPreviewInput = z.object({
   decimalSeparator: z.enum([".", ","]).default("."),
 });
 
+// W39 devamı: açık tedarikçi borcu (AP) tarihsel geçişi. Canlı fatura giriş akışından (POST /api/supplier-invoices)
+// bilinçli olarak farklı — üç yönlü eşleştirme (sipariş–kabul–fatura) ÇALIŞTIRILMAZ, çünkü geçmiş faturaların
+// sistemde bir siparişe/mal kabulüne bağlı olması beklenmez; fatura doğrudan onaylı (ödemeye hazır) kaydedilir
+// ve hiçbir lot maliyeti yazılmaz (yazılacak gerçek bir sipariş/lot bağlantısı yok — uydurulmaz).
+export const ApInvoiceImportPreviewInput = z.object({
+  fileName: z.string().min(1),
+  content: z.string().min(1).max(5_000_000),
+  mapping: z.object({
+    supplierCode: z.string(),
+    invoiceNo: z.string(),
+    invoiceDate: z.string(),
+    dueDate: z.string().optional(),
+    currency: z.string().optional(),
+    netAmount: z.string(),
+    taxAmount: z.string().optional(),
+    description: z.string().optional(),
+    paidAmount: z.string().optional(),
+    paidDate: z.string().optional(),
+  }),
+  decimalSeparator: z.enum([".", ","]).default("."),
+});
+
 export const GoodsReceiptInput = z.object({
   supplierName: z.string().min(1).max(200),
   purchaseOrderLineId: Uuid.optional(),

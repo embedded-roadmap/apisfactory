@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import {
+  ApInvoiceImportPreviewInput,
   BomImportPreviewInput,
   CustomerImportPreviewInput,
   SalesOrderImportPreviewInput,
@@ -35,6 +36,20 @@ type SalesOrderRowValues = {
   currency: string;
   requestedDate: string;
   status: string;
+};
+type ApInvoiceRowValues = {
+  supplierCode: string;
+  supplierId?: string;
+  paymentTermsDays?: number;
+  invoiceNo: string;
+  invoiceDate: string;
+  dueDate: string;
+  currency: string;
+  netAmount: string;
+  taxAmount: string;
+  description: string;
+  paidAmount: string;
+  paidDate: string;
 };
 
 async function existingCommitted(db: Db, kind: string, targetId: string | null, hash: string) {
@@ -391,6 +406,102 @@ export async function importRoutes(app: FastifyInstance) {
     });
   });
 
+  /**
+   * W39 devamı: açık tedarikçi borcu (AP) tarihsel geçişi. **Canlı fatura giriş akışından
+   * (POST /api/supplier-invoices) bilinçli olarak farklıdır**: üç yönlü eşleştirme (sipariş – kalite
+   * kabulü – fatura) ÇALIŞTIRILMAZ — geçmiş faturaların bu sistemde izlenen bir siparişe/mal kabulüne
+   * bağlı olması beklenmez, olmayan bir siparişe karşı "eşleşmiyor" bayrağı basmak yanıltıcı olur.
+   * Fatura doğrudan `status='approved'` (ödemeye hazır) kaydedilir; `match_result` alanına bunun
+   * neden yapılmadığı açıkça yazılır. Hiçbir lot maliyeti yazılmaz — yazılacak gerçek bir sipariş/mal
+   * kabul/lot bağlantısı yok (uydurulmaz). Kısmi/tam ödeme belirtilirse (opsiyonel) gerçek bir
+   * `supplier_payments` kaydı olarak girilir; ödeme tarihi verilmeden ödeme tutarı kabul edilmez.
+   */
+  app.post("/api/imports/ap-invoices/preview", async (req): Promise<ImportPreview> => {
+    const input = parse(ApInvoiceImportPreviewInput, req.body);
+    return tenant(req, "invoice.manage", async (db, actor) => {
+      const hash = sha256(input.content);
+      const { rows } = parseCsv(input.content);
+      const m = input.mapping;
+      const out: ImportPreviewRow[] = [];
+      const seen = new Set<string>();
+      for (const [i, raw] of rows.entries()) {
+        const v: ApInvoiceRowValues = {
+          supplierCode: (raw[m.supplierCode] ?? "").trim(),
+          invoiceNo: (raw[m.invoiceNo] ?? "").trim(),
+          invoiceDate: (raw[m.invoiceDate] ?? "").trim(),
+          dueDate: m.dueDate ? (raw[m.dueDate] ?? "").trim() : "",
+          currency: m.currency ? (raw[m.currency] ?? "").trim() : "",
+          netAmount: (raw[m.netAmount] ?? "").trim(),
+          taxAmount: m.taxAmount ? (raw[m.taxAmount] ?? "").trim() : "",
+          description: m.description ? (raw[m.description] ?? "").trim() : "",
+          paidAmount: m.paidAmount ? (raw[m.paidAmount] ?? "").trim() : "",
+          paidDate: m.paidDate ? (raw[m.paidDate] ?? "").trim() : "",
+        };
+        const messages: string[] = [];
+
+        if (!v.currency) v.currency = "TRY";
+        else if (!/^[A-Z]{3}$/.test(v.currency)) messages.push(`Para birimi geçersiz: "${v.currency}"`);
+
+        const net = normalizeDecimal(v.netAmount, input.decimalSeparator);
+        if (!net || Number(net) < 0) messages.push(`Net tutar geçersiz: "${v.netAmount}"`);
+        else v.netAmount = net;
+
+        if (v.taxAmount) {
+          const tax = normalizeDecimal(v.taxAmount, input.decimalSeparator);
+          if (!tax || Number(tax) < 0) messages.push(`Vergi tutarı geçersiz: "${v.taxAmount}"`);
+          else v.taxAmount = tax;
+        } else v.taxAmount = "0";
+
+        if (!v.invoiceDate || Number.isNaN(Date.parse(v.invoiceDate))) messages.push(`Fatura tarihi geçersiz: "${v.invoiceDate}"`);
+
+        if (v.dueDate) {
+          if (Number.isNaN(Date.parse(v.dueDate))) messages.push(`Vade tarihi geçersiz: "${v.dueDate}"`);
+          else if (v.invoiceDate && v.dueDate < v.invoiceDate) messages.push("Vade tarihi fatura tarihinden önce olamaz");
+        }
+
+        if (!v.invoiceNo) messages.push("Fatura numarası boş");
+
+        if (!v.supplierCode) messages.push("Tedarikçi kodu boş");
+        else {
+          const s = await db.query(`select id, payment_terms_days from suppliers where code = $1`, [v.supplierCode]);
+          if (!s.rows[0]) messages.push(`Tedarikçi bulunamadı: ${v.supplierCode}`);
+          else {
+            v.supplierId = s.rows[0].id;
+            v.paymentTermsDays = s.rows[0].payment_terms_days;
+          }
+        }
+
+        if (v.paidAmount) {
+          const paid = normalizeDecimal(v.paidAmount, input.decimalSeparator);
+          const gross = Number(net || 0) + Number(v.taxAmount || 0);
+          if (!paid || Number(paid) < 0) messages.push(`Ödenen tutar geçersiz: "${v.paidAmount}"`);
+          else if (Number(paid) > gross + 1e-9) messages.push(`Ödenen tutar (${paid}) brüt tutarı (${gross.toFixed(2)}) aşamaz`);
+          else v.paidAmount = paid;
+          if (!v.paidDate) messages.push("Ödenen tutar verilmişse ödeme tarihi de gerekli");
+          else if (Number.isNaN(Date.parse(v.paidDate))) messages.push(`Ödeme tarihi geçersiz: "${v.paidDate}"`);
+        }
+
+        if (v.supplierCode && v.invoiceNo) {
+          const k = `${v.supplierCode}|${v.invoiceNo}`;
+          if (seen.has(k)) messages.push("Dosyada mükerrer tedarikçi + fatura no");
+          seen.add(k);
+          if (v.supplierId) {
+            const existing = await db.query(`select code from supplier_invoices where supplier_id = $1 and invoice_no = $2`, [v.supplierId, v.invoiceNo]);
+            if (existing.rows[0]) messages.push(`Bu tedarikçinin ${v.invoiceNo} numaralı faturası zaten kayıtlı (${existing.rows[0].code})`);
+          }
+        }
+
+        out.push({ row: i + 2, status: messages.length ? "error" : "ok", messages, values: v as unknown as Record<string, string> });
+      }
+      const job = await db.query(
+        `insert into import_jobs (company_id, kind, file_name, file_hash, mapping, preview, created_by)
+         values (app_company_id(), 'ap_invoices', $1, $2, $3, $4, $5) returning id`,
+        [input.fileName, hash, JSON.stringify(m), JSON.stringify(out), actor.userId],
+      );
+      return { jobId: job.rows[0].id, fileHash: hash, duplicateOf: await existingCommitted(db, "ap_invoices", null, hash), rows: out, summary: summarize(out) };
+    });
+  });
+
   /** Onay: hatalı veya çözümsüz belirsiz satır varken işlenmez. Aynı dosya aynı hedefe ikinci kez işlenmez (T13). */
   app.post("/api/imports/:id/commit", async (req) => {
     const { id } = req.params as { id: string };
@@ -403,6 +514,7 @@ export async function importRoutes(app: FastifyInstance) {
         job.kind === "bom" ? "bom.import"
         : job.kind === "customers" || job.kind === "sales_orders" ? "sales.create"
         : job.kind === "suppliers" ? "supplier.manage"
+        : job.kind === "ap_invoices" ? "invoice.manage"
         : "inventory.import";
       if (!can(req, perm)) throw forbidden(perm);
       if (job.status !== "previewed") throw conflict("import_state", `İş durumu uygun değil: ${job.status}`);
@@ -523,6 +635,50 @@ export async function importRoutes(app: FastifyInstance) {
           });
         }
         result = { orders: ordersCreated, lines: linesCreated };
+      } else if (job.kind === "ap_invoices") {
+        // Tarihsel geçiş: üç yönlü eşleştirme çalıştırılmaz, lot maliyeti yazılmaz (bkz. önizleme uç noktasındaki açıklama).
+        // Fatura doğrudan 'approved' (veya tamamı ödenmişse 'paid') kaydedilir.
+        let invoicesCreated = 0;
+        let paymentsRecorded = 0;
+        for (const r of rows) {
+          const v = r.values as unknown as ApInvoiceRowValues;
+          const net = Number(v.netAmount);
+          const tax = Number(v.taxAmount || "0");
+          const gross = net + tax;
+          const due = v.dueDate || new Date(Date.parse(`${v.invoiceDate}T00:00:00Z`) + (v.paymentTermsDays ?? 30) * 864e5).toISOString().slice(0, 10);
+          const code = await nextCode(db, actor.companyId, "supplier_invoice", "TF");
+          const paidFull = v.paidAmount && Math.abs(Number(v.paidAmount) - gross) < 0.005;
+          const matchResult = {
+            migrated: true,
+            note: "Tarihsel geçiş — sipariş/mal kabul bağlantısı olmadığından üç yönlü eşleştirme çalıştırılmadı; fatura doğrudan onaylı kaydedildi",
+          };
+          const inv = await db.query(
+            `insert into supplier_invoices (company_id, code, supplier_id, invoice_no, invoice_date, due_date, currency, net_amount, tax_amount, gross_amount, status, match_result, entered_by)
+             values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) returning id`,
+            [code, v.supplierId, v.invoiceNo, v.invoiceDate, due, v.currency, net.toFixed(2), tax.toFixed(2), gross.toFixed(2), paidFull ? "paid" : "approved", JSON.stringify(matchResult), actor.userId],
+          );
+          await db.query(
+            `insert into supplier_invoice_lines (company_id, invoice_id, line_no, description, qty, unit_price, amount)
+             values (app_company_id(), $1, 1, $2, 1, $3, $3)`,
+            [inv.rows[0].id, v.description || `Tarihsel geçiş — ${v.invoiceNo}`, net.toFixed(2)],
+          );
+          invoicesCreated++;
+          if (v.paidAmount && Number(v.paidAmount) > 0) {
+            await db.query(
+              `insert into supplier_payments (company_id, invoice_id, amount, paid_on, reference, recorded_by) values (app_company_id(), $1, $2, $3, $4, $5)`,
+              [inv.rows[0].id, v.paidAmount, v.paidDate, `Tarihsel geçiş — import:${id}`, actor.userId],
+            );
+            paymentsRecorded++;
+          }
+          await recordEvent(db, importActor, {
+            entityType: "supplier_invoice",
+            entityId: inv.rows[0].id,
+            eventType: "imported",
+            after: { code, invoiceNo: v.invoiceNo, gross: gross.toFixed(2), status: paidFull ? "paid" : "approved" },
+            source: `import:${id}`,
+          });
+        }
+        result = { invoices: invoicesCreated, payments: paymentsRecorded };
       } else {
         // Açılış stoğu: miktar doğrudan yazılmaz, "opening" hareketi oluşturulur. Dış işlem tetiklenmez (prompt §4).
         let moves = 0;
@@ -561,6 +717,7 @@ export async function importRoutes(app: FastifyInstance) {
       kind === "bom" || kind === "sales_orders" ? Number(result.lines ?? 0)
       : kind === "stock_opening" ? Number(result.moves ?? 0)
       : kind === "customers" || kind === "suppliers" ? Number(result.created ?? 0) + Number(result.updated ?? 0)
+      : kind === "ap_invoices" ? Number(result.invoices ?? 0)
       : null;
     return { sourceRows: previewLen, targetRows, matched: targetRows === null ? null : targetRows === previewLen };
   }
