@@ -33,6 +33,7 @@ import { ChangePage, ChangesPage } from "./pages/Changes";
 import { DelegationsPage, WorkflowMonitorPage, WorkflowPage } from "./pages/Workflow";
 import { ScenariosPage } from "./pages/Scenarios";
 import { SubcontractJobsPage } from "./pages/Subcontract";
+import { HelpPage } from "./pages/Help";
 
 function useAuthState() {
   return useSyncExternalStore(auth.subscribe, auth.get);
@@ -130,6 +131,7 @@ const NAV: { to: string; key: string; perm?: Permission }[] = [
   { to: "/collaboration/channels", key: "nav.channels", perm: "task.view" },
   { to: "/events", key: "nav.events", perm: "audit.view" },
   { to: "/admin", key: "nav.admin", perm: "admin.users" },
+  { to: "/help", key: "nav.help" },
 ];
 
 function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) => void }) {
@@ -244,6 +246,7 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/workflow/delegations" element={<DelegationsPage />} />
               <Route path="/workflow/monitor" element={<WorkflowMonitorPage />} />
               <Route path="/admin" element={<AdminPage />} />
+              <Route path="/help" element={<HelpPage />} />
               <Route path="/password" element={<PasswordPage />} />
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>
