@@ -1,6 +1,6 @@
 # Devam notu
 
-Son güncelleme: 26.09.2026 — oturum 39 devamı (kullanıcının 2026-09-26 "devam talimatları" belgesi, bkz. proje dokümanı `claude/devam-talimatlari-2026-09.md`; en son: W39 devamı — açık satın alma siparişi tarihsel geçişi)
+Son güncelleme: 27.09.2026 — oturum 39 devamı (kullanıcının 2026-09-26 "devam talimatları" belgesi, bkz. proje dokümanı `claude/devam-talimatlari-2026-09.md`; en son: W39 devamı — açık alacak (AR) tarihsel geçişi)
 
 ## Kapsam eşleştirme ve durum matrisi (talimat §0/§12 — 2026-09-26)
 
@@ -20,7 +20,7 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | W33 MSL/kurutma altyapısı | **otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | Oturum 22: MSL, kullanım süresi, raf ömrü, lot SKT, paket açılışı (`storage.ts`, 5 test). Oturum 39: sürümlü kurutma (bake-out) reçetesi + gerçek çevrim kaydı eklendi (bkz. aşağıda) — JEDEC J-STD-033 tablosu hâlâ **sabit kodlanmadı** (bilinçli tasarım kararı, aşağıda gerekçesi var), şirketin kendi tanımladığı kaynağa dayalı reçete var. |
 | W36 E-belge/kargo bağlayıcı | **uygulandı (TEST modu), otomatik testleri geçti** | `receivables.ts`/`shipping.ts`, sağlayıcı seçilebilir tasarım var ama yalnız TEST modu; gerçek entegratör/kargo API'si **dış bağımlılık bekliyor**. |
 | W03 API erişim matrisi | **geliştirilmedi** (matris dokümanı yok) | `distributors.ts` TEST/fiyat dosyası modlarını destekliyor (`distributors.test.ts` 5 test) ama resmî "her sağlayıcı için erişim matrisi" dokümanı hâlâ yok. |
-| W39 Tarihsel veri geçişi | **kısmen uygulandı, otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | BOM ve stok import sihirbazı vardı; oturum 39 devamında aynı desenle müşteri/tedarikçi ana veri içe aktarımı (upsert), tüm import türleri için kaynak-hedef uzlaşma göstergesi, açık satış siparişi tarihsel geçişi, açık tedarikçi borcu (AP) tarihsel geçişi ve açık satın alma siparişi tarihsel geçişi eklendi (bkz. aşağıda). Tarihsel üretim/kalite/maliyet kayıtları ve AR (alacak) göçü hâlâ **geliştirilmedi** — AR, `customer_invoices.sales_order_id NOT NULL` kısıtı nedeniyle şema kararı gerektiriyor. |
+| W39 Tarihsel veri geçişi | **kısmen uygulandı, otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | BOM ve stok import sihirbazı vardı; oturum 39 devamında aynı desenle müşteri/tedarikçi ana veri içe aktarımı (upsert), tüm import türleri için kaynak-hedef uzlaşma göstergesi, açık satış siparişi tarihsel geçişi, açık tedarikçi borcu (AP) tarihsel geçişi, açık satın alma siparişi tarihsel geçişi ve açık alacak (AR) tarihsel geçişi eklendi (bkz. aşağıda). Yalnızca tarihsel üretim/kalite/maliyet kayıtları (iş emri geçişi) hâlâ **geliştirilmedi** — W39'un tek açık sub-kalemi budur. |
 | W40 Uçtan uca/yük/dayanıklılık | **kısmen uygulandı, otomatik testleri geçti** | 26 test dosyasında iş kuralı/yetki/RLS testleri var (204/204) — bunlar fonksiyonel kabul testidir. Oturum 39 devamında `apps/api/scripts/loadtest.mjs` (autocannon, `pnpm --filter @apisfactory/api loadtest`) eklendi ve gerçek yerel API + Postgres'e karşı çalıştırıldı: 20 eşzamanlı bağlantı × 20 sn ile `GET /api/items` (ort. 427 istek/sn, ort. gecikme 46 ms, p99 89 ms), `GET /api/stock/balances` (ort. 388 istek/sn, ort. 51 ms, p99 80 ms), `GET /api/imports` (ort. 456 istek/sn, ort. 43 ms, p99 71 ms) — üçünde de 0 hata/0 zaman aşımı. **Bu, prompt'taki 100.000 komponent/1M kayıt/100 eşzamanlı kullanıcı hedefinin tam ölçekli bir testi değildir** (sandbox disk/süre bütçesi elvermiyor; demo veri seti küçük) — yalnızca gerçek ölçülmüş, düşük ölçekli bir taban çizgisi. Gerçek ölçekli yük testi ve dayanıklılık (uzun süreli/kesinti senaryoları) hâlâ **geliştirilmedi**. |
 | W41 Eğitim/destek | **uygulandı, gerçek tarayıcıda doğrulandı (yerel)** | `/help` sayfası: rol bazlı görev rehberleri (8 rol), örnek eğitim şirketi notu, `DEFAULT_ROLES`'ten otomatik üretilen yetki matrisi, içe/dışa aktarma ve video/dosya rehberi, AI önerisi inceleme rehberi, hatalı işlem düzeltme rehberi, destek talebi öncelik/sorumlu/eskalasyon tablosu, canlı geçiş kontrol listesi (bkz. aşağıda). Otomatik test yok (yeni API yüzeyi eklemeyen, salt içerik/frontend işi); doğrulama gerçek tarayıcı ekran görüntüsüyle yapıldı. |
 | W42 SaaS/abonelik yaşam döngüsü | **geliştirilmedi** | Şirket izolasyonu (RLS, her tabloda `company_id`) var ve testli, ama abonelik durumu (deneme/aktif/gecikmiş/kısıtlı/iptal), paket hakları, kullanım sayacı, ödeme idempotency **geliştirilmedi**. |
@@ -36,6 +36,91 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | Distribütör API'leri (DigiKey/Mouser/Farnell/Nexar) | Her birinin kendi geliştirici hesabı + ticari kullanım lisansı | `DIGIKEY_CLIENT_ID` vb. (sağlayıcı başına) | Gerçek kimlik doğrulama + ticari yeniden gösterim izni |
 | Ödeme sağlayıcısı (W42, ileride) | Henüz seçilmedi | — | Seçim sonrası |
 | AI/LLM sağlayıcısı (W30 yorum katmanı) | Henüz seçilmedi (sağlayıcı ve model şirkete ait karar) | `AI_PROVIDER`, `AI_API_KEY` (sunucu tarafı secret store) | Sağlayıcı seçilip bağlanınca: gerçek yorum üretimi ve `ai_status='generated'` doğrulaması |
+
+## Oturum 39 devamı — W39 devamı: açık alacak (AR) tarihsel geçişi
+
+**Durum: uygulandı, otomatik testleri geçti, gerçek tarayıcıda (yerel geliştirme ortamı) uçtan uca doğrulandı.** Dış bağımlılık gerektirmiyor.
+
+Satış siparişi, AP ve satın alma siparişi göçlerinden sonra W39'un dördüncü açık kalemi — açık alacak (AR) — ele
+alındı. Bu, önceki üçünden farklı olarak bir **şema kararı** gerektiriyordu: `customer_invoices.sales_order_id`
+bugüne kadar `NOT NULL` idi çünkü canlı akışta her fatura sevk edilmiş bir sevkiyattan (dolayısıyla gerçek bir
+satış siparişinden) hazırlanıyor. Geçmişten taşınan bir fatura için gerçek bir sipariş/sevkiyat bağlantısı yok.
+
+**Şema kararı — sahte sipariş yerine nullable + açık işaretçi:** İki seçenek değerlendirildi: (1) FK'yi tatmin
+etmek için sahte/senkron bir satış siparişi açmak, (2) sütunu nullable yapıp göçü ayrı bir bayrakla işaretlemek.
+Birincisi reddedildi — bu, satış panolarını/raporlarını (kapasite, termin, gelir tahmini) hiç var olmamış
+siparişlerle kirletir. Bunun yerine `migration 039`: `alter table customer_invoices alter column sales_order_id
+drop not null;` + yeni `migrated boolean not null default false` sütunu (AP'deki `match_result.migrated` JSON
+işaretçisinin sorgulanabilir bir sütuna genellenmiş hâli).
+
+**Bulunan ve önceden düzeltilen iki INNER JOIN hatası:** `sales_order_id` artık null olabildiğinden,
+`receivables.ts` içinde `join sales_orders so on so.id = ci.sales_order_id` yapan **iki** sorgu (`loadInvoice()` —
+tekil fatura getirme — ve `GET /api/customer-invoices` — liste) göçmüş bir faturayı sırasıyla 404'e düşürür veya
+listeden **sessizce kaybolmasına** neden olurdu (ikincisi daha tehlikeli — hiçbir hata görünmez). Bu, kod
+yazılmadan önce şema değişikliğinin etkilediği tüm sorgular taranarak bulundu ve her ikisi de `left join`'e
+çevrildi; `ci.migrated` her iki sorgunun SELECT listesine eklendi.
+
+**Proaktif arayüz incelemesi (AP'deki `matchResult` çökmesinden sonra kalıcı uygulamaya alınan disiplin):**
+Backend kodu yazılmadan önce `Receivables.tsx`'teki `CustomerInvoicePage` bileşeni okundu — koşulsuz
+`<Link to={`/sales/${i.salesOrderId}`}>` bulundu (çökme değil ama göçmüş fatura için kırık/anlamsız bağlantı
+üretirdi). Backend'e dokunmadan önce düzeltildi: sipariş yoksa "sipariş bağlantısı yok (tarihsel geçiş)" metni
+gösteriliyor; ayrıca AP'dekiyle aynı desende bir "bu fatura tarihsel geçişle eklendi" bilgi kutusu eklendi.
+
+**KDV oranını uydurmadan geriye hesaplama:** Kaynak veride genelde oran değil net/KDV tutarı bulunur. Canlı
+sevkiyat akışının varsayılan oranını (ör. %20) atamak yerine, verilen net ve KDV tutarından `oran =
+KDV/net × 100` olarak **geriye hesaplandı** — bu gerçek, kaynaktan gelen sayılarla yapılan gerçek matematik.
+Hesaplanan oran %100'ü aşarsa (yani verilen tutarlar matematiksel olarak tutarsızsa) satır sessizce
+kırpılmıyor, **reddediliyor** — bu, iyi niyetle uydurmak yerine "kaynak veri muhtemelen hatalı" sinyalini
+kullanıcıya geri veriyor.
+
+**Tetikleyici uyumu — taslak-sonra-kes iki adımlı ekleme:** `customer_invoices` üzerinde
+`guard_issued_customer_invoice()` tetikleyicisi, üst fatura hâlâ `'draft'` değilse `customer_invoice_lines`
+eklemesini engelliyor. Bu, migration/route kodu yazılmadan önce tetikleyici tanımı okunarak keşfedildi; commit
+akışı canlı "sevkiyattan taslak → kes" akışının **aynısını** izliyor: önce `status='draft'` ile fatura başlığı
+eklenir, satır(lar) eklenir, sonra ayrı bir `UPDATE ... SET status = 'issued'/'paid'` ile geçiş yapılır.
+
+**Ne yapıldı:**
+- `apps/api/migrations/039_ar_invoice_import.sql`: `sales_order_id` nullable, `migrated` sütunu, `import_jobs.kind`
+  CHECK kısıtına `'ar_invoices'` eklendi.
+- `packages/shared/src/schemas.ts`: `ArInvoiceImportPreviewInput` (fatura no opsiyonel, müşteri kodu/fatura
+  tarihi/net tutar zorunlu; vade/kur/KDV/açıklama/tahsil edilen tutar/tahsilat tarihi opsiyonel).
+- `apps/api/src/modules/imports.ts`: `POST /api/imports/ar-invoices/preview` (yetki: `receivable.manage`) —
+  müşteri kodu çözümlenir (ödeme vadesi de alınır, vade boşsa oradan hesaplanır); net/KDV tutarları doğrulanır ve
+  KDV oranı geriye hesaplanır (>%100 reddedilir); tahsil edilen tutar verilirse tahsilat tarihi zorunlu ve tutar
+  brüt tutarı aşamaz; fatura no verilmişse dosya-içi ve DB'de mükerrerlik kontrolü. Commit'te: taslak → satır →
+  kes/öde sırası; fatura no boşsa canlı "kes" akışıyla aynı `nextCode(..., "customer_invoice_issued", "MF")`
+  sayacı (çakışma yok); tahsil edilen tutar verilmişse `customer_receipts` satırı da eklenir. İzin eşlemesine
+  `ar_invoices → receivable.manage` eklendi; `reconcile()` genişletildi (`ar_invoices` → `result.invoices`,
+  `ap_invoices` ile aynı desen).
+- `apps/api/src/modules/receivables.ts`: yukarıda anlatılan iki INNER→LEFT JOIN düzeltmesi + `migrated` sütunu
+  her iki sorgunun SELECT listesine eklendi.
+- Web: `Imports.tsx`'e "Açık alacak (W39 devamı — tarihsel geçiş)" bölümü (yetki: `receivable.manage`), geçmiş
+  işler tablosuna `ar_invoices: "Müşteri faturaları"` etiketi eklendi. `Receivables.tsx`'te yukarıda anlatılan
+  kırık-bağlantı düzeltmesi + göç bilgi kutusu.
+- Test: `apps/api/test/ar-invoice-import.test.ts` (6 test) — yetkisiz rol reddi; geçerli fatura (vade boşsa
+  müşteri ödeme vadesinden hesaplanması, KDV oranının doğru geriye hesaplanması, `migrated=true`/`sales_order_id`
+  ve `shipment_id`'nin null kalması dahil); tam tahsilat → `paid` + tahsilat kaydı, kısmi tahsilat → `issued`
+  kalması; fatura no boşken otomatik `MF-` üretimi; beş hata senaryosu (bilinmeyen müşteri, geçersiz tutar/tarih,
+  KDV oranı %100'ü aşan, tahsilat tarihi eksik, mükerrer fatura no) ve bunların onayı engellediği; uzlaşma
+  göstergesinin doğru hesaplandığı.
+
+**Doğrulama (gerçek yerel Postgres + gerçek tarayıcı, sağlayıcı/canlı ortam DEĞİL):**
+- `pnpm -r exec tsc --noEmit` (api + web): hatasız.
+- `npx vite build` (web): başarılı.
+- `pnpm test` (api): **227/227** test geçti (önceki 221 + yeni 6), gerçek PostgreSQL 16.
+- Migration 039 gerçek yerel dev veritabanına uygulandı (`migration uygulandı: 039_ar_invoice_import.sql`).
+- Playwright ile gerçek tarayıcıda (`muhasebe@demo.apisfactory.com`, DEMO şirketi, seed'deki `MUS-001` müşterisi
+  kullanılarak): giriş → İçe aktarım sayfasında "Açık alacak" sihirbazı → CSV yükle (net 2.000 TRY, KDV 360) →
+  kolon otomatik eşleşmesi → Önizle → Onayla ve işle → Alacaklar listesinde fatura görünüyor → fatura detayında
+  "sipariş bağlantısı yok (tarihsel geçiş)" metni (kırık bağlantı YOK), tarihsel geçiş bilgi kutusu görünüyor,
+  durum "kesildi — açık", vade doğru hesaplanmış (fatura tarihi + müşteri ödeme vadesi), KDV **%18** doğru geriye
+  hesaplanmış, tutarlar (Net 2.000 / KDV 360 / Toplam 2.360) doğru, sayfa hatası yok.
+
+Kalan (W39'un hâlâ açık kısmı): yalnızca tarihsel üretim/kalite/maliyet kayıtları (iş emri geçişi) — "açık satın
+alma/satış siparişi + AP + AR" dörtlüsünün tamamı artık tamamlandı. İş emri geçişi kendi başına dikkatli bir
+tasarım gerektiriyor: bir iş emrinin geçmişte hangi operasyonlardan hangi sürede geçtiğini, fire/hurda
+miktarlarını ve kaliteden geçip geçmediğini olduğu gibi kaydetmek, ama üretim planlama/kapasite/malzeme tüketimi
+gibi canlı yan etkileri tetiklememek gerekiyor — aynı "bilinçli fark" deseni, farklı domain.
 
 ## Oturum 39 devamı — W39 devamı: açık satın alma siparişi tarihsel geçişi
 
@@ -106,12 +191,13 @@ bilinmediği için `null` bırakılır ve arayüzde "TEST gönderimi" bildirimi 
   doğru şekilde gecikmiş işaretlendi), "Gönderim TEST" bildirimi görünmüyor (sentAt bilinmediği için dürüstçe
   boş), sayfa hatası yok.
 
-Kalan (W39'un hâlâ açık kısmı): tarihsel üretim/kalite/maliyet kayıtları ve AR (alacak) göçü — AR için önce şema
-kararı (yukarıda) gerekiyor. "Açık satın alma/satış/üretim emirleri" üçlüsünün sipariş kısmı (satış + satın alma)
-artık tamamlandı; kalan "üretim emirleri" (iş emirleri) tarihsel geçişi henüz ele alınmadı — bu da kendi başına
-dikkatli bir tasarım gerektiriyor (bir iş emrinin geçmişte hangi operasyonlardan hangi sürede geçtiğini, fire/hurda
-miktarlarını ve kaliteden geçip geçmediğini olduğu gibi kaydetmek, ama üretim planlama/kapasite/malzeme
-tüketimi gibi canlı yan etkileri tetiklememek gerekiyor — aynı "bilinçli fark" deseni, farklı domain).
+Kalan (bu satırın yazıldığı an itibarıyla): tarihsel üretim/kalite/maliyet kayıtları ve AR (alacak) göçü — AR için
+önce şema kararı (yukarıda not edilmişti) gerekiyordu. **Güncelleme (bir sonraki oturum devamı):** AR göçü de
+tamamlandı, bkz. yukarıdaki "açık alacak (AR) tarihsel geçişi" bölümü. W39'un artık tek açık kalemi tarihsel
+üretim/kalite/maliyet kayıtları (iş emri geçişi) — bu da kendi başına dikkatli bir tasarım gerektiriyor (bir iş
+emrinin geçmişte hangi operasyonlardan hangi sürede geçtiğini, fire/hurda miktarlarını ve kaliteden geçip
+geçmediğini olduğu gibi kaydetmek, ama üretim planlama/kapasite/malzeme tüketimi gibi canlı yan etkileri
+tetiklememek gerekiyor — aynı "bilinçli fark" deseni, farklı domain).
 
 ## Oturum 39 devamı — W39 devamı: açık tedarikçi borcu (AP) tarihsel geçişi
 
