@@ -3,6 +3,7 @@ import {
   ApInvoiceImportPreviewInput,
   BomImportPreviewInput,
   CustomerImportPreviewInput,
+  PurchaseOrderImportPreviewInput,
   SalesOrderImportPreviewInput,
   StockImportPreviewInput,
   SupplierImportPreviewInput,
@@ -19,6 +20,7 @@ import { normalizeDecimal, parseCsv, parseFlag, sha256 } from "../lib/csv";
 import { nextCode, recordEvent } from "../lib/records";
 import { can, parse, tenant } from "../http/context";
 import { recordLotCost } from "./costing";
+import { refreshPoStatus } from "./procurement";
 
 type BomRowValues = { mpn: string; manufacturer: string; qty: string; refdes: string; description: string; dnp: string; internalCode: string; itemId?: string };
 type StockRowValues = { itemCode: string; qty: string; lotNo: string; locationCode: string; rev: string; unitCost?: string; currency?: string; itemId?: string; locationId?: string; revisionId?: string };
@@ -36,6 +38,19 @@ type SalesOrderRowValues = {
   currency: string;
   requestedDate: string;
   status: string;
+};
+type PurchaseOrderRowValues = {
+  poCode: string;
+  supplierCode: string;
+  supplierId?: string;
+  itemCode: string;
+  itemId?: string;
+  qty: string;
+  qtyReceived: string;
+  unitPrice: string;
+  currency: string;
+  requestedDate: string;
+  confirmedDate: string;
 };
 type ApInvoiceRowValues = {
   supplierCode: string;
@@ -502,6 +517,96 @@ export async function importRoutes(app: FastifyInstance) {
     });
   });
 
+  /**
+   * W39 devamı: açık satın alma siparişi tarihsel geçişi. **Canlı akıştan (RFQ → teklif karşılaştırma →
+   * award) bilinçli olarak farklıdır**: RFQ, teklif, satın alma talebi veya tahsisat (purchase_allocations)
+   * HİÇBİR ŞEKİLDE otomatik oluşturulmaz — geçmiş bir sipariş için hayali bir teklif karşılaştırması veya
+   * üretim ihtiyacı bağlantısı uydurulmaz. Sipariş başlığının durumu (gönderildi/teyitli/kısmen teslim
+   * alındı/teslim alındı) fabrikasyon değil, satırlarda VERİLEN gerçek teyit tarihi ve teslim alınan
+   * miktardan canlı sistemle AYNI türetme fonksiyonuyla (`refreshPoStatus`) hesaplanır.
+   */
+  app.post("/api/imports/purchase-orders/preview", async (req): Promise<ImportPreview> => {
+    const input = parse(PurchaseOrderImportPreviewInput, req.body);
+    return tenant(req, "purchase.order.manage", async (db, actor) => {
+      const hash = sha256(input.content);
+      const { rows } = parseCsv(input.content);
+      const m = input.mapping;
+      const out: ImportPreviewRow[] = [];
+      const poSupplier = new Map<string, string>();
+      const poCurrency = new Map<string, string>();
+      for (const [i, raw] of rows.entries()) {
+        const v: PurchaseOrderRowValues = {
+          poCode: m.poCode ? (raw[m.poCode] ?? "").trim() : "",
+          supplierCode: (raw[m.supplierCode] ?? "").trim(),
+          itemCode: (raw[m.itemCode] ?? "").trim(),
+          qty: (raw[m.qty] ?? "").trim(),
+          qtyReceived: m.qtyReceived ? (raw[m.qtyReceived] ?? "").trim() : "",
+          unitPrice: m.unitPrice ? (raw[m.unitPrice] ?? "").trim() : "",
+          currency: m.currency ? (raw[m.currency] ?? "").trim() : "",
+          requestedDate: m.requestedDate ? (raw[m.requestedDate] ?? "").trim() : "",
+          confirmedDate: m.confirmedDate ? (raw[m.confirmedDate] ?? "").trim() : "",
+        };
+        const messages: string[] = [];
+
+        if (!v.currency) v.currency = "TRY";
+        else if (!/^[A-Z]{3}$/.test(v.currency)) messages.push(`Para birimi geçersiz: "${v.currency}"`);
+
+        const qty = normalizeDecimal(v.qty, input.decimalSeparator);
+        if (!qty || Number(qty) <= 0) messages.push(`Miktar geçersiz: "${v.qty}"`);
+        else v.qty = qty;
+
+        if (v.qtyReceived) {
+          const received = normalizeDecimal(v.qtyReceived, input.decimalSeparator);
+          if (!received || Number(received) < 0) messages.push(`Teslim alınan miktar geçersiz: "${v.qtyReceived}"`);
+          else if (qty && Number(received) > Number(qty) + 1e-9) messages.push(`Teslim alınan miktar (${received}) sipariş miktarını (${qty}) aşamaz`);
+          else v.qtyReceived = received;
+        } else v.qtyReceived = "0";
+
+        if (v.unitPrice) {
+          const price = normalizeDecimal(v.unitPrice, input.decimalSeparator);
+          if (!price || Number(price) < 0) messages.push(`Birim fiyat geçersiz: "${v.unitPrice}"`);
+          else v.unitPrice = price;
+        }
+
+        if (v.requestedDate && Number.isNaN(Date.parse(v.requestedDate))) messages.push(`İstenen tarih geçersiz: "${v.requestedDate}"`);
+        if (v.confirmedDate && Number.isNaN(Date.parse(v.confirmedDate))) messages.push(`Teyit tarihi geçersiz: "${v.confirmedDate}"`);
+
+        if (!v.supplierCode) messages.push("Tedarikçi kodu boş");
+        else {
+          const s = await db.query(`select id from suppliers where code = $1`, [v.supplierCode]);
+          if (!s.rows[0]) messages.push(`Tedarikçi bulunamadı: ${v.supplierCode}`);
+          else v.supplierId = s.rows[0].id;
+        }
+
+        if (!v.itemCode) messages.push("Kalem kodu boş");
+        else {
+          const it = await db.query(`select id from items where code = $1`, [v.itemCode]);
+          if (!it.rows[0]) messages.push(`Kalem bulunamadı: ${v.itemCode}`);
+          else v.itemId = it.rows[0].id;
+        }
+
+        if (v.poCode) {
+          const prevSupplier = poSupplier.get(v.poCode);
+          if (prevSupplier && prevSupplier !== v.supplierCode) messages.push(`Sipariş kodu ${v.poCode} dosya içinde farklı tedarikçilerle kullanılmış`);
+          else poSupplier.set(v.poCode, v.supplierCode);
+          const prevCurrency = poCurrency.get(v.poCode);
+          if (prevCurrency && prevCurrency !== v.currency) messages.push(`Sipariş kodu ${v.poCode} dosya içinde farklı para birimleriyle kullanılmış`);
+          else poCurrency.set(v.poCode, v.currency);
+          const existing = await db.query(`select id from purchase_orders where code = $1`, [v.poCode]);
+          if (existing.rows[0]) messages.push(`Sipariş kodu zaten kullanımda: ${v.poCode}`);
+        }
+
+        out.push({ row: i + 2, status: messages.length ? "error" : "ok", messages, values: v as unknown as Record<string, string> });
+      }
+      const job = await db.query(
+        `insert into import_jobs (company_id, kind, file_name, file_hash, mapping, preview, created_by)
+         values (app_company_id(), 'purchase_orders', $1, $2, $3, $4, $5) returning id`,
+        [input.fileName, hash, JSON.stringify(m), JSON.stringify(out), actor.userId],
+      );
+      return { jobId: job.rows[0].id, fileHash: hash, duplicateOf: await existingCommitted(db, "purchase_orders", null, hash), rows: out, summary: summarize(out) };
+    });
+  });
+
   /** Onay: hatalı veya çözümsüz belirsiz satır varken işlenmez. Aynı dosya aynı hedefe ikinci kez işlenmez (T13). */
   app.post("/api/imports/:id/commit", async (req) => {
     const { id } = req.params as { id: string };
@@ -515,6 +620,7 @@ export async function importRoutes(app: FastifyInstance) {
         : job.kind === "customers" || job.kind === "sales_orders" ? "sales.create"
         : job.kind === "suppliers" ? "supplier.manage"
         : job.kind === "ap_invoices" ? "invoice.manage"
+        : job.kind === "purchase_orders" ? "purchase.order.manage"
         : "inventory.import";
       if (!can(req, perm)) throw forbidden(perm);
       if (job.status !== "previewed") throw conflict("import_state", `İş durumu uygun değil: ${job.status}`);
@@ -679,6 +785,53 @@ export async function importRoutes(app: FastifyInstance) {
           });
         }
         result = { invoices: invoicesCreated, payments: paymentsRecorded };
+      } else if (job.kind === "purchase_orders") {
+        // Tarihsel geçiş: RFQ/teklif/satın alma talebi/tahsisat çalıştırılmaz (bkz. önizleme uç noktasındaki açıklama).
+        // Aynı sipariş kodundaki satırlar sırayla tek siparişin kalemleri olarak gruplanır. Durum, canlı sistemle
+        // AYNI türetme fonksiyonuyla (refreshPoStatus) satırlardan hesaplanır — uydurulmaz.
+        const groups = new Map<string, { supplierId: string; currency: string; lines: PurchaseOrderRowValues[] }>();
+        const order: string[] = [];
+        for (const r of rows) {
+          const v = r.values as unknown as PurchaseOrderRowValues;
+          const key = v.poCode || `__auto__${r.row}`;
+          if (!groups.has(key)) {
+            groups.set(key, { supplierId: v.supplierId!, currency: v.currency, lines: [] });
+            order.push(key);
+          }
+          groups.get(key)!.lines.push(v);
+        }
+        let ordersCreated = 0;
+        let linesCreated = 0;
+        for (const key of order) {
+          const g = groups.get(key)!;
+          const code = key.startsWith("__auto__") ? await nextCode(db, actor.companyId, "purchase_order", "SAS") : key;
+          const supplierName = (await db.query(`select name from suppliers where id = $1`, [g.supplierId])).rows[0].name as string;
+          const po = await db.query(
+            `insert into purchase_orders (company_id, code, supplier_id, currency, status, created_by)
+             values (app_company_id(), $1, $2, $3, 'sent', $4) returning id`,
+            [code, g.supplierId, g.currency, actor.userId],
+          );
+          ordersCreated++;
+          for (const v of g.lines) {
+            await db.query(
+              `insert into purchase_order_lines (company_id, po_code, supplier_name, supplier_id, item_id, qty_ordered, qty_received, po_id, unit_price, currency, requested_date, confirmed_date)
+               values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+              [code, supplierName, g.supplierId, v.itemId, v.qty, v.qtyReceived, po.rows[0].id, v.unitPrice || null, g.currency, v.requestedDate || null, v.confirmedDate || null],
+            );
+            linesCreated++;
+          }
+          // Sipariş başlığı durumunu (gönderildi/teyitli/kısmen teslim alındı/teslim alındı) satırlardaki gerçek
+          // teyit tarihi/teslim alınan miktardan türet — canlı sistemle aynı fonksiyon, ayrı bir dürüstlük kontrolü.
+          await refreshPoStatus(db, po.rows[0].id);
+          await recordEvent(db, importActor, {
+            entityType: "purchase_order",
+            entityId: po.rows[0].id,
+            eventType: "imported",
+            after: { code, lines: g.lines.length, note: "tarihsel geçiş — RFQ/teklif/tahsisat oluşturulmadı" },
+            source: `import:${id}`,
+          });
+        }
+        result = { orders: ordersCreated, lines: linesCreated };
       } else {
         // Açılış stoğu: miktar doğrudan yazılmaz, "opening" hareketi oluşturulur. Dış işlem tetiklenmez (prompt §4).
         let moves = 0;
@@ -714,7 +867,7 @@ export async function importRoutes(app: FastifyInstance) {
   function reconcile(kind: string, previewLen: number, result: Record<string, unknown> | null): { sourceRows: number; targetRows: number | null; matched: boolean | null } {
     if (!result) return { sourceRows: previewLen, targetRows: null, matched: null };
     const targetRows =
-      kind === "bom" || kind === "sales_orders" ? Number(result.lines ?? 0)
+      kind === "bom" || kind === "sales_orders" || kind === "purchase_orders" ? Number(result.lines ?? 0)
       : kind === "stock_opening" ? Number(result.moves ?? 0)
       : kind === "customers" || kind === "suppliers" ? Number(result.created ?? 0) + Number(result.updated ?? 0)
       : kind === "ap_invoices" ? Number(result.invoices ?? 0)

@@ -124,6 +124,28 @@ export const ApInvoiceImportPreviewInput = z.object({
   decimalSeparator: z.enum([".", ","]).default("."),
 });
 
+// W39 devamı: açık satın alma siparişi tarihsel geçişi. Canlı akıştan (RFQ → teklif → award) bilinçli olarak
+// farklı — burada RFQ/teklif/satın alma talebi/tahsisat (purchase_allocations) HİÇBİR ŞEKİLDE otomatik oluşturulmaz
+// (geçmiş bir sipariş için hayali bir teklif karşılaştırması veya üretim ihtiyacı bağlantısı uydurulmaz). Sipariş
+// başlığının durumu (gönderildi/teyitli/kısmen teslim alındı/teslim alındı), satırlarda verilen gerçek teyit
+// tarihi ve teslim alınan miktardan canlı sistemle AYNI türetme mantığıyla (refreshPoStatus) hesaplanır — uydurulmaz.
+export const PurchaseOrderImportPreviewInput = z.object({
+  fileName: z.string().min(1),
+  content: z.string().min(1).max(5_000_000),
+  mapping: z.object({
+    poCode: z.string().optional(),
+    supplierCode: z.string(),
+    itemCode: z.string(),
+    qty: z.string(),
+    qtyReceived: z.string().optional(),
+    unitPrice: z.string().optional(),
+    currency: z.string().optional(),
+    requestedDate: z.string().optional(),
+    confirmedDate: z.string().optional(),
+  }),
+  decimalSeparator: z.enum([".", ","]).default("."),
+});
+
 export const GoodsReceiptInput = z.object({
   supplierName: z.string().min(1).max(200),
   purchaseOrderLineId: Uuid.optional(),
