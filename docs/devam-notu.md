@@ -1,6 +1,6 @@
 # Devam notu
 
-Son güncelleme: 26.09.2026 — oturum 28 (W27 devamı: mobilde mesaj geri çekme)
+Son güncelleme: 26.09.2026 — oturum 29 (W27 devamı: mobilde görsel olmayan eklerin açılması)
 
 ## Son doğrulanan durum
 
@@ -36,6 +36,13 @@ Son güncelleme: 26.09.2026 — oturum 28 (W27 devamı: mobilde mesaj geri çekm
 | Mobil (oturum 26) | `tsc --noEmit` temiz, `EXPO_OFFLINE=1 expo export --platform android` başarılı (yeni bağımlılıklar expo-document-picker/expo-file-system dahil paketlendi); gerçek cihazda/simülatörde çalıştırılmadı (bu ortamda mobil emülatör yok — önceki oturumlardaki gibi derleme+tip denetimiyle doğrulandı) |
 | Playwright uçtan uca (oturum 27) | Bir fason iş kabul→malzeme gönder/fire imha→ilerlet→beyan→kesin kabul ile tamamlanır; yönetici Fason işleri sayfasında "Fasoncu performansı" açar: 1 toplam/1 tamamlanan iş, 1 zamanında/0 geç, termin oranı %100, kabul edilen 9 adet, fire oranı %10; sayfa hatası yok |
 | Mobil (oturum 28) | `tsc --noEmit` temiz, `EXPO_OFFLINE=1 expo export --platform android` başarılı; backend/web dokunulmadı, tam test paketi (164/164) yine de yeniden çalıştırılıp doğrulandı; gerçek cihazda/simülatörde çalıştırılmadı (bu ortamda mobil emülatör yok) |
+| Mobil (oturum 29) | `tsc --noEmit` temiz, `EXPO_OFFLINE=1 expo export --platform android` başarılı (yeni bağımlılık expo-sharing dahil paketlendi); backend/web dokunulmadı; gerçek cihazda/simülatörde çalıştırılmadı |
+
+## Oturum 29'da eklenenler (W27 devamı)
+
+1. **Mobilde görsel olmayan eklerin cihazda açılması**: `apps/mobile/src/screens.tsx`'teki `AttachmentPreview`, oturum 26'da bilinçli kapsam dışı bırakılan son kalemdi — önceden görsel olmayan (PDF/metin/CSV) bir eke dokununca dosya indiriliyordu ama hiçbir şey gösterilmiyordu (yalnızca `Image` bileşeni denenip sessizce boş kalıyordu). Artık `contentType` bilgisiyle ayırt ediliyor: görseller eskisi gibi modalde önizleniyor, görsel olmayanlar için "Dosyayı aç" düğmesi indirilen dosyayı `expo-sharing`'in paylaşım/aç sayfasına (`Sharing.shareAsync`) veriyor — cihazda kurulu bir PDF/metin görüntüleyici seçilebiliyor. Yeni bağımlılık: `expo-sharing` (pnpm add ile, SDK 57 uyumlu).
+2. Backend/web'de değişiklik yok (test sayısı sabit, 164/164); `pnpm -r exec tsc --noEmit` temiz; `EXPO_OFFLINE=1 expo export --platform android` başarılı.
+3. **Kalan (W27 devamı olarak hâlâ açık)**: video eki (proje genelinde yok) — bu W27'nin son bilinen küçük kalanı; bunun dışında W27 devamı listesi artık boş.
 
 ## Oturum 28'de eklenenler (W27 devamı)
 
@@ -303,7 +310,7 @@ Son güncelleme: 26.09.2026 — oturum 28 (W27 devamı: mobilde mesaj geri çekm
 ## Sıradaki uygulanabilir iş
 
 1. W36 devamı: gerçek entegratör/kargo firması sözleşmesi imzalanınca canlı bağlanma (sağlayıcı kararı şirkete ait).
-2. W27 devamı (küçük kalanlar): video eki (proje genelinde); mobilde görsel olmayan eklerin (PDF/metin) cihazda açılması (şimdilik yalnız rozet) — mesaj geri çekme oturum 28'de tamamlandı.
+2. W27 devamı (tek küçük kalan): video eki desteği (proje genelinde henüz yok) — mesaj geri çekme oturum 28'de, görsel olmayan eklerin mobilde açılması oturum 29'da tamamlandı.
 3. W33 devamı: kurutma/yeniden uygunluk (bake-out) takibi — üretici prosedürüne bağlı, şirket karar verince eklenebilir (FEFO/FIFO lot önerisi oturum 25'te tamamlandı).
 4. W32 devamı (küçük kalan): fason çıktı lotunun girdi lotlarına bileşen bazlı tam izlenebilirliği; revizyon geldiğinde devam/durdur/yeniden işle kararı otomasyonu (performans raporu oturum 27'de tamamlandı).
 5. Kalanların çoğu (W03, W28 devamı, W30, W31, W39–W42) dış sağlayıcı kararı, gerçek AI kapsamı veya iş/pilot süreci gerektiriyor; kod ile ilerletilebilecek yeni iş paketi kalmadıkça bu liste güncellenecek.

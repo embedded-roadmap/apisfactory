@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { FlatList, Image, Modal, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
+import * as Sharing from "expo-sharing";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Item, Session, Task } from "@apisfactory/shared";
 import { api, newKey, store } from "./api";
@@ -658,7 +659,7 @@ function Discussion({ entityType, entityId }: { entityType: string; entityId: st
   const [retract, setRetract] = useState<{ id: string; reason: string } | null>(null);
   const [attachments, setAttachments] = useState<{ fileName: string; contentType: string; contentBase64: string; sizeBytes: number }[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
-  const [preview, setPreview] = useState<{ id: string; fileName: string } | null>(null);
+  const [preview, setPreview] = useState<{ id: string; fileName: string; contentType: string } | null>(null);
   const refresh = () => { qc.invalidateQueries({ queryKey: key }); qc.invalidateQueries({ queryKey: ["mentions"] }); };
   const send = useMutation({
     mutationFn: () => api("POST", `/api/threads/${entityType}/${entityId}/messages`, { body, mentions, replyTo: replyTo?.id, attachments: attachments.map(({ fileName, contentType, contentBase64 }) => ({ fileName, contentType, contentBase64 })) }, { "idempotency-key": idem }),
@@ -707,7 +708,7 @@ function Discussion({ entityType, entityId }: { entityType: string; entityId: st
             {m.attachments?.length ? (
               <View style={[s.row, { flexWrap: "wrap" }]}>
                 {m.attachments.map((a: any) => (
-                  <Pressable key={a.id} accessibilityRole="button" onPress={() => setPreview({ id: a.id, fileName: a.fileName })} style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 999, backgroundColor: c.surface2 }}>
+                  <Pressable key={a.id} accessibilityRole="button" onPress={() => setPreview({ id: a.id, fileName: a.fileName, contentType: a.contentType })} style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 999, backgroundColor: c.surface2 }}>
                     <Text style={s.muted}>{a.contentType.startsWith("image/") ? "🖼" : "📎"} {a.fileName} ({fmtKb(a.sizeBytes)})</Text>
                   </Pressable>
                 ))}
@@ -780,26 +781,49 @@ function Discussion({ entityType, entityId }: { entityType: string; entityId: st
 }
 
 /** Ek önizleme: yalnız görsel türler cihazda indirilip gösterilir; diğer türler mobilde henüz açılamaz (web'den indirilebilir). */
-function AttachmentPreview({ preview, onClose }: { preview: { id: string; fileName: string } | null; onClose: () => void }) {
+function AttachmentPreview({ preview, onClose }: { preview: { id: string; fileName: string; contentType: string } | null; onClose: () => void }) {
   const [uri, setUri] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const isImage = preview?.contentType?.startsWith("image/") ?? false;
   useEffect(() => {
     if (!preview) { setUri(null); setErr(null); return; }
     const { session, companyId } = store.get();
-    const dest = `${FileSystem.cacheDirectory}att-${preview.id}`;
+    const dest = `${FileSystem.cacheDirectory}att-${preview.id}-${preview.fileName}`;
     FileSystem.downloadAsync(`${store.get().apiUrl}/api/attachments/${preview.id}`, dest, {
       headers: { authorization: `Bearer ${session?.token}`, "x-company-id": companyId ?? "" },
     })
       .then((r) => setUri(r.uri))
       .catch(() => setErr("Dosya indirilemedi."));
   }, [preview?.id]);
+  const [openErr, setOpenErr] = useState<string | null>(null);
+  async function openExternally() {
+    if (!uri || !preview) return;
+    setOpenErr(null);
+    const available = await Sharing.isAvailableAsync().catch(() => false);
+    if (!available) { setOpenErr("Bu cihazda dosya açma desteklenmiyor."); return; }
+    await Sharing.shareAsync(uri, { mimeType: preview.contentType, dialogTitle: preview.fileName }).catch(() =>
+      setOpenErr("Dosya açılamadı."),
+    );
+  }
   if (!preview) return null;
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: "#000000CC", alignItems: "center", justifyContent: "center", padding: 24 }}>
         <View style={[s.card, { alignItems: "center", gap: 12 }]}>
           <Text style={s.text}>{preview.fileName}</Text>
-          {err ? <Text style={{ color: c.bad }}>{err}</Text> : uri ? <Image source={{ uri }} style={{ width: 260, height: 260, borderRadius: 10 }} resizeMode="contain" /> : <Text style={s.muted}>Yükleniyor…</Text>}
+          {err ? (
+            <Text style={{ color: c.bad }}>{err}</Text>
+          ) : !uri ? (
+            <Text style={s.muted}>Yükleniyor…</Text>
+          ) : isImage ? (
+            <Image source={{ uri }} style={{ width: 260, height: 260, borderRadius: 10 }} resizeMode="contain" />
+          ) : (
+            <>
+              <Text style={s.muted}>Görsel olmayan dosya — cihazınızdaki bir uygulamayla açabilirsiniz.</Text>
+              <Button title="Dosyayı aç" onPress={openExternally} />
+              {openErr ? <Text style={{ color: c.bad }}>{openErr}</Text> : null}
+            </>
+          )}
           <Button title="Kapat" onPress={onClose} />
         </View>
       </Pressable>
