@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { Db } from "../db/pool";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors";
-import { nextCode, openTask, recordEvent } from "../lib/records";
+import { closeTasks, nextCode, openTask, recordEvent } from "../lib/records";
 import { can, ctxOf, parse, tenant } from "../http/context";
 
 const KIND = ["pcb", "dizgi", "mekanik", "kablo", "montaj", "dis_test"] as const;
@@ -27,7 +27,7 @@ const SELECT = `
          j.declared_note as "declaredNote", j.declared_at as "declaredAt", j.accepted_good_qty as "acceptedGoodQty", j.accepted_at as "acceptedAt",
          j.subcontractor_user_id as "subcontractorUserId", u.name as "subcontractorName", u.email as "subcontractorEmail",
          p.code as "productCode", pr.rev, j.created_at as "createdAt", j.decided_at as "decidedAt",
-         j.work_order_id as "workOrderId", wo.code as "workOrderCode"
+         j.work_order_id as "workOrderId", wo.code as "workOrderCode", j.review_reason as "reviewReason"
     from subcontract_jobs j
     join users u on u.id = j.subcontractor_user_id
     left join product_revisions pr on pr.id = j.product_revision_id
@@ -331,6 +331,29 @@ export async function subcontractRoutes(app: FastifyInstance) {
       await db.query(`update subcontract_jobs set status = 'completed', accepted_good_qty = $2, accepted_at = now() where id = $1`, [id, input.qty]);
       await recordEvent(db, actor, { entityType: "subcontract_job", entityId: id, eventType: "accepted_output", after: { lotNo: input.lotNo, qty: input.qty } });
       return { ok: true, lotId: lot.rows[0].id };
+    });
+  });
+
+  /**
+   * W32 devamı: bağlı iş emrinde bir değişiklik talebi kararı (beklet/yeniden işle/kalanı iptal) bu işi
+   * "incelemede" işaretlemişse, iç personel işin ne olacağına (devam/durdur/yeniden işle) burada karar verir.
+   * Sunucu dış firmaya hiçbir şey otomatik iletmez/varsaymaz — yalnızca karar kaydedilir ve (durdurulursa) iş iptal edilir.
+   */
+  app.post("/api/subcontract-jobs/:id/review-decision", async (req) => {
+    const { id } = req.params as { id: string };
+    const input = parse(z.object({ decision: z.enum(["continue", "stop", "rework"]), note: z.string().min(3).max(2000) }), req.body);
+    return tenant(req, "subcontract.manage", async (db, actor) => {
+      const job = await loadJob(db, id);
+      if (!job.reviewReason) throw conflict("not_under_review", "Bu iş incelemede değil");
+      if (input.decision === "stop") {
+        if (["completed", "rejected", "cancelled"].includes(job.status)) throw conflict("invalid_transition", `"${job.status}" durumundaki iş durdurulamaz`);
+        await db.query(`update subcontract_jobs set status = 'cancelled', review_reason = null where id = $1`, [id]);
+      } else {
+        await db.query(`update subcontract_jobs set review_reason = null where id = $1`, [id]);
+      }
+      await recordEvent(db, actor, { entityType: "subcontract_job", entityId: id, eventType: `review.${input.decision}`, reason: input.note });
+      await closeTasks(db, actor.companyId, "subcontract_review", id);
+      return loadJob(db, id);
     });
   });
 

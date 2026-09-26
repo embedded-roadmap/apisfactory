@@ -28,6 +28,22 @@ async function loadChange(db: Db, id: string) {
   return { ...r.rows[0], openWorkOrders: open.rows };
 }
 
+const WO_ACTION_TR: Record<string, string> = { hold: "beklet", rework_after: "devam, sonra yeniden işle", cancel_remaining: "kalanı iptal" };
+
+/** W32 devamı: bağlı, henüz tamamlanmamış fason iş(ler)ini "incelemede" işaretler ve satın alma/üretime karar görevi açar. */
+async function flagLinkedSubcontractJobs(db: Db, actor: Actor, workOrderId: string, changeCode: string, action: string, note: string) {
+  const jobs = await db.query(
+    `select id, code from subcontract_jobs where work_order_id = $1 and status not in ('completed', 'rejected', 'cancelled')`,
+    [workOrderId],
+  );
+  for (const j of jobs.rows) {
+    const reason = `${changeCode}: bağlı iş emri "${WO_ACTION_TR[action] ?? action}" — bu fason iş için devam/durdur/yeniden işle kararı gerekli`;
+    await db.query(`update subcontract_jobs set review_reason = $2 where id = $1`, [j.id, reason]);
+    await recordEvent(db, actor, { entityType: "subcontract_job", entityId: j.id, eventType: "review.flagged", after: { changeRequest: changeCode, action }, reason: note });
+    await openTask(db, actor.companyId, { kind: "subcontract_review", title: `Fason iş ${j.code}: ${changeCode} kararı sonrası devam/durdur/yeniden işle kararı gerekli`, entityType: "subcontract_job", entityId: j.id, assigneeRole: "purchasing" });
+  }
+}
+
 async function holdWorkOrder(db: Db, actor: Actor, woId: string, reason: string) {
   const w = await db.query(`select status from work_orders where id = $1 for update`, [woId]);
   if (!w.rows[0]) throw notFound("İş emri");
@@ -140,6 +156,9 @@ export async function changeRoutes(app: FastifyInstance) {
           if (action === "hold" && ["released", "in_progress"].includes(w.status)) await holdWorkOrder(db, actor, w.id, `${cr.code}: ${input.note}`);
           if (action === "continue" && w.status === "on_hold") await resume(db, actor, w.id, `${cr.code} kararıyla devam`);
           await recordEvent(db, actor, { entityType: "work_order", entityId: w.id, eventType: "change.decision", after: { changeRequest: cr.code, action }, reason: input.note });
+          // W32 devamı: "beklet/yeniden işle/kalanı iptal" kararı, bu işe bağlı henüz tamamlanmamış fason iş(ler)ine
+          // otomatik yansımaz (dış firmaya sunucu bir şey söylemez) — yalnız devam/durdur/yeniden işle kararı için işaretlenir.
+          if (action !== "continue") await flagLinkedSubcontractJobs(db, actor, w.id, cr.code, action, input.note);
         }
         await db.query(
           `update change_requests set status = 'approved', decision_type = $2, effectivity = $3, open_work_order_decisions = $4, decision_note = $5, decided_by = $6, decided_at = now() where id = $1`,

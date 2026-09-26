@@ -44,7 +44,7 @@ export function SubcontractJobsPage() {
                   {manage ? <td>{j.subcontractorName}</td> : null}
                   <td>{j.scope}</td>
                   <td className="num">{j.qty}</td>
-                  <td><StateBadge value={j.status} prefix="sj" /></td>
+                  <td><StateBadge value={j.status} prefix="sj" />{j.reviewReason ? <span className="badge bad" style={{ marginLeft: 6 }}>İncelemede</span> : null}</td>
                   <td className="muted">{j.promisedDate ?? "—"}</td>
                 </tr>
               ))}
@@ -163,6 +163,11 @@ function JobDetail({ id, manage, onClose }: { id: string; manage: boolean; onClo
     onSuccess: refresh,
   });
   const counterDecide = useMutation({ mutationFn: (decision: "accept" | "reject") => post(`/api/subcontract-jobs/${id}/counter-decision`, { decision }), onSuccess: refresh });
+  const [reviewNote, setReviewNote] = useState("");
+  const review = useMutation({
+    mutationFn: (decision: "continue" | "stop" | "rework") => post(`/api/subcontract-jobs/${id}/review-decision`, { decision, note: reviewNote }),
+    onSuccess: () => { setReviewNote(""); refresh(); },
+  });
   const progress = useMutation({ mutationFn: (status: string) => post(`/api/subcontract-jobs/${id}/progress`, { status }), onSuccess: refresh });
   const declare = useMutation({ mutationFn: () => post(`/api/subcontract-jobs/${id}/declare`, declareForm), onSuccess: refresh });
   const upload = useMutation({
@@ -195,6 +200,21 @@ function JobDetail({ id, manage, onClose }: { id: string; manage: boolean; onClo
       {j.workOrderCode ? <p className="muted">Bağlı iş emri: {j.workOrderCode} (iş tamamlanınca fiyat, o iş emrinin maliyetinde "dış hizmet" kalemi olur)</p> : null}
       {j.companySupplies ? <p className="muted">Şirketin sağlayacağı: {j.companySupplies}</p> : null}
       {j.subcontractorSupplies ? <p className="muted">Fason firmanın sağlayacağı: {j.subcontractorSupplies}</p> : null}
+
+      {j.reviewReason ? (
+        <div className="notice bad">
+          <b>İncelemede:</b> {j.reviewReason}
+          {manage ? (
+            <div className="row" style={{ marginTop: 8 }}>
+              <input placeholder="Gerekçe (≥ 3 karakter)" value={reviewNote} onChange={(e) => setReviewNote(e.target.value)} style={{ flex: 1 }} />
+              <button disabled={reviewNote.trim().length < 3 || review.isPending} onClick={() => review.mutate("continue")}>Devam</button>
+              <button className="danger" disabled={reviewNote.trim().length < 3 || review.isPending} onClick={() => review.mutate("stop")}>Durdur</button>
+              <button disabled={reviewNote.trim().length < 3 || review.isPending} onClick={() => review.mutate("rework")}>Yeniden işle</button>
+            </div>
+          ) : <p className="muted" style={{ margin: 0 }}>Karar iç yönetimden bekleniyor.</p>}
+          <ErrorNotice error={review.error} />
+        </div>
+      ) : null}
 
       {j.status === "proposed" && !manage ? (
         <div className="card">

@@ -183,4 +183,54 @@ describe("Fason üretici portalı (W32)", () => {
     const other = rows.find((r: any) => r.subcontractorUserId === otherSubUserId);
     expect(other).toBeUndefined(); // fason2@ext.test'e hiç iş atanmadı, raporda hiç satırı yok
   });
+
+  it("W32 devamı: bağlı iş emrinde ECR kararı (beklet) bu işe bağlı henüz tamamlanmamış fason işi 'incelemede' işaretler; iç personel devam/durdur/yeniden işle kararı verir", async () => {
+    const productId = expectOk(await call(w.app, "rd@a.test", A, "POST", "/api/products", { code: "MK-SJ2", name: "Fason ECR testi kartı" })).id;
+    const bomMapping = { refdes: "Designator", manufacturer: "Manufacturer", mpn: "MPN", qty: "Quantity", description: "Description", dnp: "DNP" };
+    const prev = expectOk(await call(w.app, "rd@a.test", A, "POST", "/api/imports/bom/preview", {
+      productId, fileName: "sj2.csv", content: "Designator;Manufacturer;MPN;Quantity;Description;DNP\nC1;Sj;SJ-CAP;1;Kondansatör;", mapping: bomMapping,
+    }));
+    const bom = expectOk(await call(w.app, "rd@a.test", A, "POST", `/api/imports/${prev.jobId}/commit`, {})).bomVersionId;
+    expectOk(await call(w.app, "rd@a.test", A, "POST", `/api/boms/${bom}/publish`));
+    const rev = expectOk(await call(w.app, "rd@a.test", A, "POST", `/api/products/${productId}/revisions`, { rev: "A", bomVersionId: bom })).id;
+    expectOk(await call(w.app, "rd@a.test", A, "POST", `/api/revisions/${rev}/transition`, { action: "submit_handover" }));
+    expectOk(await call(w.app, "rd@a.test", A, "POST", `/api/revisions/${rev}/handover`, { area: "rd", decision: "approve" }));
+    expectOk(await call(w.app, "production@a.test", A, "POST", `/api/revisions/${rev}/handover`, { area: "production", decision: "approve" }));
+    expectOk(await call(w.app, "quality@a.test", A, "POST", `/api/revisions/${rev}/handover`, { area: "quality", decision: "approve" }));
+    const wo = expectOk(await call(w.app, "production@a.test", A, "POST", "/api/work-orders", { productRevisionId: rev, qty: "5" }));
+
+    const job2 = expectOk(await call(w.app, "production@a.test", A, "POST", "/api/subcontract-jobs", {
+      subcontractorUserId: subUserId, kind: "dis_test", workOrderId: wo.id, scope: "Bağlı iş emri için dış test", qty: "5",
+    }));
+    expect(job2.reviewReason).toBeNull();
+
+    const cr = expectOk(await call(w.app, "technician@a.test", A, "POST", "/api/change-requests", {
+      workOrderId: wo.id, title: "Fason ECR testi", description: "Bağlı fason işi olan bir iş emrinde ECR açılıyor, karar bekletme.",
+    }));
+    const decided = expectOk(await call(w.app, "rd@a.test", A, "POST", `/api/change-requests/${cr.id}/decide`, {
+      decision: "approve", decisionType: "deviation", effectivity: "Bu iş emri için", note: "Bekletiliyor, fason işin durumu incelenmeli",
+      openWorkOrders: [{ workOrderId: wo.id, action: "hold" }],
+    }));
+    expect(decided.status).toBe("approved");
+
+    const flagged = expectOk(await call(w.app, "production@a.test", A, "GET", `/api/subcontract-jobs/${job2.id}`));
+    expect(flagged.reviewReason).toContain(cr.code);
+    expect(flagged.reviewReason).toContain("beklet");
+    const list = expectOk(await call(w.app, "production@a.test", A, "GET", "/api/subcontract-jobs"));
+    expect(list.find((j: any) => j.id === job2.id)?.reviewReason).toBeTruthy();
+
+    const tasks = expectOk(await call(w.app, "purchasing@a.test", A, "GET", "/api/tasks/mine"));
+    expect(tasks.some((t: any) => t.entityId === job2.id && t.title.includes(job2.code))).toBe(true);
+
+    // Kısa gerekçesiz karar reddedilir
+    expect((await call(w.app, "production@a.test", A, "POST", `/api/subcontract-jobs/${job2.id}/review-decision`, { decision: "stop", note: "x" })).status).toBe(400);
+    const stopped = expectOk(await call(w.app, "production@a.test", A, "POST", `/api/subcontract-jobs/${job2.id}/review-decision`, { decision: "stop", note: "ECR sonrası iptal edildi" }));
+    expect(stopped.status).toBe("cancelled");
+    expect(stopped.reviewReason).toBeNull();
+    const closedTasks = expectOk(await call(w.app, "purchasing@a.test", A, "GET", "/api/tasks/mine"));
+    expect(closedTasks.some((t: any) => t.entityId === job2.id)).toBe(false);
+
+    // Zaten incelemede olmayan (temizlenmiş) işte tekrar karar verilemez
+    expect((await call(w.app, "production@a.test", A, "POST", `/api/subcontract-jobs/${job2.id}/review-decision`, { decision: "continue", note: "tekrar" })).body.error.code).toBe("not_under_review");
+  });
 });

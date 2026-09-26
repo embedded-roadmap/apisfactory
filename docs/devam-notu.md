@@ -1,12 +1,12 @@
 # Devam notu
 
-Son güncelleme: 26.09.2026 — oturum 35 (iki seviyeli onay yükseltmesi)
+Son güncelleme: 26.09.2026 — oturum 36 (W32 devamı: ECR kararının bağlı fason işine yansıması)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 169/169 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 10, planning 6, workflow 13, station 4, routing 4, handover 3, collaboration 10, procurement 6, payables 5, receivables 4, distributors 5, alternates 7, dispatch 5, ops 4, storage 5, scenarios 6, subcontract 11), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 170/170 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 10, planning 6, workflow 13, station 4, routing 4, handover 3, collaboration 10, procurement 6, payables 5, receivables 4, distributors 5, alternates 7, dispatch 5, ops 4, storage 5, scenarios 6, subcontract 12), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
@@ -43,6 +43,16 @@ Son güncelleme: 26.09.2026 — oturum 35 (iki seviyeli onay yükseltmesi)
 | Playwright uçtan uca (oturum 33) | Yönetici satın alma politikası yayımlar (satın alma 1.000 TRY, yönetici sınırsız); talep→onay→RFQ→yüksek teklif (birim 25 TRY, toplam 1.250 TRY)→gerekçeyle ödül; satın alma rolü siparişi gönderemez ("Tutar 1250.000000 TRY; onay limitiniz 1000.00 TRY (over_limit)", yöneticiye görev açılır); yönetici aynı siparişi gönderir → "gönderildi (test)", işlem geçmişinde `approval.blocked.over_limit` → `sent`; sayfa hatası yok |
 | Playwright uçtan uca (oturum 34) | Yeni fason iş formunda "Bağlı iş emri (isteğe bağlı — maliyete yansır)" seçici doğrulandı; bir iş emrine bağlı fason iş (dış test, 300 TRY) kabul→ilerlet→beyan→kesin kabul ile tamamlanır; iş emrinin Maliyet panelinde "dış hizmet 300" KPI özetinde ve ayrı "FASON İŞ" tablosunda (SJ-000001, Tamamlandı, 300 TRY) görünür; toplam malzeme+işçilik+genel+dış hizmete göre güncellenir; sayfa hatası yok |
 | Playwright uçtan uca (oturum 35) | Yönetici satın alma politikasını iki seviyeli yükseltmeyle yayımlar (yönetici → muhasebe); Akış & onay ekranındaki politika tablosunda "Yönetici → Muhasebe" zinciri ve sürüm geçmişinde not görünür; talebin onay görevi süresi geçince birinci yükseltme (yönetici) açılır; o da süresi geçince birinci görev kapanır ve ikinci yükseltme (muhasebe) açılır; muhasebe kullanıcısı İzleme & müdahale ekranını hatasız görür; sayfa hatası yok |
+| Playwright uçtan uca (oturum 36) | Bir iş emrine bağlı fason iş (SJ-000001) önerilir; iş emrinde ECR açılıp "beklet" kararıyla onaylanınca fason iş detayında "İncelemede: DT-000001: bağlı iş emri "beklet" — ..." kırmızı bandı ve liste satırında "İncelemede" rozeti görünür; satın almaya karar görevi düşer; üretim gerekçeyle "Durdur" seçince durum "İptal" olur, inceleme bandı ve görev kalkar; sayfa hatası yok |
+
+## Oturum 36'da eklenenler (W32 devamı: ECR kararının bağlı fason işine yansıması)
+
+1. **Bağlı fason işi incelemesi**: "Bilinen sadelik: revizyon geldiğinde devam/durdur otomasyonu yok" notu kapatıldı. Bir değişiklik talebi (ECR) kararında bir iş emri için "beklet", "devam, sonra yeniden işle" veya "kalanı iptal" seçilirse ve o iş emrine bağlı, henüz tamamlanmamış (completed/rejected/cancelled dışı) fason iş(ler)i varsa, sunucu bunu dış firmaya **hiçbir şey otomatik iletmez/varsaymaz** — yalnızca fason işi `review_reason` ile "incelemede" işaretler, olay kaydeder ve satın alma rolüne "devam/durdur/yeniden işle kararı gerekli" görevi açar (kod ile ilerletilebilecek, insan kararı gerektiren gerçek bir otomasyon: karar hâlâ insanda, ama artık görünürlük ve görev takibi var).
+2. **Karar**: yeni `POST /api/subcontract-jobs/:id/review-decision` (`subcontract.manage`, yalnız iç personel) — `continue` (incelemeyi temizler), `stop` (işi `cancelled` yapar — zaten tamamlanmış/reddedilmiş/iptal işte reddedilir), `rework` (incelemeyi temizler, notu olayda kalır). İncelemede olmayan işte karar denemesi `not_under_review` ile reddedilir.
+3. Yeni sütun: `subcontract_jobs.review_reason` (migration 031, nullable). Web: iş detayında kırmızı "İncelemede: ..." bandı (yalnız iç personele karar butonları; dış firmaya salt "karar iç yönetimden bekleniyor" notu) ve liste satırında "İncelemede" rozeti.
+4. `subcontract.test.ts`'e 1 yeni test (12/12, tam paket 170/170): tam ürün+BOM+devir+iş emri+bağlı fason iş akışıyla, ECR "beklet" kararının işi incelemeye düşürdüğü, görevin satın almaya açıldığı, kısa gerekçenin reddedildiği, "durdur" kararının işi iptal edip görevi kapattığı ve ikinci kez karar verilemeyeceği doğrulandı.
+5. `tsc`/`vite build` temiz; Playwright E2E ile uçtan uca doğrulandı (bağlı fason iş önerilir → ECR beklet kararı → inceleme bandı ve liste rozeti gerçek ekran görüntüsünde → "Durdur" kararıyla iş iptal olur, bant kalkar).
+6. **Kalan**: yalnız iki seviyeli bir zincir değil — devam/durdur/yeniden işle kararının kendisi hâlâ insan kararı (doğru davranış, sunucu tahmin etmiyor); "yeniden işle" kararı şu an yalnızca not düşer, ayrı bir yeniden-iş akışı (örn. malzeme/adet düzeltmesi) açmaz — ihtiyaç görülürse ayrı bir iş paketi olabilir.
 
 ## Oturum 35'de eklenenler (W10 devamı: iki seviyeli onay yükseltmesi)
 
@@ -368,10 +378,11 @@ Son güncelleme: 26.09.2026 — oturum 35 (iki seviyeli onay yükseltmesi)
 1. W36 devamı: gerçek entegratör/kargo firması sözleşmesi imzalanınca canlı bağlanma (sağlayıcı kararı şirkete ait).
 2. W27 devamı (tek küçük kalan): video eki desteği (proje genelinde henüz yok) — mesaj geri çekme oturum 28'de, görsel olmayan eklerin mobilde açılması oturum 29'da tamamlandı.
 3. W33 devamı: kurutma/yeniden uygunluk (bake-out) takibi — üretici prosedürüne bağlı, şirket karar verince eklenebilir (FEFO/FIFO lot önerisi oturum 25'te tamamlandı).
-4. W32 devamı (küçük kalan): revizyon geldiğinde devam/durdur/yeniden işle kararı otomasyonu — net iş kuralı spesifikasyonu yok, şirket kararı/daha fazla ayrıntı gerekiyor (performans raporu oturum 27'de, girdi lotu bazlı malzeme izlenebilirliği oturum 30'da tamamlandı).
+4. W32 devamı: bağlı iş emrinde ECR kararının (beklet/yeniden işle/kalanı iptal) fason işi otomatik incelemeye düşürmesi oturum 36'da tamamlandı (performans raporu oturum 27'de, girdi lotu bazlı malzeme izlenebilirliği oturum 30'da tamamlandı; "yeniden işle" kararının kendi ayrı akışı hâlâ yok — ayrı iş paketi gerekebilir).
 5. W28 devamı (tek küçük kalan): toplantı takvim daveti (.ics) oturum 31'de tamamlandı; kalan (görüşme/kayıt/transkript, gerçek Outlook/Google canlı senkronu) dış bağlayıcı kararı gerektiriyor.
 6. "Akış" bilinen sınırı: vekâleten bekleyen işler mobilde görünürlüğü oturum 32'de tamamlandı.
 7. "Satın alma" bilinen sınırı: sipariş onay limitinin (W10 politikası) sipariş gönderim aşamasına bağlanması oturum 33'te tamamlandı.
 8. "Maliyet" bilinen sınırı: dış hizmet (fason) maliyetinin iş emri maliyetine yansıması oturum 34'te tamamlandı (iade tamiri/hurda maliyeti hâlâ ayrı bir kalan).
 9. "Akış" bilinen sınırı: yükseltmenin isteğe bağlı ikinci seviyesi oturum 35'te tamamlandı (politika tanımlamazsa eski tek seviyeli davranış aynen sürer).
-10. Kalanların çoğu (W03, W27 devamı — video eki, W28 devamı — canlı takvim senkronu, W30, W31, W39–W42) dış sağlayıcı kararı, gerçek AI kapsamı veya iş/pilot süreci gerektiriyor. Kod ile ilerletilebilecek net, küçük bir kalan bulmak için önce bu listeye, sonra "Bilinen sorunlar ve sınırlar" bölümüne bakılmalı (oturum 30/31/32/33/34/35'te ICS, vekâlet görünürlüğü, sipariş onay limiti, dış hizmet maliyeti ve iki seviyeli yükseltme gibi küçük ama gerçek boşluklar oradan bulundu) — yeni bir iş paketi tanımlanmadıkça bu liste bundan sonra büyük ölçüde sabit kalacak.
+10. "Maliyet"/W32 bilinen sınırı: ECR kararının bağlı fason işini incelemeye düşürmesi oturum 36'da tamamlandı (yukarıya bakınız).
+11. Kalanların çoğu (W03, W27 devamı — video eki, W28 devamı — canlı takvim senkronu, W30, W31, W39–W42) dış sağlayıcı kararı, gerçek AI kapsamı veya iş/pilot süreci gerektiriyor. Kod ile ilerletilebilecek net, küçük bir kalan bulmak için önce bu listeye, sonra "Bilinen sorunlar ve sınırlar" bölümüne bakılmalı (oturum 30/31/32/33/34/35/36'da ICS, vekâlet görünürlüğü, sipariş onay limiti, dış hizmet maliyeti, iki seviyeli yükseltme ve ECR-fason inceleme bağlantısı gibi küçük ama gerçek boşluklar oradan bulundu) — yeni bir iş paketi tanımlanmadıkça bu liste bundan sonra büyük ölçüde sabit kalacak.
