@@ -74,10 +74,31 @@ export function ImportsPage() {
       ) : null}
       <section className="card">
         <h2>Geçmiş işler</h2>
+        <p className="muted" style={{ marginTop: 0 }}>Uzlaşma: kaynak dosyadaki işlenebilir satır sayısı ile hedefte gerçekte oluşan kayıt sayısı karşılaştırılır (W39 devamı).</p>
         <table>
+          <thead><tr><th>Tür</th><th>Dosya</th><th>Durum</th><th>Tarih</th><th>Uzlaşma</th></tr></thead>
           <tbody>
             {jobs.data?.map((j) => (
-              <tr key={j.id}><td>{JOB_KIND_LABEL[j.kind] ?? j.kind}</td><td className="mono">{j.fileName}</td><td><StateBadge value={j.status} prefix="job" /></td><td className="muted">{fmtDate(j.createdAt)}</td></tr>
+              <tr key={j.id}>
+                <td>{JOB_KIND_LABEL[j.kind] ?? j.kind}</td>
+                <td className="mono">{j.fileName}</td>
+                <td><StateBadge value={j.status} prefix="job" /></td>
+                <td className="muted">{fmtDate(j.createdAt)}</td>
+                <td>
+                  {j.reconciliation ? (
+                    j.reconciliation.matched === null ? (
+                      <span className="muted">—</span>
+                    ) : (
+                      <span className={`badge ${j.reconciliation.matched ? "ok" : "bad"}`}>
+                        kaynak {j.reconciliation.sourceRows} / hedef {j.reconciliation.targetRows}
+                        {j.reconciliation.matched ? "" : " — UYUŞMUYOR"}
+                      </span>
+                    )
+                  ) : (
+                    <span className="muted">—</span>
+                  )}
+                </td>
+              </tr>
             ))}
           </tbody>
         </table>

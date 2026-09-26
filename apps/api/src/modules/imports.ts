@@ -398,13 +398,33 @@ export async function importRoutes(app: FastifyInstance) {
     });
   });
 
+  /**
+   * W39 devamı: kaynak-hedef uzlaşma. Kaynak = onaylanan işin kaydettiği önizleme satır sayısı (T13
+   * kapısı geçildiği için işlenmiş bir işte hatalı/çözümsüz belirsiz satır kalmamış olması garanti);
+   * hedef = türe göre gerçekte oluşan kayıt sayısı (BOM satırı, stok hareketi, oluşturulan+güncellenen
+   * ana veri). İkisi eşleşmezse (örn. bir kod çakışması sessizce atlanmışsa) sessizce geçilmez, işaretlenir.
+   */
+  function reconcile(kind: string, previewLen: number, result: Record<string, unknown> | null): { sourceRows: number; targetRows: number | null; matched: boolean | null } {
+    if (!result) return { sourceRows: previewLen, targetRows: null, matched: null };
+    const targetRows =
+      kind === "bom" ? Number(result.lines ?? 0)
+      : kind === "stock_opening" ? Number(result.moves ?? 0)
+      : kind === "customers" || kind === "suppliers" ? Number(result.created ?? 0) + Number(result.updated ?? 0)
+      : null;
+    return { sourceRows: previewLen, targetRows, matched: targetRows === null ? null : targetRows === previewLen };
+  }
+
   app.get("/api/imports", async (req) =>
     tenant(req, null, async (db) => {
       const r = await db.query(
-        `select id, kind, file_name as "fileName", status, created_at as "createdAt", committed_at as "committedAt", result
+        `select id, kind, file_name as "fileName", status, created_at as "createdAt", committed_at as "committedAt", result,
+                jsonb_array_length(coalesce(preview, '[]'::jsonb)) as "previewLen"
            from import_jobs order by created_at desc limit 100`,
       );
-      return r.rows;
+      return r.rows.map((j: any) => {
+        const { previewLen, ...rest } = j;
+        return { ...rest, reconciliation: j.status === "committed" ? reconcile(j.kind, previewLen, j.result) : null };
+      });
     }),
   );
 

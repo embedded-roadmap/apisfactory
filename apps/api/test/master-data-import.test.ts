@@ -102,4 +102,23 @@ describe("Müşteri/tedarikçi ana veri içe aktarımı (W39 devamı)", () => {
     const r = await call(w.app, "all@b.test", w.b.companyId, "GET", "/api/customers");
     expect(expectOk(r).some((c: any) => c.code === "CUST-1")).toBe(false);
   });
+
+  it("kaynak-hedef uzlaşma: her onaylanan iş için kaynak satır sayısı hedef kayıt sayısıyla eşleşir", async () => {
+    const csv = "kod,ad\nCUST-REC-1,Uzlaşma A.Ş.\nCUST-REC-2,Uzlaşma İkinci";
+    const p = expectOk(
+      await call(w.app, "sales@a.test", A, "POST", "/api/imports/customers/preview", { fileName: "rec.csv", content: csv, mapping: { code: "kod", name: "ad" } }),
+    );
+    expectOk(await call(w.app, "sales@a.test", A, "POST", `/api/imports/${p.jobId}/commit`, {}));
+
+    const jobs = expectOk(await call(w.app, "sales@a.test", A, "GET", "/api/imports"));
+    const job = jobs.find((j: any) => j.id === p.jobId);
+    expect(job.reconciliation).toMatchObject({ sourceRows: 2, targetRows: 2, matched: true });
+
+    // Henüz onaylanmamış (previewed) bir iş için uzlaşma hesaplanmaz.
+    const p2 = expectOk(
+      await call(w.app, "sales@a.test", A, "POST", "/api/imports/customers/preview", { fileName: "rec2.csv", content: "kod,ad\nCUST-REC-3,Üçüncü", mapping: { code: "kod", name: "ad" } }),
+    );
+    const jobs2 = expectOk(await call(w.app, "sales@a.test", A, "GET", "/api/imports"));
+    expect(jobs2.find((j: any) => j.id === p2.jobId).reconciliation).toBeNull();
+  });
 });
