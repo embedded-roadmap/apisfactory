@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import {
   BomImportPreviewInput,
   CustomerImportPreviewInput,
+  SalesOrderImportPreviewInput,
   StockImportPreviewInput,
   SupplierImportPreviewInput,
   type BomDiff,
@@ -14,7 +15,7 @@ import { z } from "zod";
 import type { Db } from "../db/pool";
 import { conflict, forbidden, notFound } from "../lib/errors";
 import { normalizeDecimal, parseCsv, parseFlag, sha256 } from "../lib/csv";
-import { recordEvent } from "../lib/records";
+import { nextCode, recordEvent } from "../lib/records";
 import { can, parse, tenant } from "../http/context";
 import { recordLotCost } from "./costing";
 
@@ -22,6 +23,19 @@ type BomRowValues = { mpn: string; manufacturer: string; qty: string; refdes: st
 type StockRowValues = { itemCode: string; qty: string; lotNo: string; locationCode: string; rev: string; unitCost?: string; currency?: string; itemId?: string; locationId?: string; revisionId?: string };
 type CustomerRowValues = { code: string; name: string };
 type SupplierRowValues = { code: string; name: string; contactEmail: string; leadTimeDays: string };
+type SalesOrderRowValues = {
+  orderCode: string;
+  customerCode: string;
+  customerId?: string;
+  productCode: string;
+  rev: string;
+  productRevisionId?: string;
+  qty: string;
+  unitPrice: string;
+  currency: string;
+  requestedDate: string;
+  status: string;
+};
 
 async function existingCommitted(db: Db, kind: string, targetId: string | null, hash: string) {
   const r = await db.query(
@@ -286,6 +300,97 @@ export async function importRoutes(app: FastifyInstance) {
     });
   });
 
+  /**
+   * W39 devamı: açık (tarihsel) satış siparişi geçişi. **Canlı sipariş oluşturma akışından
+   * (POST /api/sales-orders) bilinçli olarak farklıdır**: burada uygunluk hesaplanmaz, rezervasyon
+   * yazılmaz, üretim ihtiyacı/satın alma talebi açılmaz, kredi kontrolü çalıştırılmaz — geçmişten
+   * taşınan bir sipariş için sistem hiçbir talep/arz sinyali UYDURMAZ. Yalnızca sipariş ve satırları,
+   * CSV'de ne yazıyorsa o şekilde (müşteri/ürün/revizyon/miktar/fiyat/tarih/durum) kaydedilir; ekranda
+   * "uygunluk hesaplanmadı (geçmiş veri)" görünür (confirmResult null kalır).
+   * Aynı "Sipariş kodu" sütunundaki birden çok satır tek siparişin birden çok kalemi olarak gruplanır;
+   * boş bırakılırsa her satır kendi (yeni üretilen) koduyla ayrı bir tek kalemli sipariş olur.
+   */
+  app.post("/api/imports/sales-orders/preview", async (req): Promise<ImportPreview> => {
+    const input = parse(SalesOrderImportPreviewInput, req.body);
+    return tenant(req, "sales.create", async (db, actor) => {
+      const hash = sha256(input.content);
+      const { rows } = parseCsv(input.content);
+      const m = input.mapping;
+      const out: ImportPreviewRow[] = [];
+      const orderCustomer = new Map<string, string>();
+      for (const [i, raw] of rows.entries()) {
+        const v: SalesOrderRowValues = {
+          orderCode: m.orderCode ? (raw[m.orderCode] ?? "").trim() : "",
+          customerCode: (raw[m.customerCode] ?? "").trim(),
+          productCode: (raw[m.productCode] ?? "").trim(),
+          rev: m.rev ? (raw[m.rev] ?? "").trim() : "",
+          qty: (raw[m.qty] ?? "").trim(),
+          unitPrice: m.unitPrice ? (raw[m.unitPrice] ?? "").trim() : "",
+          currency: m.currency ? (raw[m.currency] ?? "").trim() : "",
+          requestedDate: (raw[m.requestedDate] ?? "").trim(),
+          status: m.status ? (raw[m.status] ?? "").trim() : "",
+        };
+        const messages: string[] = [];
+
+        const qty = normalizeDecimal(v.qty, input.decimalSeparator);
+        if (!qty || Number(qty) <= 0) messages.push(`Miktar geçersiz: "${v.qty}"`);
+        else v.qty = qty;
+
+        if (v.unitPrice) {
+          const price = normalizeDecimal(v.unitPrice, input.decimalSeparator);
+          if (!price || Number(price) < 0) messages.push(`Birim fiyat geçersiz: "${v.unitPrice}"`);
+          else v.unitPrice = price;
+        }
+
+        if (!v.requestedDate || Number.isNaN(Date.parse(v.requestedDate))) messages.push(`İstenen tarih geçersiz: "${v.requestedDate}"`);
+
+        if (v.status && v.status !== "draft" && v.status !== "firm") messages.push(`Durum yalnızca "draft" veya "firm" olabilir: "${v.status}"`);
+        else if (!v.status) v.status = "firm";
+
+        if (!v.customerCode) messages.push("Müşteri kodu boş");
+        else {
+          const c = await db.query(`select id from customers where code = $1`, [v.customerCode]);
+          if (!c.rows[0]) messages.push(`Müşteri bulunamadı: ${v.customerCode}`);
+          else v.customerId = c.rows[0].id;
+        }
+
+        if (!v.productCode) messages.push("Ürün kodu boş");
+        else {
+          const p = await db.query(`select id from products where code = $1`, [v.productCode]);
+          if (!p.rows[0]) messages.push(`Ürün bulunamadı: ${v.productCode}`);
+          else if (v.rev) {
+            const rv = await db.query(`select id from product_revisions where product_id = $1 and rev = $2`, [p.rows[0].id, v.rev]);
+            if (!rv.rows[0]) messages.push(`Revizyon bulunamadı: ${v.productCode} Rev.${v.rev}`);
+            else v.productRevisionId = rv.rows[0].id;
+          } else {
+            const rv = await db.query(
+              `select id from product_revisions where product_id = $1 and status = 'released' order by released_at desc nulls last limit 1`,
+              [p.rows[0].id],
+            );
+            if (!rv.rows[0]) messages.push(`Ürünün yayımlanmış (released) revizyonu yok, revizyon sütunu belirtilmeli: ${v.productCode}`);
+            else v.productRevisionId = rv.rows[0].id;
+          }
+        }
+
+        if (v.orderCode) {
+          const prevCustomer = orderCustomer.get(v.orderCode);
+          if (prevCustomer && prevCustomer !== v.customerCode) messages.push(`Sipariş kodu ${v.orderCode} dosya içinde farklı müşterilerle kullanılmış`);
+          else orderCustomer.set(v.orderCode, v.customerCode);
+          const existing = await db.query(`select id from sales_orders where code = $1`, [v.orderCode]);
+          if (existing.rows[0]) messages.push(`Sipariş kodu zaten kullanımda: ${v.orderCode}`);
+        }
+
+        out.push({ row: i + 2, status: messages.length ? "error" : "ok", messages, values: v as unknown as Record<string, string> });
+      }
+      const job = await db.query(
+        `insert into import_jobs (company_id, kind, file_name, file_hash, mapping, preview, created_by)
+         values (app_company_id(), 'sales_orders', $1, $2, $3, $4, $5) returning id`,
+        [input.fileName, hash, JSON.stringify(m), JSON.stringify(out), actor.userId],
+      );
+      return { jobId: job.rows[0].id, fileHash: hash, duplicateOf: await existingCommitted(db, "sales_orders", null, hash), rows: out, summary: summarize(out) };
+    });
+  });
+
   /** Onay: hatalı veya çözümsüz belirsiz satır varken işlenmez. Aynı dosya aynı hedefe ikinci kez işlenmez (T13). */
   app.post("/api/imports/:id/commit", async (req) => {
     const { id } = req.params as { id: string };
@@ -294,7 +399,11 @@ export async function importRoutes(app: FastifyInstance) {
       const j = await db.query(`select * from import_jobs where id = $1 for update`, [id]);
       const job = j.rows[0];
       if (!job) throw notFound("İçe aktarım işi");
-      const perm = job.kind === "bom" ? "bom.import" : job.kind === "customers" ? "sales.create" : job.kind === "suppliers" ? "supplier.manage" : "inventory.import";
+      const perm =
+        job.kind === "bom" ? "bom.import"
+        : job.kind === "customers" || job.kind === "sales_orders" ? "sales.create"
+        : job.kind === "suppliers" ? "supplier.manage"
+        : "inventory.import";
       if (!can(req, perm)) throw forbidden(perm);
       if (job.status !== "previewed") throw conflict("import_state", `İş durumu uygun değil: ${job.status}`);
       const dup = await existingCommitted(db, job.kind, job.target_id, job.file_hash);
@@ -372,6 +481,48 @@ export async function importRoutes(app: FastifyInstance) {
         }
         result = { created, updated };
         await recordEvent(db, importActor, { entityType: "import_job", entityId: id, eventType: "suppliers.imported", after: result, source: `import:${id}` });
+      } else if (job.kind === "sales_orders") {
+        // Tarihsel geçiş: rezervasyon/üretim ihtiyacı/satın alma talebi/kredi kontrolü çalıştırılmaz (bkz. önizleme uç noktasındaki açıklama).
+        // Aynı sipariş kodundaki satırlar sırayla tek siparişin kalemleri olarak gruplanır.
+        const groups = new Map<string, { customerId: string; status: string; requestedDate: string; lines: SalesOrderRowValues[] }>();
+        const order: string[] = [];
+        for (const r of rows) {
+          const v = r.values as unknown as SalesOrderRowValues;
+          const key = v.orderCode || `__auto__${r.row}`;
+          if (!groups.has(key)) {
+            groups.set(key, { customerId: v.customerId!, status: v.status, requestedDate: v.requestedDate, lines: [] });
+            order.push(key);
+          }
+          groups.get(key)!.lines.push(v);
+        }
+        let ordersCreated = 0;
+        let linesCreated = 0;
+        for (const key of order) {
+          const g = groups.get(key)!;
+          const code = key.startsWith("__auto__") ? await nextCode(db, actor.companyId, "sales_order", "SS") : key;
+          const o = await db.query(
+            `insert into sales_orders (company_id, code, customer_id, status, requested_date, created_by, confirmed_at)
+             values (app_company_id(), $1, $2, $3, $4, $5, $6) returning id`,
+            [code, g.customerId, g.status, g.requestedDate, actor.userId, g.status === "firm" ? new Date() : null],
+          );
+          ordersCreated++;
+          for (const [idx, v] of g.lines.entries()) {
+            await db.query(
+              `insert into sales_order_lines (company_id, order_id, line_no, product_revision_id, qty, unit_price, currency)
+               values (app_company_id(), $1, $2, $3, $4, $5, $6)`,
+              [o.rows[0].id, idx + 1, v.productRevisionId, v.qty, v.unitPrice || null, v.currency || "TRY"],
+            );
+            linesCreated++;
+          }
+          await recordEvent(db, importActor, {
+            entityType: "sales_order",
+            entityId: o.rows[0].id,
+            eventType: "imported",
+            after: { code, lines: g.lines.length, note: "tarihsel geçiş — uygunluk hesaplanmadı" },
+            source: `import:${id}`,
+          });
+        }
+        result = { orders: ordersCreated, lines: linesCreated };
       } else {
         // Açılış stoğu: miktar doğrudan yazılmaz, "opening" hareketi oluşturulur. Dış işlem tetiklenmez (prompt §4).
         let moves = 0;
@@ -407,7 +558,7 @@ export async function importRoutes(app: FastifyInstance) {
   function reconcile(kind: string, previewLen: number, result: Record<string, unknown> | null): { sourceRows: number; targetRows: number | null; matched: boolean | null } {
     if (!result) return { sourceRows: previewLen, targetRows: null, matched: null };
     const targetRows =
-      kind === "bom" ? Number(result.lines ?? 0)
+      kind === "bom" || kind === "sales_orders" ? Number(result.lines ?? 0)
       : kind === "stock_opening" ? Number(result.moves ?? 0)
       : kind === "customers" || kind === "suppliers" ? Number(result.created ?? 0) + Number(result.updated ?? 0)
       : null;

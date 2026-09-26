@@ -82,6 +82,26 @@ export const SupplierImportPreviewInput = z.object({
   decimalSeparator: z.enum([".", ","]).default("."),
 });
 
+// W39 devamı: açık (tarihsel) satış siparişi geçişi. Canlı sipariş oluşturma akışından (POST /api/sales-orders)
+// bilinçli olarak farklı — burada rezervasyon/üretim ihtiyacı/satın alma talebi HİÇBİR ŞEKİLDE otomatik
+// oluşturulmaz (geçmişten taşınan bir sipariş için hayali talep/arz sinyali üretmemek amacıyla).
+export const SalesOrderImportPreviewInput = z.object({
+  fileName: z.string().min(1),
+  content: z.string().min(1).max(5_000_000),
+  mapping: z.object({
+    orderCode: z.string().optional(),
+    customerCode: z.string(),
+    productCode: z.string(),
+    rev: z.string().optional(),
+    qty: z.string(),
+    unitPrice: z.string().optional(),
+    currency: z.string().optional(),
+    requestedDate: z.string(),
+    status: z.string().optional(),
+  }),
+  decimalSeparator: z.enum([".", ","]).default("."),
+});
+
 export const GoodsReceiptInput = z.object({
   supplierName: z.string().min(1).max(200),
   purchaseOrderLineId: Uuid.optional(),
