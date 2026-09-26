@@ -1,6 +1,6 @@
 # Devam notu
 
-Son güncelleme: 24.09.2026 — oturum 27 (W32 devamı: fasoncu performans raporu)
+Son güncelleme: 26.09.2026 — oturum 28 (W27 devamı: mobilde mesaj geri çekme)
 
 ## Son doğrulanan durum
 
@@ -35,6 +35,13 @@ Son güncelleme: 24.09.2026 — oturum 27 (W32 devamı: fasoncu performans rapor
 | Playwright uçtan uca (oturum 25) | FEFO politikalı kalemin üç lotu (süresi geçmiş/yakında dolacak/iyi) olduğu bir iş emrinde depo "Çıkış yap" açar; lot açılır listesi süresi en yakın (geçmiş) lotu otomatik önerir, SKT ve "SÜRESİ GEÇTİ" etiketiyle; kırmızı uyarı bandı gösterilir; sayfa hatası yok |
 | Mobil (oturum 26) | `tsc --noEmit` temiz, `EXPO_OFFLINE=1 expo export --platform android` başarılı (yeni bağımlılıklar expo-document-picker/expo-file-system dahil paketlendi); gerçek cihazda/simülatörde çalıştırılmadı (bu ortamda mobil emülatör yok — önceki oturumlardaki gibi derleme+tip denetimiyle doğrulandı) |
 | Playwright uçtan uca (oturum 27) | Bir fason iş kabul→malzeme gönder/fire imha→ilerlet→beyan→kesin kabul ile tamamlanır; yönetici Fason işleri sayfasında "Fasoncu performansı" açar: 1 toplam/1 tamamlanan iş, 1 zamanında/0 geç, termin oranı %100, kabul edilen 9 adet, fire oranı %10; sayfa hatası yok |
+| Mobil (oturum 28) | `tsc --noEmit` temiz, `EXPO_OFFLINE=1 expo export --platform android` başarılı; backend/web dokunulmadı, tam test paketi (164/164) yine de yeniden çalıştırılıp doğrulandı; gerçek cihazda/simülatörde çalıştırılmadı (bu ortamda mobil emülatör yok) |
+
+## Oturum 28'de eklenenler (W27 devamı)
+
+1. **Mobilde mesaj geri çekme (retract)**: `apps/mobile/src/screens.tsx`'teki `Discussion` bileşenine, web'de zaten var olan (`apps/web/src/components/Discussion.tsx`) mesaj geri çekme özelliği eklendi — oturum 26'da bilinçli kapsam dışı bırakılan üç kalemden biri. Kendi yazdığı mesajın yanında (yalnız kendi mesajında, `me` sorgusuyla `authorId` karşılaştırılarak) "Geri çek" düğmesi; gerekçe alanı (≥3 karakter) ile `POST /api/messages/:id/retract` çağrısı. State (`retract`) ve mutasyon (`act`) oturum 26'da zaten tanımlıydı ama hiçbir arayüz elemanına bağlı değildi — bu oturumda yalnız o bağlantı kuruldu, yeni state/mutasyon eklenmedi.
+2. Backend/web'de değişiklik yok (test sayısı sabit, 164/164); `pnpm -r exec tsc --noEmit` temiz; `EXPO_OFFLINE=1 expo export --platform android` başarılı.
+3. **Kalan (W27 devamı olarak hâlâ açık)**: video eki (proje genelinde yok); görsel olmayan eklerin (PDF/metin) mobilde cihazda açılması (şimdilik yalnız rozet).
 
 ## Oturum 27'de eklenenler (W32 devamı)
 
@@ -296,7 +303,7 @@ Son güncelleme: 24.09.2026 — oturum 27 (W32 devamı: fasoncu performans rapor
 ## Sıradaki uygulanabilir iş
 
 1. W36 devamı: gerçek entegratör/kargo firması sözleşmesi imzalanınca canlı bağlanma (sağlayıcı kararı şirkete ait).
-2. W27 devamı (küçük kalanlar): mobilde mesaj geri çekme (retract); video eki (proje genelinde); mobilde görsel olmayan eklerin (PDF/metin) cihazda açılması (şimdilik yalnız rozet).
+2. W27 devamı (küçük kalanlar): video eki (proje genelinde); mobilde görsel olmayan eklerin (PDF/metin) cihazda açılması (şimdilik yalnız rozet) — mesaj geri çekme oturum 28'de tamamlandı.
 3. W33 devamı: kurutma/yeniden uygunluk (bake-out) takibi — üretici prosedürüne bağlı, şirket karar verince eklenebilir (FEFO/FIFO lot önerisi oturum 25'te tamamlandı).
 4. W32 devamı (küçük kalan): fason çıktı lotunun girdi lotlarına bileşen bazlı tam izlenebilirliği; revizyon geldiğinde devam/durdur/yeniden işle kararı otomasyonu (performans raporu oturum 27'de tamamlandı).
 5. Kalanların çoğu (W03, W28 devamı, W30, W31, W39–W42) dış sağlayıcı kararı, gerçek AI kapsamı veya iş/pilot süreci gerektiriyor; kod ile ilerletilebilecek yeni iş paketi kalmadıkça bu liste güncellenecek.

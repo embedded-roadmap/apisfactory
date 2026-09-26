@@ -647,6 +647,7 @@ const fmtDateTime = (x: string) => new Date(x).toLocaleString("tr-TR");
  */
 function Discussion({ entityType, entityId }: { entityType: string; entityId: string }) {
   const qc = useQueryClient();
+  const me = useQuery({ queryKey: ["me"], queryFn: () => api<any>("GET", "/api/me") });
   const key = ["thread", entityType, entityId];
   const q = useQuery({ queryKey: key, queryFn: () => api<any>("GET", `/api/threads/${entityType}/${entityId}`) });
   const people = useQuery({ queryKey: ["mentionable", entityType, entityId], queryFn: () => api<any[]>("GET", `/api/threads/${entityType}/${entityId}/mentionable`) });
@@ -716,6 +717,18 @@ function Discussion({ entityType, entityId }: { entityType: string; entityId: st
             {m.body !== null ? (
               <View style={s.row}>
                 <Pressable accessibilityRole="button" onPress={() => setReplyTo(m)}><Text style={{ color: c.accent }}>Yanıtla</Text></Pressable>
+                {m.authorId === me.data?.user.id ? (
+                  <Pressable accessibilityRole="button" onPress={() => setRetract({ id: m.id, reason: "" })}><Text style={{ color: c.bad }}>Geri çek</Text></Pressable>
+                ) : null}
+              </View>
+            ) : null}
+            {retract && retract.id === m.id ? (
+              <View style={{ gap: 6 }}>
+                <Field label="Geri çekme gerekçesi" value={retract.reason} onChangeText={(v) => setRetract({ id: m.id, reason: v })} />
+                <View style={s.row}>
+                  <Button title="Geri çek" disabled={retract.reason.trim().length < 3 || act.isPending} onPress={() => { const reason = retract.reason; act.mutate(() => api("POST", `/api/messages/${m.id}/retract`, { reason }).then(() => setRetract(null))); }} />
+                  <Button title="Vazgeç" onPress={() => setRetract(null)} />
+                </View>
               </View>
             ) : null}
           </View>
