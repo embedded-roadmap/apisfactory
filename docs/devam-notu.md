@@ -21,7 +21,7 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | W36 E-belge/kargo bağlayıcı | **uygulandı (TEST modu), otomatik testleri geçti** | `receivables.ts`/`shipping.ts`, sağlayıcı seçilebilir tasarım var ama yalnız TEST modu; gerçek entegratör/kargo API'si **dış bağımlılık bekliyor**. |
 | W03 API erişim matrisi | **geliştirilmedi** (matris dokümanı yok) | `distributors.ts` TEST/fiyat dosyası modlarını destekliyor (`distributors.test.ts` 5 test) ama resmî "her sağlayıcı için erişim matrisi" dokümanı hâlâ yok. |
 | W39 Tarihsel veri geçişi | **kısmen uygulandı, otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | BOM ve stok import sihirbazı vardı; oturum 39 devamında aynı desenle müşteri/tedarikçi ana veri içe aktarımı (upsert) ve tüm import türleri için kaynak-hedef uzlaşma göstergesi eklendi (bkz. aşağıda). Açık sipariş/tarihsel üretim-kalite-maliyet/AP-AR göçü hâlâ **geliştirilmedi**. |
-| W40 Uçtan uca/yük/dayanıklılık | **kısmen uygulandı** | 22 test dosyasında iş kuralı/yetki/RLS testleri var (170/170) — bunlar fonksiyonel kabul testidir, **yük testi hiç çalıştırılmadı** (100.000 komponent/1M kayıt/100 eşzamanlı kullanıcı hedefleri test edilmedi). |
+| W40 Uçtan uca/yük/dayanıklılık | **kısmen uygulandı, otomatik testleri geçti** | 26 test dosyasında iş kuralı/yetki/RLS testleri var (204/204) — bunlar fonksiyonel kabul testidir. Oturum 39 devamında `apps/api/scripts/loadtest.mjs` (autocannon, `pnpm --filter @apisfactory/api loadtest`) eklendi ve gerçek yerel API + Postgres'e karşı çalıştırıldı: 20 eşzamanlı bağlantı × 20 sn ile `GET /api/items` (ort. 427 istek/sn, ort. gecikme 46 ms, p99 89 ms), `GET /api/stock/balances` (ort. 388 istek/sn, ort. 51 ms, p99 80 ms), `GET /api/imports` (ort. 456 istek/sn, ort. 43 ms, p99 71 ms) — üçünde de 0 hata/0 zaman aşımı. **Bu, prompt'taki 100.000 komponent/1M kayıt/100 eşzamanlı kullanıcı hedefinin tam ölçekli bir testi değildir** (sandbox disk/süre bütçesi elvermiyor; demo veri seti küçük) — yalnızca gerçek ölçülmüş, düşük ölçekli bir taban çizgisi. Gerçek ölçekli yük testi ve dayanıklılık (uzun süreli/kesinti senaryoları) hâlâ **geliştirilmedi**. |
 | W41 Eğitim/destek | **uygulandı, gerçek tarayıcıda doğrulandı (yerel)** | `/help` sayfası: rol bazlı görev rehberleri (8 rol), örnek eğitim şirketi notu, `DEFAULT_ROLES`'ten otomatik üretilen yetki matrisi, içe/dışa aktarma ve video/dosya rehberi, AI önerisi inceleme rehberi, hatalı işlem düzeltme rehberi, destek talebi öncelik/sorumlu/eskalasyon tablosu, canlı geçiş kontrol listesi (bkz. aşağıda). Otomatik test yok (yeni API yüzeyi eklemeyen, salt içerik/frontend işi); doğrulama gerçek tarayıcı ekran görüntüsüyle yapıldı. |
 | W42 SaaS/abonelik yaşam döngüsü | **geliştirilmedi** | Şirket izolasyonu (RLS, her tabloda `company_id`) var ve testli, ama abonelik durumu (deneme/aktif/gecikmiş/kısıtlı/iptal), paket hakları, kullanım sayacı, ödeme idempotency **geliştirilmedi**. |
 
@@ -36,6 +36,22 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | Distribütör API'leri (DigiKey/Mouser/Farnell/Nexar) | Her birinin kendi geliştirici hesabı + ticari kullanım lisansı | `DIGIKEY_CLIENT_ID` vb. (sağlayıcı başına) | Gerçek kimlik doğrulama + ticari yeniden gösterim izni |
 | Ödeme sağlayıcısı (W42, ileride) | Henüz seçilmedi | — | Seçim sonrası |
 | AI/LLM sağlayıcısı (W30 yorum katmanı) | Henüz seçilmedi (sağlayıcı ve model şirkete ait karar) | `AI_PROVIDER`, `AI_API_KEY` (sunucu tarafı secret store) | Sağlayıcı seçilip bağlanınca: gerçek yorum üretimi ve `ai_status='generated'` doğrulaması |
+
+## Oturum 39 devamı — W40: yük testi taban çizgisi
+
+**Durum: uygulandı, gerçek ölçüm alındı (küçük ölçekte).** Dış bağımlılık gerektirmiyor.
+
+W40'ın "iş kuralı/yetki/RLS" kısmı zaten fonksiyonel test paketiyle (204/204) kapsanıyordu; hiç ele alınmamış tek kısım gerçek yük ölçümüydü ("yük testi hiç çalıştırılmadı" notu). Bunun için:
+
+- `apps/api/scripts/loadtest.mjs` (yeni): `autocannon` kullanarak gerçek API sunucusuna (yerelde çalışan) karşı, demo kullanıcısıyla giriş yapıp gerçek JWT + `X-Company-Id` ile üç uca istek gönderir: `GET /api/items`, `GET /api/stock/balances`, `GET /api/imports` — her biri 20 eşzamanlı bağlantı ile 15-20 saniye boyunca.
+- `autocannon` `apps/api/package.json`'a `devDependencies` olarak eklendi (`pnpm add -D autocannon --filter @apisfactory/api`), `pnpm --filter @apisfactory/api loadtest` script'i eklendi.
+- **Gerçek ölçüm sonuçları** (yerel Postgres 16 + yerel API, tek sandbox makinesi — donanım pilot ortamıyla aynı değil, bu yüzden mutlak rakamlar pilot için referans değil, yalnızca "sistem beklenen eşzamanlılıkta hatasız/zaman aşımsız çalışıyor mu" sorusuna dürüst bir evet/hayır):
+  - `GET /api/items`: 8546 istek / 20 sn, ort. 427 istek/sn, ort. gecikme 46 ms, p99 89 ms, 0 hata, 0 zaman aşımı.
+  - `GET /api/stock/balances`: 7764 istek / 20 sn, ort. 388 istek/sn, ort. gecikme 51 ms, p99 80 ms, 0 hata, 0 zaman aşımı.
+  - `GET /api/imports`: 6980 istek / 15 sn, ort. 465 istek/sn, ort. gecikme 42 ms, p99 64 ms, 0 hata, 0 zaman aşımı.
+- Yük testi eklendikten sonra tam otomatik test paketi yeniden çalıştırıldı: **204/204** geçti; `tsc --noEmit` temiz.
+
+**Dürüst sınır — bu ne DEĞİLDİR:** talimattaki 100.000 komponent / 1.000.000 kayıt / 100 eşzamanlı kullanıcı hedefleri test edilmedi. Demo veri seti küçük (birkaç düzine kayıt); bu sandbox'ta ne bu ölçekte sentetik veri üretmek ne de uzun süreli (dakikalar/saatler) bir dayanıklılık testi çalıştırmak için disk/süre bütçesi var. Elde edilen, gerçek altyapı üzerinde gerçek ölçülmüş ama küçük ölçekli bir taban çizgisi — büyük ölçekli/uzun süreli yük testi ve kesinti/dayanıklılık senaryoları (talimat §30) hâlâ **geliştirilmedi**, pilot öncesi gerçek boyutlu bir ortamda tekrarlanması önerilir.
 
 ## Oturum 39 devamı — W41: Yardım & eğitim sayfası
 
