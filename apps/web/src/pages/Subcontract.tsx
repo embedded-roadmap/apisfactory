@@ -253,7 +253,53 @@ function JobDetail({ id, manage, onClose }: { id: string; manage: boolean; onClo
 
       {manage && ["accepted", "prep", "in_production", "testing"].includes(j.status) ? <MaterialTransfer id={id} onDone={refresh} /> : null}
       {manage && ["testing", "ready_to_ship"].includes(j.status) ? <AcceptOutput id={id} onDone={refresh} /> : null}
+      {!["proposed", "countered", "rejected"].includes(j.status) ? <MaterialUsage id={id} /> : null}
     </section>
+  );
+}
+
+/**
+ * Malzeme izlenebilirliği (W32 devamı): girdi lotu bazında gönderilen/iade/fire ve net tüketim,
+ * çıktı lotu ayrı listelenir. Yeni izleme tablosu yok — mevcut stock_moves kayıtlarından hesaplanır.
+ */
+function MaterialUsage({ id }: { id: string }) {
+  const q = useQuery({ queryKey: ["subJobMaterialUsage", id], queryFn: () => get<any>(`/api/subcontract-jobs/${id}/material-usage`) });
+  if (q.isLoading) return null;
+  if (q.error) return <ErrorNotice error={q.error} />;
+  const u = q.data;
+  if (!u || (u.inputLots.length === 0 && u.outputLots.length === 0)) return null;
+  return (
+    <div className="card">
+      <h3>Malzeme izlenebilirliği</h3>
+      {u.inputLots.length > 0 ? (
+        <>
+          <p className="muted" style={{ margin: 0 }}>Girdi lotları (gönderilen − iade − fire = net tüketilen)</p>
+          <table>
+            <thead><tr><th>Kalem</th><th>Lot</th><th className="num">Gönderilen</th><th className="num">İade</th><th className="num">Fire</th><th className="num">Net tüketilen</th></tr></thead>
+            <tbody>
+              {u.inputLots.map((r: any) => (
+                <tr key={r.lotId}>
+                  <td>{r.itemCode} <span className="muted">{r.itemName}</span></td>
+                  <td>{r.lotNo}</td>
+                  <td className="num">{fmt(r.sentQty)}</td>
+                  <td className="num">{fmt(r.returnedQty)}</td>
+                  <td className="num">{fmt(r.scrappedQty)}</td>
+                  <td className="num">{fmt(r.netConsumedQty)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      ) : null}
+      {u.outputLots.length > 0 ? (
+        <>
+          <p className="muted" style={{ margin: 0 }}>Çıktı lotu (kesin kabul)</p>
+          <ul>{u.outputLots.map((r: any) => (
+            <li key={r.lotId}>{r.itemCode} — lot {r.lotNo}: {fmt(r.qty)} adet ({fmtDate(r.receivedAt)})</li>
+          ))}</ul>
+        </>
+      ) : null}
+    </div>
   );
 }
 

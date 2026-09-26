@@ -1,12 +1,12 @@
 # Devam notu
 
-Son güncelleme: 26.09.2026 — oturum 29 (W27 devamı: mobilde görsel olmayan eklerin açılması)
+Son güncelleme: 26.09.2026 — oturum 30 (W32 devamı: fason malzeme izlenebilirliği)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 164/164 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6, payables 5, receivables 4, distributors 5, alternates 7, dispatch 5, collaboration 9, ops 4, storage 5, scenarios 6, subcontract 10), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 165/165 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 6, procurement 6, payables 5, receivables 4, distributors 5, alternates 7, dispatch 5, collaboration 9, ops 4, storage 5, scenarios 6, subcontract 11), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
@@ -37,6 +37,16 @@ Son güncelleme: 26.09.2026 — oturum 29 (W27 devamı: mobilde görsel olmayan 
 | Playwright uçtan uca (oturum 27) | Bir fason iş kabul→malzeme gönder/fire imha→ilerlet→beyan→kesin kabul ile tamamlanır; yönetici Fason işleri sayfasında "Fasoncu performansı" açar: 1 toplam/1 tamamlanan iş, 1 zamanında/0 geç, termin oranı %100, kabul edilen 9 adet, fire oranı %10; sayfa hatası yok |
 | Mobil (oturum 28) | `tsc --noEmit` temiz, `EXPO_OFFLINE=1 expo export --platform android` başarılı; backend/web dokunulmadı, tam test paketi (164/164) yine de yeniden çalıştırılıp doğrulandı; gerçek cihazda/simülatörde çalıştırılmadı (bu ortamda mobil emülatör yok) |
 | Mobil (oturum 29) | `tsc --noEmit` temiz, `EXPO_OFFLINE=1 expo export --platform android` başarılı (yeni bağımlılık expo-sharing dahil paketlendi); backend/web dokunulmadı; gerçek cihazda/simülatörde çalıştırılmadı |
+| Playwright uçtan uca (oturum 30) | Bir fason iş kabul→malzeme gönder (10)/fire imha (1)→ilerlet→beyan→kesin kabul (9) ile tamamlanır; iş detayında "Malzeme izlenebilirliği" paneli: girdi lotu USAGE-LOT1 için gönderilen 10 / iade 0 / fire 1 / net tüketilen 9, çıktı lotu USAGE-OUT-1 için 9 adet; sayfa hatası yok |
+
+## Oturum 30'da eklenenler (W32 devamı)
+
+1. **Fason malzeme izlenebilirliği (girdi lotu bazında)**: yeni izleme tablosu eklenmedi — malzeme transferi/iade/fire işlemleri zaten `stock_moves` tablosuna `ref_type='subcontract_job', ref_id=<iş>` ile yazılıyordu; yeni `GET /api/subcontract-jobs/:id/material-usage` bunları lot bazında topluyor (gönderilen − iade − fire = net tüketilen) ve işin kesin kabul edilen çıktı lot(lar)ını ayrıca listeliyor. Hem iç yönetim hem işin atandığı dış fasoncu görebilir (iş detayına zaten erişimi olan herkes — `authorize()` aynı kural). Önceden yalnız toplam miktar (kesin kabul adedi) teyit edilebiliyordu; artık hangi girdi lotundan ne kadarının o işte tüketildiği de görünür.
+2. **Bilinçli sınır**: bu, bileşen bazında tam BOM-eşleştirmeli bir "hangi çıktı biriminde hangi girdi biriminden ne kadar var" ayrıştırması değil — işe gönderilen/dönen lotların toplu listesi. Bir işte birden çok bileşen/lot olabileceğinden sunucu bunu tek bir orana indirgemiyor (uydurulmaz); bu, prompt'taki "bileşen bazlı tam izlenebilirlik" boşluğunu makul bir kapsamda kapatıyor.
+3. Web: Fason işleri sayfasında iş detayına (kabul edilmiş her durumdan itibaren) "Malzeme izlenebilirliği" kartı eklendi — girdi lotu tablosu + çıktı lotu listesi.
+4. `subcontract.test.ts`'e 1 yeni test (11/11, tam paket 165/165): yetki kontrolü (başka fasoncu 403), gönderilen/iade/fire/net tüketim doğru hesaplanıyor, çıktı lotu ayrı görünüyor, işin atandığı dış fasoncu da kendi işinin kullanımını görebiliyor.
+5. `tsc`/`vite build` temiz; Playwright E2E ile doğrulandı (ekran görüntüsünde tablo değerleri doğru: gönderilen 10, fire 1, net 9, çıktı 9).
+6. **Kalan (W32 devamı olarak hâlâ açık)**: revizyon geldiğinde devam/durdur/yeniden işle kararı otomasyonu (yeterince net iş kuralı spesifikasyonu yok, bu oturumda ele alınmadı).
 
 ## Oturum 29'da eklenenler (W27 devamı)
 
@@ -312,5 +322,5 @@ Son güncelleme: 26.09.2026 — oturum 29 (W27 devamı: mobilde görsel olmayan 
 1. W36 devamı: gerçek entegratör/kargo firması sözleşmesi imzalanınca canlı bağlanma (sağlayıcı kararı şirkete ait).
 2. W27 devamı (tek küçük kalan): video eki desteği (proje genelinde henüz yok) — mesaj geri çekme oturum 28'de, görsel olmayan eklerin mobilde açılması oturum 29'da tamamlandı.
 3. W33 devamı: kurutma/yeniden uygunluk (bake-out) takibi — üretici prosedürüne bağlı, şirket karar verince eklenebilir (FEFO/FIFO lot önerisi oturum 25'te tamamlandı).
-4. W32 devamı (küçük kalan): fason çıktı lotunun girdi lotlarına bileşen bazlı tam izlenebilirliği; revizyon geldiğinde devam/durdur/yeniden işle kararı otomasyonu (performans raporu oturum 27'de tamamlandı).
-5. Kalanların çoğu (W03, W28 devamı, W30, W31, W39–W42) dış sağlayıcı kararı, gerçek AI kapsamı veya iş/pilot süreci gerektiriyor; kod ile ilerletilebilecek yeni iş paketi kalmadıkça bu liste güncellenecek.
+4. W32 devamı (küçük kalan): revizyon geldiğinde devam/durdur/yeniden işle kararı otomasyonu — net iş kuralı spesifikasyonu yok, şirket kararı/daha fazla ayrıntı gerekiyor (performans raporu oturum 27'de, girdi lotu bazlı malzeme izlenebilirliği oturum 30'da tamamlandı).
+5. Kalanların çoğu (W03, W27 devamı — video eki, W28 devamı, W30, W31, W39–W42) dış sağlayıcı kararı, gerçek AI kapsamı veya iş/pilot süreci gerektiriyor; kod ile ilerletilebilecek net kalan iş paketi kalmadı — yeni bir iş paketi tanımlanmadıkça (kullanıcıdan gelecek kapsam/karar) bu liste bundan sonra büyük ölçüde sabit kalacak.

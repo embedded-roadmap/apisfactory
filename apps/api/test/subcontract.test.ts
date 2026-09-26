@@ -139,6 +139,24 @@ describe("Fason üretici portalı (W32)", () => {
     expect(dl.status).toBe(200);
   });
 
+  it("malzeme kullanımı: girdi lotu bazında gönderilen/iade/fire ve net tüketim; çıktı lotu ayrı listelenir", async () => {
+    expect((await call(w.app, "fason2@ext.test", A, "GET", `/api/subcontract-jobs/${jobId}/material-usage`)).status).toBe(403); // başka fasoncu göremez
+    const usage = expectOk(await call(w.app, "production@a.test", A, "GET", `/api/subcontract-jobs/${jobId}/material-usage`));
+    expect(usage.inputLots.length).toBe(1);
+    const row = usage.inputLots[0];
+    expect(row.lotNo).toBe("SJ-LOT-1");
+    expect(Number(row.sentQty)).toBe(40);
+    expect(Number(row.scrappedQty)).toBe(4);
+    expect(Number(row.returnedQty)).toBe(0);
+    expect(Number(row.netConsumedQty)).toBe(36);
+    expect(usage.outputLots.length).toBe(1);
+    expect(usage.outputLots[0].lotNo).toBe("SJ-OUT-1");
+    expect(Number(usage.outputLots[0].qty)).toBe(9);
+    // dış firma da kendi işinin malzeme kullanımını görebilir
+    const asSub = expectOk(await call(w.app, "fason@ext.test", A, "GET", `/api/subcontract-jobs/${jobId}/material-usage`));
+    expect(asSub.inputLots.length).toBe(1);
+  });
+
   it("şirket B kendi işini görmez (RLS)", async () => {
     const r = await call(w.app, "all@b.test", B, "GET", "/api/subcontract-jobs");
     expect(r.status).toBe(200);

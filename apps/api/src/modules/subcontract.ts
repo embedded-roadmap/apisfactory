@@ -133,6 +133,46 @@ export async function subcontractRoutes(app: FastifyInstance) {
     return tenant(req, null, (db) => authorize(req, db, id));
   });
 
+  /**
+   * Malzeme kullanımı — girdi lotu bazında izlenebilirlik (W32 devamı): yeni tablo yok, işe bağlı
+   * (ref_type='subcontract_job') stock_moves kayıtlarından toplanır. Gönderilen − iade edilen − fire = net
+   * tüketilen; bu iş için gönderilmemiş bir lot hiç görünmez (uydurulmaz). Kesin kabul edilmiş çıktı lotu
+   * ayrıca gösterilir — hangi bileşenden ne kadar geldiği bilgisi bu tabloyla birlikte okunur, ama sunucu
+   * bunu tek bir "girdi→çıktı" oranına indirgemez (birden çok bileşen olabilir).
+   */
+  app.get("/api/subcontract-jobs/:id/material-usage", async (req) => {
+    const { id } = req.params as { id: string };
+    return tenant(req, null, async (db) => {
+      await authorize(req, db, id);
+      const inputs = await db.query(
+        `select i.id as "itemId", i.code as "itemCode", i.name as "itemName", l.id as "lotId", l.lot_no as "lotNo",
+                coalesce(sum(sm.qty) filter (where sm.move_type = 'transfer'), 0) as "sentQty",
+                coalesce(sum(sm.qty) filter (where sm.move_type = 'return'), 0) as "returnedQty",
+                coalesce(sum(sm.qty) filter (where sm.move_type = 'scrap'), 0) as "scrappedQty",
+                coalesce(sum(sm.qty) filter (where sm.move_type = 'transfer'), 0)
+                  - coalesce(sum(sm.qty) filter (where sm.move_type = 'return'), 0)
+                  - coalesce(sum(sm.qty) filter (where sm.move_type = 'scrap'), 0) as "netConsumedQty"
+           from stock_moves sm
+           join items i on i.id = sm.item_id
+           join lots l on l.id = sm.lot_id
+          where sm.ref_type = 'subcontract_job' and sm.ref_id = $1 and sm.move_type in ('transfer', 'return', 'scrap')
+          group by i.id, i.code, i.name, l.id, l.lot_no
+          order by i.code, l.lot_no`,
+        [id],
+      );
+      const output = await db.query(
+        `select i.id as "itemId", i.code as "itemCode", i.name as "itemName", l.id as "lotId", l.lot_no as "lotNo", sm.qty, sm.created_at as "receivedAt"
+           from stock_moves sm
+           join items i on i.id = sm.item_id
+           join lots l on l.id = sm.lot_id
+          where sm.ref_type = 'subcontract_job' and sm.ref_id = $1 and sm.move_type = 'receive'
+          order by sm.created_at`,
+        [id],
+      );
+      return { inputLots: inputs.rows, outputLots: output.rows };
+    });
+  });
+
   /** Dış firma: kabul, karşı teklif veya ret. */
   app.post("/api/subcontract-jobs/:id/decision", async (req) => {
     const { id } = req.params as { id: string };
