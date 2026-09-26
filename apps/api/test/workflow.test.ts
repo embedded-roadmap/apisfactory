@@ -95,6 +95,29 @@ describe("Onay politikası", () => {
     const dry2 = expectOk(await call(w.app, M, A, "POST", "/api/workflow/policies/dry-run", { kind: "purchase_request", approverUserId: users[P], requesterUserId: users[P], amount: "10", currency: "TRY" }));
     expect(dry2.code).toBe("self_approval");
   });
+
+  it("W10 devamı: RFQ ödülünde onaylanan tahminin üstüne çıkan sipariş, gönderimde aynı limitle tekrar denetlenir", async () => {
+    const supplierId = expectOk(await call(w.app, P, A, "POST", "/api/suppliers", { code: "WF-SUP", name: "Akış Tedarikçisi" })).id;
+    const req = await pr(R, costedItem, "50"); // tahmini 500 TRY (lot maliyeti 10 × 50) — onay limiti (1.000) içinde
+    expectOk(await decide(P, req.id));
+    const rfq = expectOk(await call(w.app, P, A, "POST", "/api/rfqs", { purchaseRequestId: req.id }));
+    // %20+ sapma ile teklif (son lot maliyeti 10 TRY/adet) → gerekçe ister, ama kendisi tek/en ucuz teklif olduğundan verilebilir
+    const q = expectOk(await call(w.app, P, A, "POST", `/api/rfqs/${rfq.id}/quotes`, { supplierId, unitPrice: "25", currency: "TRY", leadTimeDays: 5 }));
+    const award = await call(w.app, P, A, "POST", `/api/rfqs/${rfq.id}/award`, { quoteId: q.quotes[0].id });
+    expect(award.body.error.code).toBe("award_reason_required");
+    const awarded = expectOk(await call(w.app, P, A, "POST", `/api/rfqs/${rfq.id}/award`, { quoteId: q.quotes[0].id, reason: "Tek teklif, acil ihtiyaç" }));
+    const poId = awarded.poId as string;
+    const po = expectOk(await call(w.app, P, A, "GET", `/api/purchase-orders/${poId}`));
+    expect(po.total).toBe("1250.00"); // gerçek toplam, ilk tahminin (500) çok üstünde — limit (1.000) aşılıyor
+    const blocked = await call(w.app, P, A, "POST", `/api/purchase-orders/${poId}/send`);
+    expect(blocked.body.error).toMatchObject({ code: "over_limit", details: { escalateToRoles: ["manager"], approverLimit: "1000.00" } });
+    expect(expectOk(await call(w.app, P, A, "GET", `/api/purchase-orders/${poId}`))).toMatchObject({ status: "draft" }); // engellenen gönderim hiçbir şey yazmadı
+    const esc = await ownerQuery(`select status, assignee_role from tasks where kind = 'approval_escalation' and entity_id = $1`, [poId]);
+    expect(esc.rows).toEqual([{ status: "open", assignee_role: "manager" }]);
+    const sent = expectOk(await call(w.app, M, A, "POST", `/api/purchase-orders/${poId}/send`));
+    expect(sent.status).toBe("sent");
+    expect((await ownerQuery(`select status from tasks where kind = 'approval_escalation' and entity_id = $1`, [poId])).rows[0].status).toBe("done"); // yetkili gönderince yükseltme görevi de kapanır
+  });
 });
 
 describe("Vekâlet", () => {

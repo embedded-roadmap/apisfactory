@@ -1,12 +1,12 @@
 # Devam notu
 
-Son güncelleme: 26.09.2026 — oturum 32 (mobilde vekâleten bekleyen işler görünürlüğü)
+Son güncelleme: 26.09.2026 — oturum 33 (satın alma sipariş onay limiti gönderim aşamasında)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 166/166 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 11, station 4, routing 4, handover 3, collaboration 10, procurement 6, payables 5, receivables 4, distributors 5, alternates 7, dispatch 5, ops 4, storage 5, scenarios 6, subcontract 11), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 167/167 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 12, station 4, routing 4, handover 3, collaboration 10, procurement 6, payables 5, receivables 4, distributors 5, alternates 7, dispatch 5, ops 4, storage 5, scenarios 6, subcontract 11), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
@@ -40,6 +40,16 @@ Son güncelleme: 26.09.2026 — oturum 32 (mobilde vekâleten bekleyen işler g�
 | Playwright uçtan uca (oturum 30) | Bir fason iş kabul→malzeme gönder (10)/fire imha (1)→ilerlet→beyan→kesin kabul (9) ile tamamlanır; iş detayında "Malzeme izlenebilirliği" paneli: girdi lotu USAGE-LOT1 için gönderilen 10 / iade 0 / fire 1 / net tüketilen 9, çıktı lotu USAGE-OUT-1 için 9 adet; sayfa hatası yok |
 | Playwright uçtan uca (oturum 31) | Yönetim toplantı açar (gündem, yer, katılımcı); toplantı detayında "Takvime ekle (.ics)" düğmesine tıklanır, tarayıcı gerçek bir dosya indirir (`toplanti-TOP-000001.ics`); indirilen dosya `BEGIN:VCALENDAR`, başlık, yer ve `mailto:` katılımcı satırlarını içerir; sayfa hatası yok |
 | Mobil (oturum 32) | `tsc --noEmit` temiz, `EXPO_OFFLINE=1 expo export --platform android` başarılı; backend/web dokunulmadı (mevcut `/api/tasks/delegated` ucu yeniden kullanıldı), tam test paketi (166/166) yine de yeniden çalıştırılıp doğrulandı; gerçek cihazda/simülatörde çalıştırılmadı |
+| Playwright uçtan uca (oturum 33) | Yönetici satın alma politikası yayımlar (satın alma 1.000 TRY, yönetici sınırsız); talep→onay→RFQ→yüksek teklif (birim 25 TRY, toplam 1.250 TRY)→gerekçeyle ödül; satın alma rolü siparişi gönderemez ("Tutar 1250.000000 TRY; onay limitiniz 1000.00 TRY (over_limit)", yöneticiye görev açılır); yönetici aynı siparişi gönderir → "gönderildi (test)", işlem geçmişinde `approval.blocked.over_limit` → `sent`; sayfa hatası yok |
+
+## Oturum 33'de eklenenler (satın alma sipariş onay limiti gönderim aşamasında)
+
+1. **Sipariş gönderiminde onay limiti kontrolü**: "Bilinen sorunlar ve sınırlar" listesindeki "sipariş onay limiti (W10 politikası) sipariş aşamasına bağlanmadı" notu kapatıldı. Yeni bir onay politikası türü eklenmedi — mevcut `purchase_request` politika türü (oturum 8, `approval_policies`/`approval_limits`, `evaluateApproval`/`assertApproval`/`withApproval`) `POST /api/purchase-orders/:id/send` uç noktasında yeniden kullanıldı. Talep onayında kontrol edilen tutar RFQ öncesi **tahmini** tutardır; RFQ ödülünden sonra gerçek sipariş toplamı (en ucuz olmayan, gerekçeli seçilen bir teklif nedeniyle) tahminden yüksek çıkabilir — bu oturumda gönderim anında gerçek toplam üzerinden **aynı rol bazlı parasal limitler** tekrar kontrol ediliyor.
+2. **Davranış**: limit aşılırsa gönderim engellenir (`over_limit`, siparişi açan role görev açılır, üst role — politika neyse — yükseltme görevi); politikanın izin verdiği (veya sınırsız) bir rol gönderirse eski akış aynen işler (durum güncellenir, çıkış kutusuna test gönderimi yazılır, olay kaydedilir) ve varsa açık yükseltme görevi kapatılır. Talebin bağlı olmadığı doğrudan RFQ'larda (`requesterId` yok) kendi-onay kontrolü zararsızca atlanır, tutar limiti yine de uygulanır.
+3. **Geriye dönük uyumluluk**: hiçbir demo/test şirketinde varsayılan bir onay politikası yoktur (`seed.ts`'de kontrol edildi) — politika tanımlanmamış şirketlerde `evaluateApproval` `{allowed:true, approverLimit:"unlimited"}` döner, yani bu kontrol var olan hiçbir akışı değiştirmez (procurement.test.ts, 2.100 TRY'lik bir sipariş göndermesine rağmen politika tanımlı olmadığından değişmeden 6/6 geçti).
+4. `workflow.test.ts`'e 1 yeni test (12/12, tam paket 167/167): mevcut politika (satın alma 1.000 TRY, yönetici sınırsız, yönetici'ye yükseltme) altında satın alma rolünün limiti aşan bir siparişi gönderemediği, görevin açıldığı, yöneticinin gönderebildiği ve gönderim sonrası yükseltme görevinin kapandığı doğrulandı.
+5. `tsc`/`vite build` temiz (web tarafında kod değişikliği gerekmedi — Procurement.tsx'teki genel `ErrorNotice` bileşeni yeni `over_limit` hatasını da otomatik gösteriyor); Playwright E2E ile doğrulandı (ekran görüntüsünde engelleme mesajı ve yöneticinin başarılı gönderimi doğru).
+6. **Kalan**: çok kalemli RFQ/sipariş, kur dönüşümü, gerçek tedarikçi gönderimi hâlâ yok (bu oturumun kapsamı dışında, ayrı bilinen sınırlar).
 
 ## Oturum 32'de eklenenler ("Akış" bilinen sınırı: vekâlet mobilde gösterilmiyordu)
 
@@ -327,7 +337,7 @@ Son güncelleme: 26.09.2026 — oturum 32 (mobilde vekâleten bekleyen işler g�
 - Paketleme rotada ayrı iş merkezi değil; sevkiyat modülünde yapılır.
 - Planlama: Gantt'ta kaynak kapasitesi ve vardiya yok; iş emri çubukları salt okunur.
 - İletişim: kayıttan bağımsız birebir sohbet, anlık (canlı) güncelleme yok (sayfa yenilenince/işlemde güncellenir); sesli/görüntülü görüşme, kayıt ve transkript yok (dış bağlayıcı gerekir). Toplantı için takvim daveti dosyası (.ics) var (oturum 31); gerçek canlı takvim senkronu (Outlook/Google bağlayıcısı) yok.
-- Satın alma: tedarikçiye gerçek gönderim (e-posta/EDI/portal) yok; teklifler elle, fiyat dosyasından veya TEST kataloğundan (gerçek distribütör API'si yok); çok kalemli RFQ/sipariş yok (talep başına bir satır); kur dönüşümü yok (farklı para birimli teklif sapma hesaplanmaz); sipariş onay limiti (W10 politikası) sipariş aşamasına bağlanmadı.
+- Satın alma: tedarikçiye gerçek gönderim (e-posta/EDI/portal) yok; teklifler elle, fiyat dosyasından veya TEST kataloğundan (gerçek distribütör API'si yok); çok kalemli RFQ/sipariş yok (talep başına bir satır); kur dönüşümü yok (farklı para birimli teklif sapma hesaplanmaz). Sipariş onay limiti gönderim aşamasında da kontrol edilir (oturum 33, gerçek RFQ ödül tutarı üzerinden).
 - Borçlar: e-fatura (GİB) alımı yok (fatura elle girilir, W36); banka/ödeme bağlantısı yok (yalnız kayıt); kur farkı, stopaj ve iade faturası (fiyat farkı/iade) yok; iade/fiyat farkı (alacak dekontu) yok; kısmi sevkiyatta sipariş toplamı değil sevk edilen miktar faturalanır; kur dönüşümü olmadığından kredi riski yalnız müşterinin kredi para biriminde hesaplanır; muhasebe fişi/entegrasyonu yok.
 - Akış: politika yalnızca beş onay türü için; satın alma dışındaki türlerde parasal limit yok. Yükseltme tek seviye (üst rolün de süresi dolarsa ikinci yükseltme yok). Bildirim yalnızca çıkış kutusunda (e-posta/anlık bildirim bağlanmadı). Vekâleten bekleyen işler artık mobilde de görünür (oturum 32, salt okunur); işlem yine web'den yapılır. Tahmini tutar son lot maliyetinden; tedarikçi teklifi/fiyat listesi yok (W18).
 - Maliyet: kur dönüşümü yok (farklı para birimli satır "hesaplanamadı"); dış hizmet (fason) maliyeti yok; iade tamiri ve iade hurdası maliyete yansımıyor; bütçe modülü yok; prototip/pilot/seri ayrımı ve ekip performansı raporu (W26) yok. İşçilik yalnızca operasyon başlat/tamamla süresinden; hızlı tıklanan operasyon süre biriktirmez (uyarı olarak eksik listesine düşer). Mobilde maliyet ekranı yok (ofis işi).
@@ -340,4 +350,5 @@ Son güncelleme: 26.09.2026 — oturum 32 (mobilde vekâleten bekleyen işler g�
 4. W32 devamı (küçük kalan): revizyon geldiğinde devam/durdur/yeniden işle kararı otomasyonu — net iş kuralı spesifikasyonu yok, şirket kararı/daha fazla ayrıntı gerekiyor (performans raporu oturum 27'de, girdi lotu bazlı malzeme izlenebilirliği oturum 30'da tamamlandı).
 5. W28 devamı (tek küçük kalan): toplantı takvim daveti (.ics) oturum 31'de tamamlandı; kalan (görüşme/kayıt/transkript, gerçek Outlook/Google canlı senkronu) dış bağlayıcı kararı gerektiriyor.
 6. "Akış" bilinen sınırı: vekâleten bekleyen işler mobilde görünürlüğü oturum 32'de tamamlandı.
-7. Kalanların çoğu (W03, W27 devamı — video eki, W28 devamı — canlı takvim senkronu, W30, W31, W39–W42) dış sağlayıcı kararı, gerçek AI kapsamı veya iş/pilot süreci gerektiriyor. Kod ile ilerletilebilecek net, küçük bir kalan bulmak için önce bu listeye, sonra "Bilinen sorunlar ve sınırlar" bölümüne bakılmalı (oturum 30/31/32'de ICS ve vekâlet görünürlüğü gibi küçük ama gerçek boşluklar oradan bulundu) — yeni bir iş paketi tanımlanmadıkça bu liste bundan sonra büyük ölçüde sabit kalacak.
+7. "Satın alma" bilinen sınırı: sipariş onay limitinin (W10 politikası) sipariş gönderim aşamasına bağlanması oturum 33'te tamamlandı.
+8. Kalanların çoğu (W03, W27 devamı — video eki, W28 devamı — canlı takvim senkronu, W30, W31, W39–W42) dış sağlayıcı kararı, gerçek AI kapsamı veya iş/pilot süreci gerektiriyor. Kod ile ilerletilebilecek net, küçük bir kalan bulmak için önce bu listeye, sonra "Bilinen sorunlar ve sınırlar" bölümüne bakılmalı (oturum 30/31/32/33'te ICS, vekâlet görünürlüğü ve sipariş onay limiti gibi küçük ama gerçek boşluklar oradan bulundu) — yeni bir iş paketi tanımlanmadıkça bu liste bundan sonra büyük ölçüde sabit kalacak.

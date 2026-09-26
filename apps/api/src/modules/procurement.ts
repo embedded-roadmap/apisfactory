@@ -4,6 +4,7 @@ import type { Db } from "../db/pool";
 import { badRequest, conflict, notFound } from "../lib/errors";
 import { closeTasks, enqueue, idempotent, nextCode, openTask, recordEvent, type Actor } from "../lib/records";
 import { can, idempotencyKey, parse, tenant } from "../http/context";
+import { approverFromRequest, assertApproval, withApproval } from "../lib/workflow";
 
 /**
  * W18 — Tedarikçi, teklif talebi (RFQ) ve teklif karşılaştırma, satın alma siparişi, tedarikçi teyidi ve gecikme.
@@ -334,20 +335,43 @@ export async function procurementRoutes(app: FastifyInstance) {
 
   app.get("/api/purchase-orders/:id", async (req) => tenant(req, "purchase.view", (db) => loadPo(db, (req.params as { id: string }).id, can(req, "field.cost.view"))));
 
-  /** "Gönder": tedarikçiye gerçek gönderim YOK; çıkış kutusuna test modunda yazılır ve sipariş "gönderildi" olur. */
+  /**
+   * "Gönder": tedarikçiye gerçek gönderim YOK; çıkış kutusuna test modunda yazılır ve sipariş "gönderildi" olur.
+   * W10 devamı — sipariş onay limiti sipariş aşamasına da bağlandı: RFQ ödülünde seçilen fiyat, talebin ilk
+   * onayındaki tahminden sapmış olabilir (ör. en ucuz olmayan teklif seçildiyse); gönderen kişinin rolü bu
+   * GERÇEK sipariş toplamını (`purchase_request` politikasındaki aynı rol limitleriyle) karşılamıyorsa
+   * gönderim engellenir ve yetkili üst role "limit üstü onay" görevi açılır — aynen talep onayındaki gibi.
+   * Politika tanımlı değilse (varsayılan) davranış hiç değişmez.
+   */
   app.post("/api/purchase-orders/:id/send", async (req) => {
     const { id } = req.params as { id: string };
-    return tenant(req, "purchase.order.manage", async (db, actor) => {
-      const po = (await db.query(`select status, code, supplier_id from purchase_orders where id = $1 for update`, [id])).rows[0];
-      if (!po) throw notFound("Satın alma siparişi");
-      if (po.status !== "draft") throw conflict("invalid_transition", "Yalnızca taslak sipariş gönderilir");
-      const s = (await db.query(`select status from suppliers where id = $1`, [po.supplier_id])).rows[0];
-      if (s.status !== "active") throw conflict("supplier_blocked", "Tedarikçi bloke; sipariş gönderilemez");
-      await db.query(`update purchase_orders set status = 'sent', sent_at = now(), sent_by = $2 where id = $1`, [id, actor.userId]);
-      await enqueue(db, actor.companyId, "supplier.po_send", { poId: id, code: po.code, mode: "test" });
-      await recordEvent(db, actor, { entityType: "purchase_order", entityId: id, eventType: "sent", after: { mode: "test", note: "Tedarikçiye gerçek gönderim yapılmadı (test bağlayıcısı)" } });
-      return loadPo(db, id, can(req, "field.cost.view"));
-    });
+    return withApproval(req, () =>
+      tenant(req, "purchase.order.manage", async (db, actor) => {
+        const po = (await db.query(`select status, code, supplier_id, currency from purchase_orders where id = $1 for update`, [id])).rows[0];
+        if (!po) throw notFound("Satın alma siparişi");
+        if (po.status !== "draft") throw conflict("invalid_transition", "Yalnızca taslak sipariş gönderilir");
+        const s = (await db.query(`select status from suppliers where id = $1`, [po.supplier_id])).rows[0];
+        if (s.status !== "active") throw conflict("supplier_blocked", "Tedarikçi bloke; sipariş gönderilemez");
+        const lines = (await db.query(
+          `select l.qty_ordered, l.unit_price, pr.requested_by as "requestedBy"
+             from purchase_order_lines l left join purchase_requests pr on pr.id = l.purchase_request_id
+            where l.po_id = $1`,
+          [id],
+        )).rows;
+        const totalAmount = lines.reduce((sum, l) => sum + Number(l.qty_ordered) * Number(l.unit_price ?? 0), 0);
+        const requesterId: string | null = lines.find((l) => l.requestedBy)?.requestedBy ?? null;
+        const d = await assertApproval(
+          db, "purchase_request", approverFromRequest(req, "purchase.request.approve"),
+          { requesterId, amount: totalAmount.toFixed(6), currency: po.currency },
+          { title: `Sipariş ${po.code} gönderimi`, entityType: "purchase_order", entityId: id },
+        );
+        await db.query(`update purchase_orders set status = 'sent', sent_at = now(), sent_by = $2 where id = $1`, [id, actor.userId]);
+        await closeTasks(db, actor.companyId, "approval_escalation", id);
+        await enqueue(db, actor.companyId, "supplier.po_send", { poId: id, code: po.code, mode: "test" });
+        await recordEvent(db, actor, { entityType: "purchase_order", entityId: id, eventType: "sent", after: { mode: "test", note: "Tedarikçiye gerçek gönderim yapılmadı (test bağlayıcısı)", policyVersion: d.policyVersion, totalAmount: totalAmount.toFixed(2) } });
+        return loadPo(db, id, can(req, "field.cost.view"));
+      }),
+    );
   });
 
   /**

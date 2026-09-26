@@ -6,7 +6,7 @@ Durumlar: planlandı · geliştiriliyor · doğrulandı · entegrasyon bekliyor 
 | Kod | Gereksinim | Paketler | Durum | Yapılan | Veri modeli | Kanıt | Engel / kalan |
 |---|---|---|---|---|---|---|---|
 | R01 | Yedi birim, teknisyen ve çok rollü kullanım | W04, W06 | geliştiriliyor | 10 rol şablonu, çoklu rol, kullanıcı ekleme, rol atama, askıya alma; kendi rolünü değiştirme engeli | memberships, roles, role_permissions | T18, yetki testleri | Vekâlet, MFA, alan izni ekranı yok |
-| R02 | Organizasyon şeması ve yönetici yetkileri | W06, W26 | geliştiriliyor | Departman ağacı, yönetici, çoklu ve geçici üyelik, tarihsel görünüm; şema yetki vermez | departments, department_members | planning.test.ts, e2e | Vekâlet ve parasal limit W10'da eklendi; departman bazında yetki kapsamı yok |
+| R02 | Organizasyon şeması ve yönetici yetkileri | W06, W26 | geliştiriliyor | Departman ağacı, yönetici, çoklu ve geçici üyelik, tarihsel görünüm; şema yetki vermez | departments, department_members | planning.test.ts, e2e | Vekâlet ve parasal limit W10'da eklendi (oturum 33: limit satın alma sipariş gönderiminde de kontrol edilir); departman bazında yetki kapsamı yok |
 | R03 | Ar-Ge ihtiyacının satın almaya aktarılması | W11, W18 | geliştiriliyor | Üretim ihtiyacından otomatik satın alma talebi | purchase_requests | T02 testi | Ar-Ge proje talebi (W11) yok |
 | R04 | Alımın proje ve muhasebeyle bağlantısı | W18, W24 | planlandı | — | — | — | — |
 | R05 | Devirde Ar-Ge maliyetinin hesaplanması | W11, W25 | planlandı | — | — | — | — |
