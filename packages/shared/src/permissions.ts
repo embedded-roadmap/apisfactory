@@ -73,6 +73,8 @@ export const PERMISSIONS = [
   "task.view",
   "audit.view",
   "export.run",
+  // Yönetici raporları ve stratejik AI önerileri (W30/W31)
+  "report.suggestion.decide",
   // Yönetim (teknik yönetici). İş kararlarını KAPSAMAZ.
   "admin.users",
   "admin.roles",
@@ -111,6 +113,7 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
       "product.view", "bom.view", "inventory.view", "sales.view", "purchase.view", "production.view", "shipment.view",
       "task.view", "audit.view", "export.run", "field.cost.view", "field.price.view", "change.view", "rma.view", "cost.manage", "report.view",
       "task.manage", "org.manage", "team.report.view", "workflow.manage", "delegation.manage", "purchase.request.approve", "purchase.order.manage", "invoice.view", "invoice.approve", "receivable.view", "credit.override",
+      "report.suggestion.decide",
     ],
   },
   rd: {
@@ -162,6 +165,7 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
 export const DELEGABLE_PERMISSIONS: readonly Permission[] = [
   "purchase.request.approve", "change.decide", "quality.incoming.decide", "quality.final.release", "rma.decide",
   "product.approve.rd", "product.approve.production", "product.approve.quality", "sales.confirm",
+  "report.suggestion.decide",
 ];
 
 /** Sistem görevi türü → onu yapmaya yetki veren izin (vekilin görev listesinde göstermek için). */
@@ -171,6 +175,9 @@ export const TASK_KIND_PERMISSION: Record<string, Permission> = {
   incoming_inspection: "quality.incoming.decide",
   device_disposition: "quality.final.release",
   rma_inspect: "rma.decide",
+  // W30/W31: yönetici rapor bulgusu incelemesi ve öneri uygulaması.
+  report_finding_review: "report.suggestion.decide",
+  ai_suggestion_implementation: "report.suggestion.decide",
 };
 
 /** Onay politikası türleri ve süre ölçümü yapılan görev türleri. */

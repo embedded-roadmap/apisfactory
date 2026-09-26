@@ -10,8 +10,8 @@ export const PASSWORD = "test-password-1";
 export type World = {
   app: FastifyInstance;
   owner: pg.Client;
-  a: { companyId: string; locations: Record<string, string> };
-  b: { companyId: string; locations: Record<string, string> };
+  a: { companyId: string; locations: Record<string, string>; roleIds: Record<string, string> };
+  b: { companyId: string; locations: Record<string, string>; roleIds: Record<string, string> };
 };
 
 /** Test veri tabanını sıfırlar, migration'ları uygular, iki ayrı şirket ve rol kullanıcıları açar. */

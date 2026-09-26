@@ -178,7 +178,7 @@ export const METRICS = [
 
 type MetricKey = (typeof METRICS)[number]["key"];
 
-async function metricData(db: Db, key: MetricKey, from: string, to: string, productId: string | null) {
+export async function metricData(db: Db, key: MetricKey, from: string, to: string, productId: string | null) {
   const woScope = `w.created_at >= $1::date and w.created_at < ($2::date + 1) and ($3::uuid is null or p.id = $3)`;
   const woJoin = `from devices d join work_orders w on w.id = d.work_order_id join product_revisions pr on pr.id = w.product_revision_id join products p on p.id = pr.product_id`;
   const args = [from, to, productId];
@@ -257,11 +257,13 @@ async function metricData(db: Db, key: MetricKey, from: string, to: string, prod
   }
 }
 
-function ratio(n: number | null, d: number | null) {
+export function ratio(n: number | null, d: number | null) {
   if (n === null || d === null) return null;
   if (d === 0) return null;
   return Number((n / d).toFixed(4));
 }
+
+export type MetricKeyPublic = MetricKey;
 
 export async function costingRoutes(app: FastifyInstance) {
   // ---- Lot maliyeti -----------------------------------------------------------------
@@ -369,67 +371,7 @@ export async function costingRoutes(app: FastifyInstance) {
     const q = z.object({ from: z.string().regex(DATE), to: z.string().regex(DATE) }).parse(req.query);
     return tenant(req, "report.view", async (db) => {
       if (!can(req, "field.cost.view") || !can(req, "field.price.view")) throw forbidden("field.cost.view+field.price.view");
-      const r = await db.query(
-        `select s.code as "shipmentCode", s.shipped_at as "shippedAt", so.code as "orderCode", c.name as "customerName", p.code as "productCode", pr.rev,
-                l.unit_price as "unitPrice", l.currency, pi.lot_id, lo.lot_no as "lotNo", sum(pi.qty) as qty
-           from package_items pi join packages pk on pk.id = pi.package_id join shipments s on s.id = pk.shipment_id
-           join shipment_lines sl on sl.id = pi.shipment_line_id join sales_order_lines l on l.id = sl.sales_order_line_id
-           join sales_orders so on so.id = l.order_id join customers c on c.id = so.customer_id
-           join product_revisions pr on pr.id = l.product_revision_id join products p on p.id = pr.product_id join lots lo on lo.id = pi.lot_id
-          where s.status in ('shipped', 'delivered', 'problem') and s.shipped_at >= $1::date and s.shipped_at < ($2::date + 1)
-          group by s.code, s.shipped_at, so.code, c.name, p.code, pr.rev, l.unit_price, l.currency, pi.lot_id, lo.lot_no
-          order by s.shipped_at, s.code`,
-        [q.from, q.to],
-      );
-      const rows = [];
-      const totals = new Map<string, { revenue: bigint; cogs: bigint }>();
-      let incomplete = 0;
-      for (const x of r.rows) {
-        const qty = toMicro(x.qty);
-        const cost = await currentLotCost(db, x.lot_id);
-        const revenue = x.unitPrice === null ? null : mulM(qty, toMicro(x.unitPrice));
-        let cogs: bigint | null = null;
-        let note: string | null = null;
-        if (revenue === null) note = "satış fiyatı yok";
-        if (!cost) note = [note, "lot maliyeti yok"].filter(Boolean).join("; ");
-        else if (cost.currency !== x.currency) note = [note, `maliyet ${cost.currency} ≠ satış ${x.currency} (kur yok)`].filter(Boolean).join("; ");
-        else cogs = mulM(qty, toMicro(cost.unit_cost));
-        const gross = revenue !== null && cogs !== null ? revenue - cogs : null;
-        const margin = gross !== null && revenue !== null && revenue > 0n ? Number(fromMicro(divM(gross, revenue))) : null;
-        if (gross === null) incomplete++;
-        else {
-          const t = totals.get(x.currency) ?? { revenue: 0n, cogs: 0n };
-          t.revenue += revenue!;
-          t.cogs += cogs!;
-          totals.set(x.currency, t);
-        }
-        rows.push({
-          shipmentCode: x.shipmentCode, shippedAt: x.shippedAt, orderCode: x.orderCode, customerName: x.customerName, product: `${x.productCode} Rev.${x.rev}`,
-          lotNo: x.lotNo, qty: money(qty), currency: x.currency, unitPrice: x.unitPrice === null ? null : money(toMicro(x.unitPrice)),
-          unitCost: cost ? money(toMicro(cost.unit_cost)) : null, costSource: cost?.source ?? null,
-          revenue: revenue === null ? null : money(revenue), cogs: cogs === null ? null : money(cogs), grossProfit: gross === null ? null : money(gross), grossMargin: margin, note,
-        });
-      }
-      const returns = await db.query(
-        `select count(*)::int as n, coalesce(sum(qty), 0) as q, count(*) filter (where credit_note_requested)::int as credit
-           from rmas where status <> 'cancelled' and created_at >= $1::date and created_at < ($2::date + 1)`,
-        [q.from, q.to],
-      );
-      return {
-        from: q.from, to: q.to, rows,
-        totals: [...totals.entries()].map(([currency, t]) => ({
-          currency, revenue: money(t.revenue), cogs: money(t.cogs), grossProfit: money(t.revenue - t.cogs),
-          grossMargin: t.revenue > 0n ? Number(fromMicro(divM(t.revenue - t.cogs, t.revenue))) : null,
-        })),
-        incompleteLines: incomplete,
-        returns: { count: returns.rows[0].n, qty: fromMicro(toMicro(returns.rows[0].q)), creditNoteRequests: returns.rows[0].credit },
-        notes: [
-          "Gelir: sevk edilen miktar × sipariş birim fiyatı (vergi hariç, sipariş para birimi). Satılmamış stokta kâr gösterilmez.",
-          "Satılan malın maliyeti: sevk edilen lotun güncel birim maliyeti (üretimden gelen lotta iş emri maliyet hesabı).",
-          "İadeler ve alacak belgeleri resmî muhasebe kaydı olmadığı için gelirden düşülmez; ayrıca gösterilir.",
-          "Nakit akışı ve tahsilat bu rapora dahil değildir.",
-        ],
-      };
+      return computeMarginReport(db, q.from, q.to);
     });
   });
 
@@ -465,4 +407,69 @@ export async function costingRoutes(app: FastifyInstance) {
       return { ...def, numerator: d.numerator, denominator: d.denominator, value: ratio(d.numerator, d.denominator), rows: d.rows };
     });
   });
+}
+
+/** `/api/reports/margin` ve W30 yönetici raporunun kârlılık alanı ortak hesaplayıcısı. */
+export async function computeMarginReport(db: Db, from: string, to: string) {
+  const r = await db.query(
+    `select s.code as "shipmentCode", s.shipped_at as "shippedAt", so.code as "orderCode", c.name as "customerName", p.code as "productCode", pr.rev,
+            l.unit_price as "unitPrice", l.currency, pi.lot_id, lo.lot_no as "lotNo", sum(pi.qty) as qty
+       from package_items pi join packages pk on pk.id = pi.package_id join shipments s on s.id = pk.shipment_id
+       join shipment_lines sl on sl.id = pi.shipment_line_id join sales_order_lines l on l.id = sl.sales_order_line_id
+       join sales_orders so on so.id = l.order_id join customers c on c.id = so.customer_id
+       join product_revisions pr on pr.id = l.product_revision_id join products p on p.id = pr.product_id join lots lo on lo.id = pi.lot_id
+      where s.status in ('shipped', 'delivered', 'problem') and s.shipped_at >= $1::date and s.shipped_at < ($2::date + 1)
+      group by s.code, s.shipped_at, so.code, c.name, p.code, pr.rev, l.unit_price, l.currency, pi.lot_id, lo.lot_no
+      order by s.shipped_at, s.code`,
+    [from, to],
+  );
+  const rows = [];
+  const totals = new Map<string, { revenue: bigint; cogs: bigint }>();
+  let incomplete = 0;
+  for (const x of r.rows) {
+    const qty = toMicro(x.qty);
+    const cost = await currentLotCost(db, x.lot_id);
+    const revenue = x.unitPrice === null ? null : mulM(qty, toMicro(x.unitPrice));
+    let cogs: bigint | null = null;
+    let note: string | null = null;
+    if (revenue === null) note = "satış fiyatı yok";
+    if (!cost) note = [note, "lot maliyeti yok"].filter(Boolean).join("; ");
+    else if (cost.currency !== x.currency) note = [note, `maliyet ${cost.currency} ≠ satış ${x.currency} (kur yok)`].filter(Boolean).join("; ");
+    else cogs = mulM(qty, toMicro(cost.unit_cost));
+    const gross = revenue !== null && cogs !== null ? revenue - cogs : null;
+    const margin = gross !== null && revenue !== null && revenue > 0n ? Number(fromMicro(divM(gross, revenue))) : null;
+    if (gross === null) incomplete++;
+    else {
+      const t = totals.get(x.currency) ?? { revenue: 0n, cogs: 0n };
+      t.revenue += revenue!;
+      t.cogs += cogs!;
+      totals.set(x.currency, t);
+    }
+    rows.push({
+      shipmentCode: x.shipmentCode, shippedAt: x.shippedAt, orderCode: x.orderCode, customerName: x.customerName, product: `${x.productCode} Rev.${x.rev}`,
+      lotNo: x.lotNo, qty: money(qty), currency: x.currency, unitPrice: x.unitPrice === null ? null : money(toMicro(x.unitPrice)),
+      unitCost: cost ? money(toMicro(cost.unit_cost)) : null, costSource: cost?.source ?? null,
+      revenue: revenue === null ? null : money(revenue), cogs: cogs === null ? null : money(cogs), grossProfit: gross === null ? null : money(gross), grossMargin: margin, note,
+    });
+  }
+  const returns = await db.query(
+    `select count(*)::int as n, coalesce(sum(qty), 0) as q, count(*) filter (where credit_note_requested)::int as credit
+       from rmas where status <> 'cancelled' and created_at >= $1::date and created_at < ($2::date + 1)`,
+    [from, to],
+  );
+  return {
+    from, to, rows,
+    totals: [...totals.entries()].map(([currency, t]) => ({
+      currency, revenue: money(t.revenue), cogs: money(t.cogs), grossProfit: money(t.revenue - t.cogs),
+      grossMargin: t.revenue > 0n ? Number(fromMicro(divM(t.revenue - t.cogs, t.revenue))) : null,
+    })),
+    incompleteLines: incomplete,
+    returns: { count: returns.rows[0].n, qty: fromMicro(toMicro(returns.rows[0].q)), creditNoteRequests: returns.rows[0].credit },
+    notes: [
+      "Gelir: sevk edilen miktar × sipariş birim fiyatı (vergi hariç, sipariş para birimi). Satılmamış stokta kâr gösterilmez.",
+      "Satılan malın maliyeti: sevk edilen lotun güncel birim maliyeti (üretimden gelen lotta iş emri maliyet hesabı).",
+      "İadeler ve alacak belgeleri resmî muhasebe kaydı olmadığı için gelirden düşülmez; ayrıca gösterilir.",
+      "Nakit akışı ve tahsilat bu rapora dahil değildir.",
+    ],
+  };
 }

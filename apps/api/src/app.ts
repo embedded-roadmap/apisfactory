@@ -15,6 +15,7 @@ import { scenarioRoutes } from "./modules/scenarios";
 import { subcontractRoutes } from "./modules/subcontract";
 import { planningRoutes } from "./modules/planning";
 import { costingRoutes } from "./modules/costing";
+import { reportsRoutes } from "./modules/reports";
 import { returnRoutes } from "./modules/returns";
 import { packagingRoutes } from "./modules/shipping";
 import { qualityRoutes } from "./modules/quality";
@@ -77,6 +78,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(packagingRoutes);
   await app.register(returnRoutes);
   await app.register(costingRoutes);
+  await app.register(reportsRoutes);
   await app.register(planningRoutes);
   await app.register(workflowRoutes);
   await app.register(stationRoutes);
