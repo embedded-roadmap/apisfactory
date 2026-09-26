@@ -13,6 +13,15 @@ export async function createCompany(client: pg.Client, input: { code: string; na
   const c = await client.query(`insert into companies (code, name, is_demo) values ($1, $2, $3) returning id`, [input.code, input.name, input.isDemo ?? false]);
   const companyId: string = c.rows[0].id;
   await client.query(`select set_config('app.company_id', $1, false)`, [companyId]);
+  // W42: yeni şirket "trial" paketiyle başlar (deneme süresi: 30 gün — bilinçli bir varsayılan politika,
+  // gerçek bir sözleşme/fatura verisi değil). subscription_plans tablosu henüz yoksa (041 migration'dan
+  // önceki bir çağrı — olmamalı ama savunmacı) sessizce atlanır.
+  await client.query(
+    `update companies set subscription_plan_id = (select id from subscription_plans where code = 'trial'),
+                          trial_ends_at = (now() + interval '30 days')::date
+       where id = $1 and exists (select 1 from subscription_plans where code = 'trial')`,
+    [companyId],
+  );
   const roleIds: Record<string, string> = {};
   for (const [code, def] of Object.entries(DEFAULT_ROLES)) {
     const r = await client.query(`insert into roles (company_id, code, name) values ($1, $2, $3) returning id`, [companyId, code, def.name.tr]);

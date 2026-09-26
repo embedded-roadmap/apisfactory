@@ -24,6 +24,7 @@ import { DistributorsPage } from "./pages/Distributors";
 import { AlternatesPage } from "./pages/Alternates";
 import { CustomerInvoicePage, CustomerInvoicesPage, EinvoiceConnectorsPage, ReceivablesAgingPage } from "./pages/Receivables";
 import { AgingPage, ApPolicyPage, InvoicePage, InvoicesPage, NewInvoicePage } from "./pages/Payables";
+import { SubscriptionPage } from "./pages/Subscription";
 import { FollowupsPage, PurchaseOrderPage, PurchaseOrdersPage, RfqPage, RfqsPage, SuppliersPage } from "./pages/Procurement";
 import { GanttPage, OrgPage, PlanningPage, TaskPage, TeamReportPage } from "./pages/Planning";
 import { ExecutiveReportPage, ReportsPage } from "./pages/Reports";
@@ -122,6 +123,7 @@ const NAV: { to: string; key: string; perm?: Permission }[] = [
   { to: "/purchasing", key: "nav.purchasing", perm: "purchase.view" },
   { to: "/receivables", key: "nav.receivables", perm: "receivable.view" },
   { to: "/payables", key: "nav.payables", perm: "invoice.view" },
+  { to: "/subscription", key: "nav.subscription", perm: "subscription.view" },
   { to: "/imports", key: "nav.imports" },
   { to: "/reports", key: "nav.reports", perm: "report.view" },
   { to: "/reports/executive", key: "nav.reportsExecutive", perm: "report.view" },
@@ -208,6 +210,7 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/receivables/einvoice-connectors" element={<EinvoiceConnectorsPage />} />
               <Route path="/receivables/:id" element={<CustomerInvoicePage />} />
               <Route path="/payables" element={<InvoicesPage />} />
+              <Route path="/subscription" element={<SubscriptionPage />} />
               <Route path="/payables/new" element={<NewInvoicePage />} />
               <Route path="/payables/aging" element={<AgingPage />} />
               <Route path="/payables/policy" element={<ApPolicyPage />} />

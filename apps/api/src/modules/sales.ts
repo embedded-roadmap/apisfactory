@@ -9,6 +9,7 @@ import { enqueue, idempotent, nextCode, openTask, recordEvent, type Actor } from
 import { fromMicro, max, min, mul, toMicro } from "../lib/decimal";
 import { can, idempotencyKey, parse, tenant } from "../http/context";
 import { creditStatus } from "./receivables";
+import { assertNotRestricted } from "./subscription";
 
 const USABLE = USABLE_LOCATION_TYPES as readonly string[];
 
@@ -227,6 +228,7 @@ export async function salesRoutes(app: FastifyInstance) {
   app.post("/api/sales-orders", async (req) => {
     const input = parse(CreateSalesOrderInput, req.body);
     return tenant(req, "sales.create", async (db, actor) => {
+      await assertNotRestricted(db, actor.companyId, "yeni satış siparişi oluşturma");
       const code = await nextCode(db, actor.companyId, "sales_order", "SS");
       const o = await db.query(
         `insert into sales_orders (company_id, code, customer_id, requested_date, created_by) values (app_company_id(), $1, $2, $3, $4) returning id`,

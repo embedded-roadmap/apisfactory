@@ -35,6 +35,7 @@ import { salesRoutes, shippingRoutes } from "./modules/sales";
 import { workRoutes } from "./modules/work";
 import { productionRoutes } from "./modules/production";
 import { adminRoutes } from "./modules/admin";
+import { subscriptionRoutes } from "./modules/subscription";
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 8 * 1024 * 1024 });
@@ -72,6 +73,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(productionRoutes);
   await app.register(shippingRoutes);
   await app.register(adminRoutes);
+  await app.register(subscriptionRoutes);
   await app.register(qualityRoutes);
   await app.register(changeRoutes);
   await app.register(leadTimeRoutes);

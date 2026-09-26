@@ -5,6 +5,7 @@ import { badRequest, conflict, notFound } from "../lib/errors";
 import { closeTasks, enqueue, idempotent, nextCode, openTask, recordEvent, type Actor } from "../lib/records";
 import { can, idempotencyKey, parse, tenant } from "../http/context";
 import { approverFromRequest, assertApproval, withApproval } from "../lib/workflow";
+import { assertNotRestricted } from "./subscription";
 
 /**
  * W18 — Tedarikçi, teklif talebi (RFQ) ve teklif karşılaştırma, satın alma siparişi, tedarikçi teyidi ve gecikme.
@@ -271,6 +272,7 @@ export async function procurementRoutes(app: FastifyInstance) {
     const input = parse(z.object({ quoteId: z.string().uuid(), reason: z.string().max(1000).optional() }), req.body);
     return tenant(req, "purchase.order.manage", (db, actor) =>
       idempotent(db, actor.companyId, "rfq_award", idempotencyKey(req), async () => {
+        await assertNotRestricted(db, actor.companyId, "yeni satın alma siparişi oluşturma (teklif ödülü)");
         const rfq = await loadRfq(db, id, true);
         if (rfq.status !== "open") throw conflict("rfq_closed", "Teklif talebi kapalı");
         const q = rfq.quotes.find((x: { id: string }) => x.id === input.quoteId) as any;

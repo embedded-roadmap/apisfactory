@@ -75,6 +75,9 @@ export const PERMISSIONS = [
   "export.run",
   // Yönetici raporları ve stratejik AI önerileri (W30/W31)
   "report.suggestion.decide",
+  // Abonelik ve şirket yaşam döngüsü (W42) — yalnızca KENDİ şirketi kapsamında (cross-tenant değil)
+  "subscription.view",
+  "subscription.manage",
   // Yönetim (teknik yönetici). İş kararlarını KAPSAMAZ.
   "admin.users",
   "admin.roles",
@@ -105,7 +108,7 @@ export type RoleCode =
 export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string }; permissions: Permission[] }> = {
   admin: {
     name: { tr: "Sistem yöneticisi", en: "System administrator" },
-    permissions: ["admin.users", "admin.roles", "audit.view", "task.view", "org.manage", "delegation.manage"],
+    permissions: ["admin.users", "admin.roles", "audit.view", "task.view", "org.manage", "delegation.manage", "subscription.view"],
   },
   manager: {
     name: { tr: "Yönetici", en: "Manager" },
@@ -113,7 +116,7 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
       "product.view", "bom.view", "inventory.view", "sales.view", "purchase.view", "production.view", "shipment.view",
       "task.view", "audit.view", "export.run", "field.cost.view", "field.price.view", "change.view", "rma.view", "cost.manage", "report.view",
       "task.manage", "org.manage", "team.report.view", "workflow.manage", "delegation.manage", "purchase.request.approve", "purchase.order.manage", "invoice.view", "invoice.approve", "receivable.view", "credit.override",
-      "report.suggestion.decide",
+      "report.suggestion.decide", "subscription.view", "subscription.manage",
     ],
   },
   rd: {
@@ -151,7 +154,7 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
   },
   accounting: {
     name: { tr: "Muhasebe", en: "Accounting" },
-    permissions: ["product.view", "sales.view", "purchase.view", "task.view", "export.run", "field.cost.view", "field.price.view", "rma.view", "cost.manage", "lot.cost.record", "report.view", "invoice.view", "invoice.manage", "invoice.approve", "payment.record", "receivable.view", "receivable.manage", "credit.override"],
+    permissions: ["product.view", "sales.view", "purchase.view", "task.view", "export.run", "field.cost.view", "field.price.view", "rma.view", "cost.manage", "lot.cost.record", "report.view", "invoice.view", "invoice.manage", "invoice.approve", "payment.record", "receivable.view", "receivable.manage", "credit.override", "subscription.view", "subscription.manage"],
   },
   // Fason üretici / dış kullanıcı: yalnız kendisine atanmış işi görür; izin listesi kasten boştur —
   // erişim genel izinlerle değil, subcontract_jobs.subcontractor_user_id eşleşmesiyle denetlenir (prompt §19).
