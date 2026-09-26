@@ -26,7 +26,7 @@ import { CustomerInvoicePage, CustomerInvoicesPage, EinvoiceConnectorsPage, Rece
 import { AgingPage, ApPolicyPage, InvoicePage, InvoicesPage, NewInvoicePage } from "./pages/Payables";
 import { FollowupsPage, PurchaseOrderPage, PurchaseOrdersPage, RfqPage, RfqsPage, SuppliersPage } from "./pages/Procurement";
 import { GanttPage, OrgPage, PlanningPage, TaskPage, TeamReportPage } from "./pages/Planning";
-import { ReportsPage } from "./pages/Reports";
+import { ExecutiveReportPage, ReportsPage } from "./pages/Reports";
 import { DevicePage, ReturnPage, ReturnsPage } from "./pages/Returns";
 import { CargoConnectorsPage, ShipmentPage, ShipmentPrintPage, ShipmentsPage } from "./pages/Shipping";
 import { ChangePage, ChangesPage } from "./pages/Changes";
@@ -123,6 +123,7 @@ const NAV: { to: string; key: string; perm?: Permission }[] = [
   { to: "/payables", key: "nav.payables", perm: "invoice.view" },
   { to: "/imports", key: "nav.imports" },
   { to: "/reports", key: "nav.reports", perm: "report.view" },
+  { to: "/reports/executive", key: "nav.reportsExecutive", perm: "report.view" },
   { to: "/scenarios", key: "nav.scenarios", perm: "report.view" },
   { to: "/subcontract-jobs", key: "nav.subcontractJobs", perm: "subcontract.manage" },
   { to: "/workflow", key: "nav.workflow", perm: "task.view" },
@@ -224,6 +225,7 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/devices" element={<DevicePage />} />
               <Route path="/devices/:serial" element={<DevicePage />} />
               <Route path="/reports" element={<ReportsPage />} />
+              <Route path="/reports/executive" element={<ExecutiveReportPage />} />
               <Route path="/scenarios" element={<ScenariosPage />} />
               <Route path="/planning" element={<PlanningPage />} />
               <Route path="/planning/tasks/:id" element={<TaskPage />} />

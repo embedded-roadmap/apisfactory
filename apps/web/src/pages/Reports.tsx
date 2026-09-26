@@ -203,6 +203,186 @@ export function WorkOrderCost({ woId }: { woId: string }) {
   );
 }
 
+const AREA_LABEL: Record<string, string> = {
+  fire_rework: "Fire ve yeniden işleme", cost_margin: "Gerçek maliyet ve kârlılık", supplier_performance: "Tedarikçi performansı",
+  stock_shortage: "Stok ve eksik malzeme", capacity_leadtime: "Kapasite ve termin", revision_impact: "Revizyon etkisi",
+  project_budget: "Proje bütçesi", collections: "Tahsilat",
+};
+
+/**
+ * W30/W31 (oturum 38): yönetici raporu — 8 alan, kural tabanlı (deterministik) bulgu + kanıt.
+ * AI servisi bu oturumda yapılandırılmadı; bu ekran bunu gizlemez, üstte açıkça gösterir.
+ */
+export function ExecutiveReportPage() {
+  const can = useCan();
+  const qc = useQueryClient();
+  const [from, setFrom] = useState(firstOfMonth());
+  const [to, setTo] = useState(iso(new Date()));
+  const [periodKind, setPeriodKind] = useState<"weekly" | "monthly" | "yearly">("monthly");
+  const q = useQuery({ queryKey: ["execReport", periodKind, from, to], queryFn: () => get<any>(`/api/reports/executive?periodKind=${periodKind}&from=${from}&to=${to}`) });
+  const gen = useMutation({
+    mutationFn: () => post<any>("/api/reports/generate", { periodKind, from, to }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["reportFindings"] }); },
+  });
+  return (
+    <>
+      <PageHeader title="Yönetici raporu" sub="Sayısal kanıt önce; AI yalnızca kanıtı açıklar ve seçenek sunar — bulgu üretmez, karar vermez." />
+      <section className="card">
+        <div className="row" role="group" aria-label="Dönem">
+          <label className="field">Dönem<select value={periodKind} onChange={(e) => setPeriodKind(e.target.value as any)}><option value="weekly">Haftalık</option><option value="monthly">Aylık</option><option value="yearly">Yıllık</option></select></label>
+          <label className="field">Başlangıç<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
+          <label className="field">Bitiş<input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+          {can("report.suggestion.decide") || can("report.view") ? (
+            <button className="primary" style={{ alignSelf: "flex-end" }} onClick={() => gen.mutate()} disabled={gen.isPending}>Bulguları kaydet ve inceleme görevi aç</button>
+          ) : null}
+        </div>
+        <ErrorNotice error={gen.error} />
+        {gen.data ? <div className="notice ok">{gen.data.findings.length} bulgu kaydedildi; onay gerekenler için sorumlu role inceleme görevi açıldı (bkz. Görevler).</div> : null}
+      </section>
+      {q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />}
+      {q.data ? (
+        <>
+          <div className="notice">{q.data.aiNote}</div>
+          <div className="stack">
+            {Object.entries(q.data.areas).map(([area, f]: [string, any]) => (
+              <section className="card" key={area}>
+                <div className="row between">
+                  <h2>{AREA_LABEL[area] ?? area}</h2>
+                  <span className={`badge ${f.causeType === "insufficient_data" ? "warn" : ""}`}>{f.causeType === "insufficient_data" ? "yeterli veri yok" : "hipotez"}</span>
+                </div>
+                <p style={{ margin: 0 }}>{f.finding}</p>
+                {f.causeText ? <p className="muted" style={{ margin: 0 }}><b>Olası neden / alternatif:</b> {f.causeText}</p> : null}
+                {f.actionOptions?.length ? (
+                  <ul className="muted" style={{ margin: 0 }}>{f.actionOptions.map((o: any) => <li key={o.option}><b>{o.option}</b>{o.note ? ` — ${o.note}` : ""}</li>)}</ul>
+                ) : null}
+                {f.uncertainty ? <p className="muted" style={{ margin: 0 }}><i>Belirsizlik: {f.uncertainty}</i></p> : null}
+              </section>
+            ))}
+          </div>
+        </>
+      ) : null}
+      {can("report.suggestion.decide") ? <PendingFindings /> : null}
+      {can("report.suggestion.decide") ? <DecidedFindings /> : null}
+    </>
+  );
+}
+
+function PendingFindings() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["reportFindings", "pending"], queryFn: () => get<any[]>("/api/reports/findings?status=pending") });
+  const [open, setOpen] = useState<string | null>(null);
+  return (
+    <section className="card">
+      <h2>Bekleyen inceleme kararları</h2>
+      {q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />}
+      {q.data?.length === 0 ? <Empty>Bekleyen karar yok.</Empty> : null}
+      {q.data?.map((f: any) => (
+        <div className="stack" key={f.id} style={{ borderTop: "1px solid var(--border, #ddd)", paddingTop: 8 }}>
+          <div className="row between">
+            <div><b>{AREA_LABEL[f.area] ?? f.area}</b> <span className="muted">· {f.period_from} → {f.period_to} · sorumlu {f.responsible_role}</span></div>
+            <button onClick={() => setOpen(open === f.id ? null : f.id)}>{open === f.id ? "Kapat" : "Karar ver"}</button>
+          </div>
+          <p className="muted" style={{ margin: 0 }}>{f.finding}</p>
+          {open === f.id ? <DecisionForm findingId={f.id} onDone={() => { setOpen(null); qc.invalidateQueries({ queryKey: ["reportFindings"] }); }} /> : null}
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function DecisionForm({ findingId, onDone }: { findingId: string; onDone: () => void }) {
+  const [decision, setDecision] = useState<"approve" | "reject" | "defer">("approve");
+  const [reason, setReason] = useState("");
+  const [baselineMetric, setBaselineMetric] = useState("");
+  const [baselineValue, setBaselineValue] = useState("");
+  const [targetValue, setTargetValue] = useState("");
+  const [interval, setInterval_] = useState("30");
+  const m = useMutation({
+    mutationFn: () => post(`/api/reports/findings/${findingId}/decision`, {
+      decision, reason,
+      ...(decision === "approve" ? { baselineMetric, baselineValue: Number(baselineValue), targetValue: Number(targetValue), measurementIntervalDays: Number(interval) } : {}),
+    }),
+    onSuccess: onDone,
+  });
+  return (
+    <form className="row" onSubmit={(e: FormEvent) => { e.preventDefault(); m.mutate(); }}>
+      <label className="field">Karar<select value={decision} onChange={(e) => setDecision(e.target.value as any)}><option value="approve">Onayla</option><option value="reject">Reddet</option><option value="defer">Ertele</option></select></label>
+      <label className="field" style={{ flex: 1 }}>Gerekçe<input required minLength={3} value={reason} onChange={(e) => setReason(e.target.value)} /></label>
+      {decision === "approve" ? (
+        <>
+          <label className="field">Baz metrik<input required value={baselineMetric} onChange={(e) => setBaselineMetric(e.target.value)} placeholder="örn. scrap_rate" /></label>
+          <label className="field" style={{ width: 100 }}>Baz değer<input required inputMode="decimal" value={baselineValue} onChange={(e) => setBaselineValue(e.target.value)} /></label>
+          <label className="field" style={{ width: 100 }}>Hedef<input required inputMode="decimal" value={targetValue} onChange={(e) => setTargetValue(e.target.value)} /></label>
+          <label className="field" style={{ width: 90 }}>Gün<input required inputMode="numeric" value={interval} onChange={(e) => setInterval_(e.target.value)} /></label>
+        </>
+      ) : null}
+      <button className="primary" style={{ alignSelf: "flex-end" }} disabled={m.isPending}>Kaydet</button>
+      <ErrorNotice error={m.error} />
+    </form>
+  );
+}
+
+function DecidedFindings() {
+  const q = useQuery({ queryKey: ["reportFindings", "decided"], queryFn: () => get<any[]>("/api/reports/findings?status=decided") });
+  const [open, setOpen] = useState<string | null>(null);
+  const approved = (q.data ?? []).filter((f: any) => f.suggestionStatus && f.suggestionStatus !== "rejected" && f.suggestionStatus !== "deferred");
+  return (
+    <section className="card">
+      <h2>Öneriler (uygulama ve ölçüm)</h2>
+      {q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />}
+      {approved.length === 0 ? <Empty>Onaylanmış öneri yok.</Empty> : null}
+      {approved.map((f: any) => (
+        <div className="stack" key={f.id} style={{ borderTop: "1px solid var(--border, #ddd)", paddingTop: 8 }}>
+          <div className="row between">
+            <div><b>{AREA_LABEL[f.area] ?? f.area}</b> <span className={`badge ${f.suggestionStatus === "closed" ? "ok" : ""}`}>{f.suggestionStatus}</span></div>
+            <button onClick={() => setOpen(open === f.suggestionId ? null : f.suggestionId)}>{open === f.suggestionId ? "Kapat" : "Ölçüm / doğrulama"}</button>
+          </div>
+          {open === f.suggestionId ? <SuggestionPanel id={f.suggestionId} /> : null}
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function SuggestionPanel({ id }: { id: string }) {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["suggestion", id], queryFn: () => get<any>(`/api/reports/suggestions/${id}`) });
+  const [measured, setMeasured] = useState("");
+  const measure = useMutation({ mutationFn: () => post(`/api/reports/suggestions/${id}/measure`, { measuredValue: Number(measured) }), onSuccess: () => qc.invalidateQueries({ queryKey: ["suggestion", id] }) });
+  const verify = useMutation({ mutationFn: () => post(`/api/reports/suggestions/${id}/verify`, {}), onSuccess: () => qc.invalidateQueries({ queryKey: ["suggestion", id] }) });
+  const [reopenReason, setReopenReason] = useState("");
+  const reopen = useMutation({ mutationFn: () => post(`/api/reports/suggestions/${id}/reopen`, { reason: reopenReason }), onSuccess: () => qc.invalidateQueries({ queryKey: ["suggestion", id] }) });
+  const s = q.data;
+  if (!s) return q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />;
+  return (
+    <div className="stack">
+      <div className="muted">baz {s.baseline_metric} = {fmt(s.baseline_value)} · hedef {fmt(s.target_value)} · ölçüm aralığı {s.measurement_interval_days} gün{s.implementation_cost ? ` · uygulama maliyeti ${fmt(s.implementation_cost)}` : ""}</div>
+      {s.status === "approved" && s.measured_value === null ? (
+        <form className="row" onSubmit={(e: FormEvent) => { e.preventDefault(); measure.mutate(); }}>
+          <label className="field" style={{ width: 120 }}>Gözlenen değer<input required inputMode="decimal" value={measured} onChange={(e) => setMeasured(e.target.value)} /></label>
+          <button className="primary" style={{ alignSelf: "flex-end" }} disabled={measure.isPending}>Kaydet</button>
+        </form>
+      ) : null}
+      {s.measured_value !== null && !s.closed_at ? (
+        <div className="row between">
+          <span>Gözlenen: {fmt(s.measured_value)}</span>
+          <button onClick={() => verify.mutate()} disabled={verify.isPending}>Bağımsız doğrula ve kapat</button>
+        </div>
+      ) : null}
+      {s.status === "closed" ? (
+        <>
+          <div className="notice ok">Kapatıldı. Gözlenen fark ve beklenen fark ayrı hesaplanır; tamamı otomatik olarak bu öneriye atfedilmez.</div>
+          <form className="row" onSubmit={(e: FormEvent) => { e.preventDefault(); reopen.mutate(); }}>
+            <label className="field" style={{ flex: 1 }}>Yeniden açma gerekçesi<input required minLength={3} value={reopenReason} onChange={(e) => setReopenReason(e.target.value)} /></label>
+            <button style={{ alignSelf: "flex-end" }} disabled={reopen.isPending}>Yeniden aç</button>
+          </form>
+        </>
+      ) : null}
+      <ErrorNotice error={measure.error ?? verify.error ?? reopen.error} />
+    </div>
+  );
+}
+
 /** Lot maliyet geçmişi ve fatura/elle giriş. */
 export function LotCosts({ lotId, lotNo }: { lotId: string; lotNo: string }) {
   const can = useCan();
