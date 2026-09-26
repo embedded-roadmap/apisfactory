@@ -83,3 +83,51 @@ export const post = <T = any>(p: string, b?: unknown, h?: Record<string, string>
 export function newKey(): string {
   return crypto.randomUUID();
 }
+
+/**
+ * Yetki başlıkları gerektiren bir indirme ucundan (ör. ek/dosya) içerik açar. Düz `<a href>` bu
+ * uçlara Authorization başlığı taşımadığı için çalışmaz — blob olarak indirip yeni sekmede açar
+ * (görsel/PDF/video) ya da indirir (diğer türler).
+ */
+export async function openDownload(path: string, fileName: string, contentType: string) {
+  const { session, companyId } = auth.get();
+  const res = await fetch(`${BASE}${path}`, { headers: { authorization: `Bearer ${session?.token}`, "x-company-id": companyId ?? "" } });
+  if (!res.ok) return;
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  if (contentType.startsWith("image/") || contentType === "application/pdf" || contentType.startsWith("video/")) window.open(url, "_blank");
+  else {
+    const a = document.createElement("a");
+    a.href = url; a.download = fileName; a.click();
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+export type StagedVideo = { stagedUploadId: string; fileName: string; contentType: string; sizeBytes: number; durationSeconds: number; codec: string | null };
+
+/**
+ * Video, JSON gövdeye base64 olarak sığmaz (200 MB'a kadar) — ayrı bir ham-ikili uca gider
+ * (W27, oturum 37). XHR kullanılır ki tarayıcı yükleme ilerlemesini bildirebilsin (devam
+ * talimatı §2: "yükleme ilerlemesi" gerekliliği). Gerçek süre/tür doğrulaması sunucuda yapılır;
+ * burada yalnızca aktarım yapılır.
+ */
+export function stageVideo(file: File, onProgress?: (pct: number) => void): Promise<StagedVideo> {
+  const { session, companyId } = auth.get();
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${BASE}/api/attachments/video/stage`);
+    if (session) xhr.setRequestHeader("authorization", `Bearer ${session.token}`);
+    if (companyId) xhr.setRequestHeader("x-company-id", companyId);
+    xhr.setRequestHeader("content-type", file.type);
+    xhr.setRequestHeader("x-file-name", encodeURIComponent(file.name));
+    if (onProgress) xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)); };
+    xhr.onload = () => {
+      let data: any = null;
+      try { data = JSON.parse(xhr.responseText); } catch { /* boş/metin yanıt */ }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data as StagedVideo);
+      else reject(new ApiError(xhr.status, data?.error?.code ?? "error", data?.error?.message ?? `HTTP ${xhr.status}`, data?.error?.details));
+    };
+    xhr.onerror = () => reject(new ApiError(0, "offline", "Sunucuya ulaşılamıyor. Bağlantınızı kontrol edin."));
+    xhr.send(file);
+  });
+}

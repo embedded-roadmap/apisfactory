@@ -1,11 +1,16 @@
 import type { FastifyInstance } from "fastify";
 import { createHash, randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { writeFile, unlink } from "node:fs/promises";
 import type { Permission } from "@apisfactory/shared";
 import { z } from "zod";
 import type { Db } from "../db/pool";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors";
 import { enqueue, idempotent, nextCode, recordEvent } from "../lib/records";
 import { can, ctxOf, idempotencyKey, need, parse, tenant } from "../http/context";
+import { newObjectKey, objectStorage, sha256Hex } from "../lib/storage";
+import { probeVideo, sniffContentType } from "../lib/media";
 
 /**
  * W27/W28 — Kayda bağlı iç mesajlaşma ve toplantı.
@@ -43,7 +48,16 @@ const MAX_ATTACHMENTS = 3;
 const MAX_ATTACHMENT_BYTES = 3_000_000;
 const MAX_ATTACHMENTS_TOTAL_BYTES = 5_000_000; // istek gövdesi 8 MB ile sınırlı (app.ts bodyLimit); base64 ~%33 büyür
 const ATTACHMENT_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif", "application/pdf", "text/plain", "text/csv"] as const;
-const AttachmentInput = z.object({ fileName: z.string().trim().min(1).max(200), contentType: z.enum(ATTACHMENT_TYPES), contentBase64: z.string().min(1) });
+const InlineAttachmentInput = z.object({ fileName: z.string().trim().min(1).max(200), contentType: z.enum(ATTACHMENT_TYPES), contentBase64: z.string().min(1) });
+const StagedAttachmentInput = z.object({ stagedUploadId: z.string().uuid() });
+const AttachmentInput = z.union([InlineAttachmentInput, StagedAttachmentInput]);
+
+// Video: devam talimatı §2 varsayılanı — dosya başına en fazla 200 MB ve 5 dakika. Bunlar şirket
+// politikası/paket limitiyle değiştirilebilir olacak şekilde tek bir yerde tanımlı tutulur; şu an
+// sabit (henüz şirket bazlı bir "medya politikası" ekranı yok — bilinen kalan).
+const VIDEO_MAX_BYTES = 200_000_000;
+const VIDEO_MAX_SECONDS = 5 * 60;
+const VIDEO_TYPES = ["video/mp4", "video/webm"] as const;
 
 async function entityLabel(db: Db, type: string, id: string) {
   const e = ENTITY[type];
@@ -187,7 +201,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
         `select m.id, m.author_id as "authorId", u.name as "authorName", case when m.retracted_at is null then m.body end as body,
                 m.reply_to as "replyTo", m.created_at as "createdAt", m.retracted_at as "retractedAt", m.retract_reason as "retractReason",
                 coalesce((select json_agg(json_build_object('userId', mm.user_id, 'name', mu.name)) from message_mentions mm join users mu on mu.id = mm.user_id where mm.message_id = m.id), '[]') as mentions,
-                coalesce((select json_agg(json_build_object('id', a.id, 'fileName', a.file_name, 'contentType', a.content_type, 'sizeBytes', a.size_bytes) order by a.created_at)
+                coalesce((select json_agg(json_build_object('id', a.id, 'fileName', a.file_name, 'contentType', a.content_type, 'sizeBytes', a.size_bytes, 'durationSeconds', a.duration_seconds) order by a.created_at)
                             from message_attachments a where a.message_id = m.id and m.retracted_at is null), '[]') as attachments
            from messages m join users u on u.id = m.author_id where m.thread_id = $1 order by m.created_at, m.id limit 500`,
         [tid],
@@ -240,7 +254,9 @@ export async function collaborationRoutes(app: FastifyInstance) {
       z.object({ body: z.string().trim().min(1).max(4000), mentions: z.array(z.string().uuid()).max(20).default([]), replyTo: z.string().uuid().optional(), attachments: z.array(AttachmentInput).max(MAX_ATTACHMENTS).default([]) }),
       req.body,
     );
-    const files = input.attachments.map((a) => {
+    const inlineInputs = input.attachments.filter((a): a is z.infer<typeof InlineAttachmentInput> => "contentBase64" in a);
+    const stagedInputs = input.attachments.filter((a): a is z.infer<typeof StagedAttachmentInput> => "stagedUploadId" in a);
+    const files = inlineInputs.map((a) => {
       const buf = Buffer.from(a.contentBase64, "base64");
       if (!buf.length || buf.length > MAX_ATTACHMENT_BYTES) throw badRequest(`${a.fileName}: dosya boyutu sınırın dışında (en fazla ${MAX_ATTACHMENT_BYTES / 1_000_000} MB)`);
       return { fileName: a.fileName, contentType: a.contentType, buf, sha: createHash("sha256").update(buf).digest("hex") };
@@ -261,6 +277,18 @@ export async function collaborationRoutes(app: FastifyInstance) {
           // Yetkisi olmayan kişiye kaydın içeriği bildirimle sızdırılmaz.
           throw conflict("mention_no_access", "Bahsedilen kişilerden bazıları bu kaydı görme yetkisine sahip değil veya şirkette aktif değil", { userIds: noAccess, names: noAccess.map((u) => perms.get(u)?.name ?? null) });
         }
+        // Video gibi büyük ekler önce ayrı bir ham-ikili uçla yüklenip doğrulanmıştı (oturum 37);
+        // burada yalnızca bu şirkette, bu kullanıcının yaptığı ve henüz kullanılmamış yüklemeler kabul edilir.
+        const staged = stagedInputs.length
+          ? (await db.query(
+              `select id, file_name as "fileName", content_type as "contentType", size_bytes as "sizeBytes", duration_seconds as "durationSeconds",
+                      sha256, object_key as "objectKey", storage_backend as "storageBackend"
+                 from staged_uploads where id = any($1) and uploaded_by = $2 and consumed_at is null`,
+              [stagedInputs.map((s) => s.stagedUploadId), actor.userId],
+            )).rows
+          : [];
+        const missingStaged = stagedInputs.filter((s) => !staged.some((row) => row.id === s.stagedUploadId));
+        if (missingStaged.length) throw conflict("staged_upload_not_found", "Yüklenmiş video bulunamadı veya zaten kullanılmış");
         const id = randomUUID();
         await db.query(
           `insert into messages (id, company_id, thread_id, author_id, body, reply_to) values ($1, app_company_id(), $2, $3, $4, $5)`,
@@ -273,6 +301,14 @@ export async function collaborationRoutes(app: FastifyInstance) {
             [id, f.fileName, f.contentType, f.buf.length, f.sha, f.buf, actor.userId],
           );
         }
+        for (const s of staged) {
+          await db.query(
+            `insert into message_attachments (company_id, message_id, file_name, content_type, size_bytes, sha256, object_key, storage_backend, duration_seconds, uploaded_by)
+             values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            [id, s.fileName, s.contentType, s.sizeBytes, s.sha256, s.objectKey, s.storageBackend, s.durationSeconds, actor.userId],
+          );
+          await db.query(`update staged_uploads set consumed_at = now() where id = $1`, [s.id]);
+        }
         for (const u of mentionIds) {
           await db.query(`insert into message_mentions (company_id, message_id, user_id) values (app_company_id(), $1, $2)`, [id, u]);
           await enqueue(db, actor.companyId, "notification.mention", { messageId: id, userId: u, entityType, entityId, label });
@@ -281,7 +317,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
           `insert into thread_reads (company_id, thread_id, user_id) values (app_company_id(), $1, $2) on conflict (thread_id, user_id) do update set last_read_at = now()`,
           [tid, actor.userId],
         );
-        return { id, threadId: tid, mentioned: mentionIds.length, attachments: files.length };
+        return { id, threadId: tid, mentioned: mentionIds.length, attachments: files.length + staged.length };
       }),
     );
   });
@@ -305,7 +341,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const out = await tenant(req, null, async (db) => {
       const a = (await db.query(
-        `select a.file_name as "fileName", a.content_type as "contentType", a.content, t.entity_type as "entityType"
+        `select a.file_name as "fileName", a.content_type as "contentType", a.content, a.object_key as "objectKey", t.entity_type as "entityType"
            from message_attachments a join messages m on m.id = a.message_id join threads t on t.id = m.thread_id where a.id = $1`,
         [id],
       )).rows[0];
@@ -315,8 +351,47 @@ export async function collaborationRoutes(app: FastifyInstance) {
       need(req, e.perm);
       return a;
     });
+    // Video gibi büyük ekler nesne depolamada tutulur (object_key); eski küçük ekler hâlâ bytea `content`'ten okunur.
+    const body = out.objectKey ? await objectStorage().get(out.objectKey) : out.content;
     reply.header("content-type", out.contentType).header("content-disposition", `inline; filename="${encodeURIComponent(out.fileName)}"`);
-    return out.content;
+    return body;
+  });
+
+  /**
+   * Video ön-yükleme: mesaja/faturaya "iliştirilmeden" önce ayrı bir ham-ikili uçla yüklenir ve
+   * sunucuda gerçek biçim/süre doğrulanır (devam talimatı §2). Yetki kontrolü burada genel
+   * kimlik doğrulamasıyla sınırlıdır — asıl kayıt-bazlı yetki kontrolü, bu yükleme bir mesaja
+   * iliştirilirken (POST /api/threads/.../messages) yapılır.
+   */
+  app.post("/api/attachments/video/stage", async (req) => {
+    return tenant(req, null, async (db, actor) => {
+      const contentType = req.headers["content-type"];
+      if (!VIDEO_TYPES.includes(contentType as (typeof VIDEO_TYPES)[number])) throw badRequest("content-type video/mp4 veya video/webm olmalı");
+      const fileNameHeader = req.headers["x-file-name"];
+      const fileName = typeof fileNameHeader === "string" && fileNameHeader.trim() ? decodeURIComponent(fileNameHeader).slice(0, 200) : "video";
+      const buf = req.body as Buffer;
+      if (!Buffer.isBuffer(buf) || !buf.length) throw badRequest("Boş video gövdesi");
+      if (buf.length > VIDEO_MAX_BYTES) throw badRequest(`Video en fazla ${VIDEO_MAX_BYTES / 1_000_000} MB olabilir`);
+      const sniffed = sniffContentType(buf);
+      if (sniffed !== contentType) throw badRequest("Dosya içeriği beyan edilen video türüyle eşleşmiyor");
+      const tmpPath = join(tmpdir(), `stage-${randomUUID()}.${contentType === "video/mp4" ? "mp4" : "webm"}`);
+      await writeFile(tmpPath, buf);
+      try {
+        const probe = await probeVideo(tmpPath);
+        if (!probe) throw badRequest("Video süresi/biçimi doğrulanamadı — dosya bozuk olabilir");
+        if (probe.durationSeconds > VIDEO_MAX_SECONDS) throw badRequest(`Video en fazla ${VIDEO_MAX_SECONDS / 60} dakika olabilir`);
+        const key = newObjectKey(actor.companyId, "video-attachments", fileName);
+        await objectStorage().put(key, buf);
+        const row = (await db.query(
+          `insert into staged_uploads (company_id, uploaded_by, file_name, content_type, size_bytes, duration_seconds, sha256, object_key, storage_backend)
+           values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8) returning id`,
+          [actor.userId, fileName, contentType, buf.length, probe.durationSeconds, sha256Hex(buf), key, objectStorage().backend],
+        )).rows[0];
+        return { stagedUploadId: row.id, fileName, contentType, sizeBytes: buf.length, durationSeconds: probe.durationSeconds, codec: probe.codec };
+      } finally {
+        await unlink(tmpPath).catch(() => {});
+      }
+    });
   });
 
   // ---- Kanallar ---------------------------------------------------------------------------

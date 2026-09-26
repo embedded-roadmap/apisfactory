@@ -4,10 +4,17 @@
  * malzeme transferi/iade, ilerleme (ileri yönde), dış firma beyanı ile şirketin kesin kabulü ayrıdır,
  * dosya yükleme (fotoğraf/video/test raporu/teslim belgesi).
  */
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { call, clearTokens, expectOk, login, PASSWORD, setupWorld, type World } from "./helpers";
 import { createUser } from "../src/db/seed";
 import { closePool } from "../src/db/pool";
+
+const execFileAsync = promisify(execFile);
 
 let w: World;
 let A: string;
@@ -137,6 +144,27 @@ describe("Fason üretici portalı (W32)", () => {
     expect((await call(w.app, "fason2@ext.test", A, "GET", `/api/subcontract-jobs/${jobId}/files`)).status).toBe(403);
     const dl = await call(w.app, "fason@ext.test", A, "GET", `/api/subcontract-jobs/${jobId}/files/${up.id}`);
     expect(dl.status).toBe(200);
+  });
+
+  it("video dosyası önce ayrı uçla yüklenip doğrulanır, sonra işe iliştirilir (oturum 37, W27)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "apf-subcontract-video-"));
+    const clipPath = join(dir, "clip.mp4");
+    await execFileAsync("ffmpeg", ["-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10", "-t", "1", "-pix_fmt", "yuv420p", "-c:v", "libx264", clipPath]);
+    const clip = await readFile(clipPath);
+    const staged = expectOk(
+      await call(w.app, "fason@ext.test", A, "POST", "/api/attachments/video/stage", clip, { "content-type": "video/mp4", "x-file-name": "dizgi-kaydi.mp4" } as any),
+    );
+    expect(staged.durationSeconds).toBeGreaterThan(0);
+    const up = expectOk(await call(w.app, "fason@ext.test", A, "POST", `/api/subcontract-jobs/${jobId}/files`, { kind: "video", stagedUploadId: staged.stagedUploadId }));
+    expect(up.fileName).toBe("dizgi-kaydi.mp4");
+    // Aynı ön-yükleme ikinci kez kullanılamaz.
+    const reuse = await call(w.app, "fason@ext.test", A, "POST", `/api/subcontract-jobs/${jobId}/files`, { kind: "video", stagedUploadId: staged.stagedUploadId });
+    expect(reuse.body.error?.code).toBe("staged_upload_not_found");
+    const dl = await call(w.app, "production@a.test", A, "GET", `/api/subcontract-jobs/${jobId}/files/${up.id}`);
+    expect(dl.status).toBe(200);
+    const list = expectOk(await call(w.app, "production@a.test", A, "GET", `/api/subcontract-jobs/${jobId}/files`));
+    expect(list.find((f: any) => f.id === up.id).durationSeconds).not.toBeNull();
+    await rm(dir, { recursive: true, force: true });
   });
 
   it("malzeme kullanımı: girdi lotu bazında gönderilen/iade/fire ve net tüketim; çıktı lotu ayrı listelenir", async () => {

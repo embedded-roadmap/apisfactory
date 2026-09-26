@@ -4,3 +4,4 @@ dist
 .expo
 *.log
 coverage
+apps/api/data/

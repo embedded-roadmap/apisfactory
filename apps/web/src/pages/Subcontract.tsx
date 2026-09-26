@@ -1,11 +1,15 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { get, post } from "../lib/api";
+import { get, openDownload, post, stageVideo } from "../lib/api";
 import { Empty, ErrorNotice, fmt, Loading, PageHeader, StateBadge, fmtDate, useCan } from "../lib/ui";
 
 const KIND_TR: Record<string, string> = { pcb: "PCB", dizgi: "Dizgi", mekanik: "Mekanik", kablo: "Kablo", montaj: "Montaj", dis_test: "Dış test" };
 const PROGRESS_NEXT: Record<string, string | null> = { accepted: "prep", prep: "in_production", in_production: "testing", testing: "ready_to_ship", ready_to_ship: null };
 const PROGRESS_LABEL: Record<string, string> = { prep: "Hazırlık", in_production: "Üretimde", testing: "Testte", ready_to_ship: "Sevke hazır" };
+const VIDEO_TYPES = ["video/mp4", "video/webm"];
+// Devam talimatı §2 varsayılanı — şirket bazlı medya politikası henüz yok (bkz. devam notu).
+const MAX_VIDEO_BYTES = 200_000_000;
+const fmtDuration = (s: number | null | undefined) => (s == null ? "" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`);
 
 /**
  * W32 — fason üretici portalı: iç personel (subcontract.manage) işleri yönetir; dış kullanıcı yalnızca
@@ -151,6 +155,9 @@ function JobDetail({ id, manage, onClose }: { id: string; manage: boolean; onClo
   const [counter, setCounter] = useState({ counterPrice: "", counterPromisedDate: "", note: "" });
   const [declareForm, setDeclareForm] = useState({ goodQty: "", scrapQty: "0", unusedQty: "0", note: "" });
   const [file, setFile] = useState<{ kind: string; data: string; name: string; type: string } | null>(null);
+  const [videoUpload, setVideoUpload] = useState<{ kind: string; stagedUploadId: string; fileName: string; durationSeconds: number } | null>(null);
+  const [videoProgress, setVideoProgress] = useState<{ fileName: string; pct: number } | null>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
 
   const decide = useMutation({
     mutationFn: (decision: "accept" | "counter" | "reject") =>
@@ -174,10 +181,26 @@ function JobDetail({ id, manage, onClose }: { id: string; manage: boolean; onClo
     mutationFn: () => post(`/api/subcontract-jobs/${id}/files`, { kind: file!.kind, fileName: file!.name, contentType: file!.type, contentBase64: file!.data }),
     onSuccess: () => { setFile(null); refresh(); },
   });
+  const uploadVideo = useMutation({
+    mutationFn: () => post(`/api/subcontract-jobs/${id}/files`, { kind: videoUpload!.kind, stagedUploadId: videoUpload!.stagedUploadId }),
+    onSuccess: () => { setVideoUpload(null); refresh(); },
+  });
 
   function onPickFile(e: { target: HTMLInputElement }, kind: string) {
     const f = e.target.files?.[0];
     if (!f) return;
+    if (VIDEO_TYPES.includes(f.type)) {
+      setVideoError(null);
+      if (f.size > MAX_VIDEO_BYTES) { setVideoError(`Video çok büyük (en fazla ${MAX_VIDEO_BYTES / 1_000_000} MB)`); return; }
+      setVideoProgress({ fileName: f.name, pct: 0 });
+      // Video ayrı bir ham-ikili uca yüklenir; gerçek süre/tür/codec sunucuda doğrulanır (devam
+      // talimatı §2) — istemci beyanına güvenilmez.
+      stageVideo(f, (pct) => setVideoProgress({ fileName: f.name, pct }))
+        .then((staged) => setVideoUpload({ kind, stagedUploadId: staged.stagedUploadId, fileName: staged.fileName, durationSeconds: staged.durationSeconds }))
+        .catch((err: any) => setVideoError(`Video yüklenemedi — ${err?.message ?? "bilinmeyen hata"} (tekrar deneyebilirsiniz)`))
+        .finally(() => setVideoProgress(null));
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => setFile({ kind, name: f.name, type: f.type, data: String(reader.result).split(",")[1] ?? "" });
     reader.readAsDataURL(f);
@@ -272,13 +295,20 @@ function JobDetail({ id, manage, onClose }: { id: string; manage: boolean; onClo
             <option value="test_report">Test raporu</option>
             <option value="delivery_doc">Teslim belgesi</option>
           </select>
-          <input type="file" onChange={(e) => onPickFile(e, (document.getElementById(`kind-${id}`) as HTMLSelectElement)?.value ?? "photo")} />
+          <input type="file" onChange={(e) => onPickFile(e, (document.getElementById(`kind-${id}`) as HTMLSelectElement)?.value ?? "photo")} disabled={!!videoProgress} />
           {file ? <button onClick={() => upload.mutate()} disabled={upload.isPending}>Yükle: {file.name}</button> : null}
+          {videoUpload ? <button onClick={() => uploadVideo.mutate()} disabled={uploadVideo.isPending}>Ekle: {videoUpload.fileName} ({fmtDuration(videoUpload.durationSeconds)})</button> : null}
         </div>
+        {videoProgress ? <p className="muted" style={{ margin: 0 }}>Video yükleniyor: {videoProgress.fileName} (%{videoProgress.pct})</p> : null}
+        {videoError ? <ErrorNotice error={new Error(videoError)} /> : null}
         <ErrorNotice error={upload.error} />
+        <ErrorNotice error={uploadVideo.error} />
         {files.data?.length ? (
           <ul>{files.data.map((f) => (
-            <li key={f.id}><a href={`/api/subcontract-jobs/${id}/files/${f.id}`} target="_blank" rel="noreferrer">{f.fileName}</a> <span className="muted">({f.kind}, {fmtDate(f.createdAt)})</span></li>
+            <li key={f.id}>
+              <button type="button" className="link" onClick={() => openDownload(`/api/subcontract-jobs/${id}/files/${f.id}`, f.fileName, f.contentType)}>{f.fileName}</button>{" "}
+              <span className="muted">({f.kind}{f.durationSeconds != null ? ` · ${fmtDuration(f.durationSeconds)}` : ""}, {fmtDate(f.createdAt)})</span>
+            </li>
           ))}</ul>
         ) : <p className="muted">Dosya yok.</p>}
       </div>

@@ -1,6 +1,95 @@
 # Devam notu
 
-Son güncelleme: 26.09.2026 — oturum 36 (W32 devamı: ECR kararının bağlı fason işine yansıması)
+Son güncelleme: 26.09.2026 — oturum 37 (kullanıcının 2026-09-26 "devam talimatları" belgesi, bkz. proje dokümanı `claude/devam-talimatlari-2026-09.md`; W27 video/nesne depolama altyapısı)
+
+## Kapsam eşleştirme ve durum matrisi (talimat §0/§12 — 2026-09-26)
+
+Ana promptun 18 (maliyet), 20 (iletişim), 23 (AI), 30 (test), 32 (işletim) bölümleri ile iş
+paketlerinin dürüst durumu. Durumlar: geliştirilmedi / uygulandı / otomatik testleri geçti /
+sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağımlılık bekliyor.
+
+| İş | Durum | Not |
+|---|---|---|
+| §18 Maliyet motoru (deterministik) | **otomatik testleri geçti** | `costing.ts`, sürümlü politika, malzeme+işçilik+genel gider+dış hizmet; `costing.test.ts` 10 test. Kur dönüşümü, bütçe modülü, iade tamiri/hurda maliyeti **geliştirilmedi**. |
+| §20 Görev/Gantt/organizasyon | **otomatik testleri geçti** | `planning.ts`, baz plan, sürükle-bırak Gantt; kaynak kapasitesi/vardiya **geliştirilmedi**. |
+| §20 Mesaj/kanal/dosya (foto/PDF/video) | **otomatik testleri geçti** | `collaboration.ts`; küçük dosyalar hâlâ bytea (`content`), video artık nesne depolamada (`object_key`). Gerçek MP4/WebM ile uçtan uca doğrulandı (bkz. aşağıda). |
+| §20 Toplantı sesli/görüntülü/kayıt/transkript | **geliştirilmedi** | Yalnızca statik .ics daveti var (oturum 31); gerçek görüşme/kayıt/transkript dış sağlayıcı gerektirir. |
+| §20/W28 Takvim canlı senkron | **dış bağımlılık bekliyor** | OAuth uygulaması (Google/Microsoft) platform işletmecisi tarafından kaydedilmeli — bkz. dışarıdan beklenenler tablosu. |
+| §23/W30 Yönetici raporu + stratejik AI | **geliştirilmedi** | Hiçbir AI/yönetici rapor modülü yok (`apps/api/src/modules` içinde arandı, bulunamadı). Sayısal alt yapı (maliyet/kalite/tedarikçi metrikleri) kısmen var ama tek bir "yönetici raporu" ekranında birleştirilmemiş. |
+| W31 Öneri→görev→etki | **geliştirilmedi** | W30'a bağlı, W30 olmadan anlamlı biçimde başlanamaz. |
+| W33 MSL/kurutma altyapısı | **kısmen uygulandı** | Oturum 22: MSL, kullanım süresi, raf ömrü, lot SKT, paket açılışı var (`storage.ts`, 5 test). Kurutma reçetesi (sürümlü, onaylı), gerçek kurutma çevrimi kaydı, JEDEC J-STD-033 tablosu **geliştirilmedi**. |
+| W36 E-belge/kargo bağlayıcı | **uygulandı (TEST modu), otomatik testleri geçti** | `receivables.ts`/`shipping.ts`, sağlayıcı seçilebilir tasarım var ama yalnız TEST modu; gerçek entegratör/kargo API'si **dış bağımlılık bekliyor**. |
+| W03 API erişim matrisi | **geliştirilmedi** (matris dokümanı yok) | `distributors.ts` TEST/fiyat dosyası modlarını destekliyor (`distributors.test.ts` 5 test) ama resmî "her sağlayıcı için erişim matrisi" dokümanı hâlâ yok. |
+| W39 Tarihsel veri geçişi | **kısmen uygulandı** | Yalnız BOM ve stok import sihirbazı var (`imports.ts`); müşteri/tedarikçi/açık sipariş/tarihsel üretim-kalite-maliyet/AP-AR göçü **geliştirilmedi**. Kaynak-hedef uzlaşma raporu yok. |
+| W40 Uçtan uca/yük/dayanıklılık | **kısmen uygulandı** | 22 test dosyasında iş kuralı/yetki/RLS testleri var (170/170) — bunlar fonksiyonel kabul testidir, **yük testi hiç çalıştırılmadı** (100.000 komponent/1M kayıt/100 eşzamanlı kullanıcı hedefleri test edilmedi). |
+| W41 Eğitim/destek | **geliştirilmedi** | Rol bazlı kısa rehber/yardım içeriği yok. |
+| W42 SaaS/abonelik yaşam döngüsü | **geliştirilmedi** | Şirket izolasyonu (RLS, her tabloda `company_id`) var ve testli, ama abonelik durumu (deneme/aktif/gecikmiş/kısıtlı/iptal), paket hakları, kullanım sayacı, ödeme idempotency **geliştirilmedi**. |
+
+## Dışarıdan beklenen girdiler (gizli değer yazılmaz — yalnız ne gerektiği)
+
+| Sağlayıcı/konu | Gerekli erişim | Güvenli yapılandırma yeri | Bekleyen doğrulama |
+|---|---|---|---|
+| E-fatura özel entegratörü (Uyumsoft/Foriba/Logo/Paraşüt/Nesbilgi/GİB Portalı) | API kullanıcı/parola veya sertifika (sağlayıcıya göre değişir) | `EINVOICE_PROVIDER`, `EINVOICE_API_KEY`, `EINVOICE_API_SECRET` ortam değişkenleri (sunucu tarafı secret store) | Sağlayıcı test ortamında gerçek e-fatura gönderimi |
+| Kargo firması (pilot şirketin mevcut anlaşmalısı) | API anahtarı/müşteri kodu | `CARGO_PROVIDER`, `CARGO_API_KEY` | Test ortamında gerçek etiket/takip |
+| Google Calendar OAuth | Google Cloud Console'da uygulama kaydı (client id/secret) — platform işletmecisi (Zahid) tarafından oluşturulur | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI` | OAuth akışı ve artımlı senkron |
+| Microsoft 365/Outlook OAuth | Azure AD uygulama kaydı | `MS_OAUTH_CLIENT_ID`, `MS_OAUTH_CLIENT_SECRET`, `MS_OAUTH_TENANT` | OAuth akışı ve delta sorgu |
+| Distribütör API'leri (DigiKey/Mouser/Farnell/Nexar) | Her birinin kendi geliştirici hesabı + ticari kullanım lisansı | `DIGIKEY_CLIENT_ID` vb. (sağlayıcı başına) | Gerçek kimlik doğrulama + ticari yeniden gösterim izni |
+| Ödeme sağlayıcısı (W42, ileride) | Henüz seçilmedi | — | Seçim sonrası |
+
+## Oturum 37'de eklenenler (W27: video/nesne depolama altyapısı)
+
+**Durum: uygulandı, otomatik testleri geçti.** Gerçek bir MP4 dosyası Playwright ile tam kullanıcı
+akışından (giriş → kanal → video seç → yükleme ilerlemesi → mesaja ekle → gönder → indir/oynat)
+uçtan uca doğrulandı; ayrıca 24 otomatik test (13 yeni: 11 `storage-video.test.ts` + 2 genişletilmiş
+`subcontract.test.ts`) backend'de geçiyor (toplam 193/193). Dış bağımlılık (sağlayıcı hesabı vb.)
+gerektirmiyor — tamamen kendi altyapımızda.
+
+**Ne yapıldı:**
+- `apps/api/migrations/032_object_storage_video.sql`: `message_attachments` ve
+  `subcontract_job_files` tablolarına `object_key`/`storage_backend`/`duration_seconds` eklendi;
+  `content bytea` NULL olabilir yapıldı (eski satırlar **taşınmadı/silinmedi** — bkz. kalanlar).
+  Yeni `staged_uploads` tablosu (RLS'li) — video önce buraya ön-yüklenip doğrulanıyor.
+- `apps/api/src/lib/storage.ts`: `ObjectStorage` arayüzü + `LocalDiskStorage` (tek gerçek
+  uygulama; S3/MinIO henüz yok — `STORAGE_BACKEND` ortam değişkeniyle ileride eklenecek).
+- `apps/api/src/lib/media.ts`: gerçek dosya türü tespiti (magic bytes — istemci beyanına
+  güvenilmiyor) ve `ffprobe` ile gerçek süre/codec ölçümü (bozuk dosyada `null` döner, uydurulmaz).
+- `apps/api/src/app.ts`: `video/mp4`/`video/webm` için ayrı ham-ikili content-type parser (210 MB
+  bodyLimit) — genel 8 MB sınırının üstünde, yalnız bu iki tür için.
+- `POST /api/attachments/video/stage`: video önce burada yüklenir; gerçek tür/boyut/süre
+  sunucuda doğrulanır (200 MB / 5 dk varsayılan sınır — devam talimatı §2), `staged_uploads`a
+  yazılır.
+- `collaboration.ts` (mesajlar) ve `subcontract.ts` (fason iş dosyaları): mesaj/dosya oluşturma
+  uçları artık hem eski satır-içi base64 ekleri (değişmeden) hem de `stagedUploadId` referansıyla
+  video eklerini kabul ediyor (Zod discriminated union); indirme uçları `object_key` varsa nesne
+  depolamadan, yoksa eski `content` bytea'dan okuyor.
+- Web: `Discussion.tsx` (mesajlaşma/kanallar) ve `Subcontract.tsx` (fason iş dosyaları) — "Video
+  ekle" düğmesi, yükleme ilerlemesi (%), gerçek süre gösterimi, oynatma (tarayıcının yerel video
+  oynatıcısı, yeni sekmede). Ayrıca `Subcontract.tsx`'te önceden var olan ama **hiç çalışmayan**
+  bir kusur düzeltildi: dosya indirme linki düz `<a href>` idi ve Authorization başlığı
+  taşımadığından 401 verirdi (kimse fark etmemiş olabilir çünkü hiçbir otomatik test tarayıcıda
+  tıklama denemiyordu) — artık `openDownload()` ile blob indirme kullanıyor (Discussion.tsx'teki
+  ile aynı, paylaşılan yardımcı fonksiyon).
+
+**Testler:** `storage-video.test.ts` (11 test: LocalDiskStorage yaz/oku/sil, path-traversal
+reddi, magic-byte tespiti, gerçek ffprobe süre ölçümü, bozuk dosya reddi, sahte/uyumsuz video
+reddi, ön-yükle→iliştir→indir baytları birebir eşleşir, aynı ön-yüklemenin ikinci kullanımı
+reddedilir, başkasının ön-yüklemesi çalınamaz, eski satır-içi ek desteği bozulmadı) +
+`subcontract.test.ts`'e eklenen video testi (aynı deseni fason iş dosyalarında doğrular).
+`pnpm -r exec tsc --noEmit` temiz, `npx vite build` başarılı.
+
+**Bilinen kalanlar (bir sonraki oturuma):**
+- Gerçek S3/MinIO bağlayıcısı yok — yalnızca yerel disk. Üretime geçmeden önce yazılmalı.
+- Eski `content bytea` satırları nesne depolamaya **taşınmadı** (checksum karşılaştırmalı taşıma
+  script'i yazılmadı) — talimat gereği erişim doğrulanmadan silinmedi, ikisi birlikte çalışıyor.
+- Şirket/paket bazlı medya politikası (200 MB/5 dk sabit, yapılandırılabilir değil) yok.
+- Terk edilmiş (mesaja hiç iliştirilmemiş) `staged_uploads` kayıtlarının temizlenmesi (ör. 24 saat
+  sonra silme) yazılmadı.
+- Async transkodlama yok (yüklenen video olduğu gibi saklanıyor/sunuluyor).
+- Kalite bulgusu ve iade (RMA) kayıtlarına video ekleme henüz yok — yalnız mesajlaşma ve fason iş
+  dosyaları kablolandı; talimatta bu ikisi de "video eklenebilmeli" listesinde.
+- Toplantı kaydı için ayrı bir saklama/retention politikası (talimatta istenen) yok.
+- 200 MB/5 dakikalık gerçek bir dosyayla üst sınır reddi otomatik testte doğrulanmadı (disk/süre
+  maliyeti nedeniyle bilinçli olarak atlandı — kod incelemesiyle doğrulanabilir).
 
 ## Son doğrulanan durum
 

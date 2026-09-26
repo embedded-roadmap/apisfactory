@@ -39,6 +39,11 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 8 * 1024 * 1024 });
   await app.register(cors, { origin: config.corsOrigin.split(","), allowedHeaders: ["authorization", "content-type", "x-company-id", "idempotency-key", "x-correlation-id"] });
 
+  // Video ekleri JSON gövdedeki base64 alanına sığmaz (W27, oturum 37) — ham ikili gövde olarak,
+  // genel 8 MB sınırının üzerinde ayrı bir bodyLimit ile kabul edilir. Gerçek boyut/süre doğrulaması
+  // route içinde yapılır; bu yalnızca aktarımı mümkün kılar.
+  app.addContentTypeParser(["video/mp4", "video/webm"], { parseAs: "buffer", bodyLimit: 210 * 1024 * 1024 }, (_req, body, done) => done(null, body));
+
   app.get("/health", async () => ({ ok: true }));
 
   app.addHook("preHandler", async (req) => {

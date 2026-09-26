@@ -5,13 +5,21 @@ import type { Db } from "../db/pool";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors";
 import { closeTasks, nextCode, openTask, recordEvent } from "../lib/records";
 import { can, ctxOf, parse, tenant } from "../http/context";
+import { objectStorage } from "../lib/storage";
 
 const KIND = ["pcb", "dizgi", "mekanik", "kablo", "montaj", "dis_test"] as const;
 const KIND_TR: Record<string, string> = { pcb: "PCB", dizgi: "Dizgi", mekanik: "Mekanik", kablo: "Kablo", montaj: "Montaj", dis_test: "Dış test" };
 const PROGRESS_ORDER = ["accepted", "prep", "in_production", "testing", "ready_to_ship"] as const;
 const FILE_KINDS = ["photo", "video", "test_report", "delivery_doc"] as const;
-const CONTENT_TYPES = ["image/png", "image/jpeg", "image/webp", "video/mp4", "application/pdf", "text/plain", "text/csv"] as const;
+// video/mp4 ve video/webm burada YALNIZCA ön-yüklenmiş (staged) referansla kabul edilir — doğrudan
+// base64 gövdeyle değil: önceki sürümde video/mp4 tipi burada listelide olsa da genel 8 MB gövde
+// sınırı gerçekte kullanılabilir bir videoyu asla geçirmezdi (oturum 37'de keşfedilen, gerçek bir
+// video yüklemesinin hiç doğrulanmamış olduğu önceden var olan bir boşluk — devam notunda işaretlendi).
+const CONTENT_TYPES = ["image/png", "image/jpeg", "image/webp", "application/pdf", "text/plain", "text/csv"] as const;
 const MAX_FILE_BYTES = 20_000_000;
+const InlineFileInput = z.object({ kind: z.enum(FILE_KINDS), fileName: z.string().min(1).max(200), contentType: z.enum(CONTENT_TYPES), contentBase64: z.string().min(1) });
+const StagedFileInput = z.object({ kind: z.enum(FILE_KINDS), stagedUploadId: z.string().uuid() });
+const JobFileInput = z.union([InlineFileInput, StagedFileInput]);
 
 async function locationOf(db: Db, type: string): Promise<string> {
   const r = await db.query(`select id from locations where type = $1 order by code limit 1`, [type]);
@@ -362,7 +370,7 @@ export async function subcontractRoutes(app: FastifyInstance) {
     return tenant(req, null, async (db) => {
       await authorize(req, db, id);
       return (await db.query(
-        `select id, kind, file_name as "fileName", content_type as "contentType", size_bytes as "sizeBytes", created_at as "createdAt" from subcontract_job_files where job_id = $1 order by created_at desc`,
+        `select id, kind, file_name as "fileName", content_type as "contentType", size_bytes as "sizeBytes", duration_seconds as "durationSeconds", created_at as "createdAt" from subcontract_job_files where job_id = $1 order by created_at desc`,
         [id],
       )).rows;
     });
@@ -370,12 +378,30 @@ export async function subcontractRoutes(app: FastifyInstance) {
 
   app.post("/api/subcontract-jobs/:id/files", async (req) => {
     const { id } = req.params as { id: string };
-    const input = parse(
-      z.object({ kind: z.enum(FILE_KINDS), fileName: z.string().min(1).max(200), contentType: z.enum(CONTENT_TYPES), contentBase64: z.string().min(1) }),
-      req.body,
-    );
+    const input = parse(JobFileInput, req.body);
     return tenant(req, null, async (db, actor) => {
       await authorize(req, db, id);
+      if ("stagedUploadId" in input) {
+        // Video gibi büyük dosyalar önce POST /api/attachments/video/stage ile yüklenip doğrulanmıştı;
+        // burada yalnızca bu şirkette, bu kullanıcının yaptığı ve henüz kullanılmamış yükleme kabul edilir.
+        const staged = (
+          await db.query(
+            `select file_name as "fileName", content_type as "contentType", size_bytes as "sizeBytes", duration_seconds as "durationSeconds",
+                    sha256, object_key as "objectKey", storage_backend as "storageBackend"
+               from staged_uploads where id = $1 and uploaded_by = $2 and consumed_at is null`,
+            [input.stagedUploadId, actor.userId],
+          )
+        ).rows[0];
+        if (!staged) throw conflict("staged_upload_not_found", "Yüklenmiş video bulunamadı veya zaten kullanılmış");
+        const r = await db.query(
+          `insert into subcontract_job_files (company_id, job_id, kind, file_name, content_type, size_bytes, sha256, object_key, storage_backend, duration_seconds, uploaded_by)
+           values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id, created_at as "createdAt"`,
+          [id, input.kind, staged.fileName, staged.contentType, staged.sizeBytes, staged.sha256, staged.objectKey, staged.storageBackend, staged.durationSeconds, actor.userId],
+        );
+        await db.query(`update staged_uploads set consumed_at = now() where id = $1`, [input.stagedUploadId]);
+        await recordEvent(db, actor, { entityType: "subcontract_job", entityId: id, eventType: "file.uploaded", after: { kind: input.kind, fileName: staged.fileName } });
+        return { id: r.rows[0].id, kind: input.kind, fileName: staged.fileName, contentType: staged.contentType, sizeBytes: staged.sizeBytes, durationSeconds: staged.durationSeconds, createdAt: r.rows[0].createdAt };
+      }
       const buf = Buffer.from(input.contentBase64, "base64");
       if (buf.length === 0 || buf.length > MAX_FILE_BYTES) throw badRequest(`Dosya boyutu 0 ile ${MAX_FILE_BYTES} bayt arasında olmalı`);
       const sha256 = createHash("sha256").update(buf).digest("hex");
@@ -393,10 +419,11 @@ export async function subcontractRoutes(app: FastifyInstance) {
     const { id, fileId } = req.params as { id: string; fileId: string };
     return tenant(req, null, async (db) => {
       await authorize(req, db, id);
-      const r = await db.query(`select file_name, content_type, content from subcontract_job_files where id = $1 and job_id = $2`, [fileId, id]);
+      const r = await db.query(`select file_name, content_type, content, object_key as "objectKey" from subcontract_job_files where id = $1 and job_id = $2`, [fileId, id]);
       if (!r.rows[0]) throw notFound("Dosya");
+      const body = r.rows[0].objectKey ? await objectStorage().get(r.rows[0].objectKey) : r.rows[0].content;
       reply.header("content-type", r.rows[0].content_type).header("content-disposition", `inline; filename="${r.rows[0].file_name.replace(/"/g, "")}"`);
-      return r.rows[0].content;
+      return body;
     });
   });
 }
