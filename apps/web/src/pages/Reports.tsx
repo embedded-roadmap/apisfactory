@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post } from "../lib/api";
-import { Empty, ErrorNotice, Loading, PageHeader, fmt, fmtDate, useCan } from "../lib/ui";
+import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, fmtDate, useCan } from "../lib/ui";
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const firstOfMonth = () => { const d = new Date(); return iso(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1))); };
@@ -180,7 +180,7 @@ export function WorkOrderCost({ woId }: { woId: string }) {
       {!r ? <Empty>Henüz maliyet hesabı yok.</Empty> : (
         <>
           <div className="kpis">
-            <div className="kpi"><small>Toplam {r.currency ?? ""}</small><b>{fmt(r.totals.total)}</b><span className="muted">malzeme {fmt(r.totals.material)} · işçilik {fmt(r.totals.labor)} · genel {fmt(r.totals.overhead)}</span></div>
+            <div className="kpi"><small>Toplam {r.currency ?? ""}</small><b>{fmt(r.totals.total)}</b><span className="muted">malzeme {fmt(r.totals.material)} · işçilik {fmt(r.totals.labor)} · genel {fmt(r.totals.overhead)} · dış hizmet {fmt(r.totals.external)}</span></div>
             <div className="kpi"><small>Birim maliyet</small><b>{r.unitCost === null ? "Hesaplanamaz" : fmt(r.unitCost)}</b><span className="muted">{r.unitCostNote}</span></div>
             <div className="kpi"><small>Sağlam / hurda / başlanan</small><b>{r.devices.good} / {r.devices.scrapped} / {r.devices.started}</b><span className="muted">işçilik {fmt(r.laborHours)} saat · rota planı {fmt(r.plannedLaborHours)} saat</span></div>
             <div className="kpi"><small>Durum</small><b>{r.complete ? "Tamam" : "Eksik"}</b><span className="muted">v{cur.versionNo} · politika {r.policy ? `v${r.policy.versionNo}` : "yok"}</span></div>
@@ -190,7 +190,13 @@ export function WorkOrderCost({ woId }: { woId: string }) {
             <thead><tr><th>Kalem</th><th>Lot</th><th className="num">Miktar</th><th className="num">Birim maliyet</th><th>Kaynak</th><th className="num">Tutar</th></tr></thead>
             <tbody>{r.materials.map((m: any) => <tr key={m.itemCode + m.lotNo}><td className="mono">{m.itemCode}</td><td className="mono">{m.lotNo}</td><td className="num">{fmt(m.qty)}</td><td className="num">{m.unitCost === null ? "—" : `${fmt(m.unitCost)} ${m.currency}`}</td><td className="muted">{m.costSource ? `${m.costSource} · ${m.costReference ?? ""}` : m.note}</td><td className="num">{fmt(m.cost)}</td></tr>)}</tbody>
           </table>
-          <p className="muted" style={{ margin: 0 }}>{r.externalNote}. Hesap girdilerden deterministik üretilir; değişen girdi yeni sürüm açar, eski sürüm değişmez.</p>
+          {r.externals?.length ? (
+            <table>
+              <thead><tr><th>Fason iş</th><th>Durum</th><th className="num">Fiyat</th><th className="num">Tutar</th><th>Not</th></tr></thead>
+              <tbody>{r.externals.map((e: any) => <tr key={e.jobCode}><td className="mono">{e.jobCode}</td><td><StateBadge value={e.status} prefix="sj" /></td><td className="num">{e.price === null ? "—" : `${fmt(e.price)} ${e.currency}`}</td><td className="num">{e.cost === null ? "—" : fmt(e.cost)}</td><td className="muted">{e.note ?? ""}</td></tr>)}</tbody>
+            </table>
+          ) : null}
+          <p className="muted" style={{ margin: 0 }}>{r.externalNote ? `${r.externalNote}. ` : ""}Hesap girdilerden deterministik üretilir; değişen girdi yeni sürüm açar, eski sürüm değişmez.</p>
         </>
       )}
     </section>

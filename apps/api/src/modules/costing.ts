@@ -104,7 +104,33 @@ export async function computeWorkOrderCost(db: Db, woId: string, today = new Dat
   const overhead = policy ? mulM(hours, toMicro(policy.overheadPerLaborHour)) + mulM(material, divM(toMicro(policy.overheadPctOfMaterial), toMicro("100"))) : 0n;
   const doneOps = ops.rows.filter((o) => o.status === "done").length;
   if (policy && doneOps > 0 && seconds === 0) gaps.push("Tamamlanan operasyonlarda süre kaydı yok: işçilik 0 olarak gösterildi, doğrulanmalı");
-  const external = 0n;
+
+  const subJobs = await db.query(
+    `select code, status, price, currency from subcontract_jobs where work_order_id = $1 order by created_at`,
+    [woId],
+  );
+  let external = 0n;
+  const externals = [];
+  for (const s of subJobs.rows) {
+    if (s.status !== "completed") {
+      gaps.push(`Fason iş ${s.code}: durumu "${s.status}" (henüz tamamlanmadı) — maliyete henüz sayılmadı`);
+      externals.push({ jobCode: s.code, status: s.status, price: s.price === null ? null : money(toMicro(s.price)), currency: s.currency, cost: null, note: "tamamlanmadı" });
+      continue;
+    }
+    if (s.price === null) {
+      gaps.push(`Fason iş ${s.code}: anlaşılan fiyat girilmemiş`);
+      externals.push({ jobCode: s.code, status: s.status, price: null, currency: s.currency, cost: null, note: "fiyat yok" });
+      continue;
+    }
+    if (currency && s.currency !== currency) {
+      gaps.push(`Fason iş ${s.code}: para birimi ${s.currency} ≠ politika ${currency} (kur dönüşümü yok)`);
+      externals.push({ jobCode: s.code, status: s.status, price: money(toMicro(s.price)), currency: s.currency, cost: null, note: "para birimi uyuşmuyor" });
+      continue;
+    }
+    const cost = toMicro(s.price);
+    external += cost;
+    externals.push({ jobCode: s.code, status: s.status, price: money(cost), currency: s.currency, cost: money(cost), note: null });
+  }
   const total = material + labor + overhead + external;
 
   const d = await db.query(
@@ -127,7 +153,8 @@ export async function computeWorkOrderCost(db: Db, woId: string, today = new Dat
     laborHours: money(hours),
     plannedLaborHours: (ops.rows.reduce((a, o) => a + Number(o.planned_minutes), 0) / 60).toFixed(2),
     totals: { material: money(material), labor: money(labor), overhead: money(overhead), external: money(external), total: money(total) },
-    externalNote: "Dış hizmet (fason) kaydı yok — W32",
+    externals,
+    externalNote: subJobs.rows.length ? null : "Bu iş emrine bağlı fason iş yok",
     devices: dev,
     unitCost: unitCost === null ? null : money(unitCost),
     unitCostNote: unitCost === null ? `Sağlam adet 0: birim maliyet hesaplanamaz; toplam kayıp ${money(total)}${currency ? ` ${currency}` : ""}` : `Hurda maliyeti sağlam adetlere yüklenir (${dev.scrapped} hurda)`,

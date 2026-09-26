@@ -3,7 +3,8 @@
  * sıfır sağlam adet, satış kârlılığı, metrik sözlüğü ve kaynak kayıtlar (prompt §18).
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { call, clearTokens, expectOk, setupWorld, type World } from "./helpers";
+import { call, clearTokens, expectOk, PASSWORD, setupWorld, type World } from "./helpers";
+import { createUser } from "../src/db/seed";
 import { closePool } from "../src/db/pool";
 
 let w: World;
@@ -147,6 +148,39 @@ describe("İş emri maliyeti", () => {
     expect(c.unitCost).toBeNull();
     expect(c.unitCostNote).toContain("toplam kayıp");
     expect(Number(c.totals.total)).toBeGreaterThan(0);
+  });
+
+  it("dış hizmet (fason) maliyeti: bir iş emrine bağlı tamamlanmış fason iş, iş emri maliyetine 'dış hizmet' kalemi olarak yansır", async () => {
+    await w.owner.query(`select set_config('app.company_id', $1, false)`, [A]);
+    const role = (await w.owner.query(`select id from roles where company_id = $1 and code = 'subcontractor'`, [A])).rows[0];
+    const subUserId = await createUser(w.owner, { email: "fason@costing.test", name: "Maliyet Fasonu", password: PASSWORD, companyId: A, roles: ["subcontractor"], roleIds: { subcontractor: role.id } });
+    await w.owner.query(`update memberships set is_external = true where company_id = $1 and user_id = $2`, [A, subUserId]);
+
+    const jobId = expectOk(await call(w.app, "production@a.test", A, "POST", "/api/subcontract-jobs", {
+      subcontractorUserId: subUserId, kind: "dizgi", scope: "iş emrine bağlı dış hizmet maliyeti testi", qty: "1",
+      price: "250", workOrderId: wo2.id,
+    })).id;
+    // Henüz tamamlanmadı: iş emri maliyetinde eksik olarak işaretlenir, tutara sayılmaz
+    const cPending = expectOk(await call(w.app, M, A, "POST", `/api/work-orders/${wo2.id}/costs`));
+    const baseTotal = Number(cPending.totals.total);
+    expect(cPending.totals.external).toBe("0");
+    expect(cPending.gaps.join(" ")).toContain("henüz tamamlanmadı");
+    expect(cPending.externals.find((e: any) => e.jobCode)).toMatchObject({ status: "proposed", cost: null });
+
+    expectOk(await call(w.app, "fason@costing.test", A, "POST", `/api/subcontract-jobs/${jobId}/decision`, { decision: "accept" }));
+    expectOk(await call(w.app, "fason@costing.test", A, "POST", `/api/subcontract-jobs/${jobId}/progress`, { status: "prep" }));
+    expectOk(await call(w.app, "fason@costing.test", A, "POST", `/api/subcontract-jobs/${jobId}/progress`, { status: "in_production" }));
+    expectOk(await call(w.app, "fason@costing.test", A, "POST", `/api/subcontract-jobs/${jobId}/progress`, { status: "testing" }));
+    expectOk(await call(w.app, "fason@costing.test", A, "POST", `/api/subcontract-jobs/${jobId}/progress`, { status: "ready_to_ship" }));
+    expectOk(await call(w.app, "fason@costing.test", A, "POST", `/api/subcontract-jobs/${jobId}/declare`, { goodQty: "1", scrapQty: "0", unusedQty: "0", note: "tamam" }));
+    const capItemId = expectOk(await call(w.app, W, A, "GET", "/api/lots/lookup?code=CAP-C1"))[0].itemId;
+    expectOk(await call(w.app, "production@a.test", A, "POST", `/api/subcontract-jobs/${jobId}/accept-output`, { itemId: capItemId, lotNo: "COSTING-SJ-OUT-1", qty: "1" }));
+
+    const c = expectOk(await call(w.app, M, A, "POST", `/api/work-orders/${wo2.id}/costs`));
+    expect(c.totals.external).toBe("250");
+    expect(Number(c.totals.total)).toBeCloseTo(baseTotal + 250, 6);
+    expect(c.externals).toContainEqual(expect.objectContaining({ status: "completed", price: "250", cost: "250", note: null }));
+    expect(c.gaps.join(" ")).not.toContain("henüz tamamlanmadı");
   });
 });
 

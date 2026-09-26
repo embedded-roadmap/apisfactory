@@ -94,11 +94,14 @@ function SubcontractorPerformance() {
 }
 
 function NewJobForm({ onDone }: { onDone: () => void }) {
-  const [f, setF] = useState({ subcontractorUserId: "", kind: "dizgi", scope: "", qty: "", promisedDate: "", price: "", companySupplies: "", subcontractorSupplies: "" });
+  const can = useCan();
+  const [f, setF] = useState({ subcontractorUserId: "", kind: "dizgi", scope: "", qty: "", promisedDate: "", price: "", workOrderId: "", companySupplies: "", subcontractorSupplies: "" });
   const users = useQuery({ queryKey: ["adminUsers"], queryFn: () => get<any[]>("/api/admin/users") });
+  const canLinkWo = can("production.view");
+  const workOrders = useQuery({ queryKey: ["workOrdersForSubJob"], queryFn: () => get<any[]>("/api/work-orders"), enabled: canLinkWo });
   const subs = users.data?.filter((u) => u.roles.includes("subcontractor")) ?? [];
   const save = useMutation({
-    mutationFn: () => post("/api/subcontract-jobs", { ...f, promisedDate: f.promisedDate || undefined, price: f.price || undefined, companySupplies: f.companySupplies || undefined, subcontractorSupplies: f.subcontractorSupplies || undefined }),
+    mutationFn: () => post("/api/subcontract-jobs", { ...f, promisedDate: f.promisedDate || undefined, price: f.price || undefined, workOrderId: f.workOrderId || undefined, companySupplies: f.companySupplies || undefined, subcontractorSupplies: f.subcontractorSupplies || undefined }),
     onSuccess: () => onDone(),
   });
   return (
@@ -120,6 +123,14 @@ function NewJobForm({ onDone }: { onDone: () => void }) {
         <label className="field">Adet<input required inputMode="decimal" value={f.qty} onChange={(e) => setF({ ...f, qty: e.target.value })} /></label>
         <label className="field">Termin tarihi<input type="date" value={f.promisedDate} onChange={(e) => setF({ ...f, promisedDate: e.target.value })} /></label>
         <label className="field">Fiyat<input inputMode="decimal" value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} /></label>
+        {canLinkWo ? (
+          <label className="field">Bağlı iş emri (isteğe bağlı — maliyete yansır)
+            <select value={f.workOrderId} onChange={(e) => setF({ ...f, workOrderId: e.target.value })}>
+              <option value="">Yok</option>
+              {workOrders.data?.map((w) => <option key={w.id} value={w.id}>{w.code} · {w.productCode} Rev.{w.rev}</option>)}
+            </select>
+          </label>
+        ) : null}
       </div>
       <label className="field">Kapsam<textarea required value={f.scope} onChange={(e) => setF({ ...f, scope: e.target.value })} /></label>
       <div className="grid4">
@@ -181,6 +192,7 @@ function JobDetail({ id, manage, onClose }: { id: string; manage: boolean; onClo
         <div className="stat"><small>Termin</small><b>{j.promisedDate ?? "—"}</b></div>
       </div>
       <p><b>Kapsam:</b> {j.scope}</p>
+      {j.workOrderCode ? <p className="muted">Bağlı iş emri: {j.workOrderCode} (iş tamamlanınca fiyat, o iş emrinin maliyetinde "dış hizmet" kalemi olur)</p> : null}
       {j.companySupplies ? <p className="muted">Şirketin sağlayacağı: {j.companySupplies}</p> : null}
       {j.subcontractorSupplies ? <p className="muted">Fason firmanın sağlayacağı: {j.subcontractorSupplies}</p> : null}
 

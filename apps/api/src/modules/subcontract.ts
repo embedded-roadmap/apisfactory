@@ -26,11 +26,13 @@ const SELECT = `
          j.declared_good_qty as "declaredGoodQty", j.declared_scrap_qty as "declaredScrapQty", j.declared_unused_qty as "declaredUnusedQty",
          j.declared_note as "declaredNote", j.declared_at as "declaredAt", j.accepted_good_qty as "acceptedGoodQty", j.accepted_at as "acceptedAt",
          j.subcontractor_user_id as "subcontractorUserId", u.name as "subcontractorName", u.email as "subcontractorEmail",
-         p.code as "productCode", pr.rev, j.created_at as "createdAt", j.decided_at as "decidedAt"
+         p.code as "productCode", pr.rev, j.created_at as "createdAt", j.decided_at as "decidedAt",
+         j.work_order_id as "workOrderId", wo.code as "workOrderCode"
     from subcontract_jobs j
     join users u on u.id = j.subcontractor_user_id
     left join product_revisions pr on pr.id = j.product_revision_id
-    left join products p on p.id = pr.product_id`;
+    left join products p on p.id = pr.product_id
+    left join work_orders wo on wo.id = j.work_order_id`;
 
 async function loadJob(db: Db, id: string) {
   const r = await db.query(`${SELECT} where j.id = $1`, [id]);
@@ -54,6 +56,7 @@ export async function subcontractRoutes(app: FastifyInstance) {
         subcontractorUserId: z.string().uuid(),
         kind: z.enum(KIND),
         productRevisionId: z.string().uuid().optional(),
+        workOrderId: z.string().uuid().optional(),
         scope: z.string().min(5).max(2000),
         qty: z.string().regex(/^\d+(\.\d+)?$/),
         promisedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -72,11 +75,15 @@ export async function subcontractRoutes(app: FastifyInstance) {
         [input.subcontractorUserId],
       );
       if (!m.rows[0]) throw badRequest("Seçilen kullanıcı bu şirkette aktif bir fason (subcontractor) üyeliğine sahip değil");
+      if (input.workOrderId) {
+        const wo = await db.query(`select 1 from work_orders where id = $1`, [input.workOrderId]);
+        if (!wo.rows[0]) throw badRequest("Seçilen iş emri bulunamadı");
+      }
       const code = await nextCode(db, actor.companyId, "subcontract_job", "SJ");
       const r = await db.query(
-        `insert into subcontract_jobs (company_id, code, subcontractor_user_id, kind, product_revision_id, scope, qty, promised_date, price, currency, company_supplies, subcontractor_supplies, tech_package_note, created_by)
-         values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) returning id`,
-        [code, input.subcontractorUserId, input.kind, input.productRevisionId ?? null, input.scope, input.qty, input.promisedDate ?? null, input.price ?? null, input.currency, input.companySupplies ?? null, input.subcontractorSupplies ?? null, input.techPackageNote ?? null, actor.userId],
+        `insert into subcontract_jobs (company_id, code, subcontractor_user_id, kind, product_revision_id, work_order_id, scope, qty, promised_date, price, currency, company_supplies, subcontractor_supplies, tech_package_note, created_by)
+         values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) returning id`,
+        [code, input.subcontractorUserId, input.kind, input.productRevisionId ?? null, input.workOrderId ?? null, input.scope, input.qty, input.promisedDate ?? null, input.price ?? null, input.currency, input.companySupplies ?? null, input.subcontractorSupplies ?? null, input.techPackageNote ?? null, actor.userId],
       );
       await recordEvent(db, actor, { entityType: "subcontract_job", entityId: r.rows[0].id, eventType: "proposed", after: { code, kind: input.kind, qty: input.qty } });
       return loadJob(db, r.rows[0].id);

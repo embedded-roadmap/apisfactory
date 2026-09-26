@@ -1,12 +1,12 @@
 # Devam notu
 
-Son güncelleme: 26.09.2026 — oturum 33 (satın alma sipariş onay limiti gönderim aşamasında)
+Son güncelleme: 26.09.2026 — oturum 34 (dış hizmet/fason maliyetinin iş emri maliyetine yansıması)
 
 ## Son doğrulanan durum
 
 | Komut | Sonuç |
 |---|---|
-| `pnpm test` (api) | 167/167 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 9, planning 6, workflow 12, station 4, routing 4, handover 3, collaboration 10, procurement 6, payables 5, receivables 4, distributors 5, alternates 7, dispatch 5, ops 4, storage 5, scenarios 6, subcontract 11), gerçek PostgreSQL 16 |
+| `pnpm test` (api) | 168/168 test geçti (acceptance 16, production 10, quality 14, shipping 9, returns 12, costing 10, planning 6, workflow 12, station 4, routing 4, handover 3, collaboration 10, procurement 6, payables 5, receivables 4, distributors 5, alternates 7, dispatch 5, ops 4, storage 5, scenarios 6, subcontract 11), gerçek PostgreSQL 16 |
 | `tsc --noEmit` (shared, api, web, mobile) | Hatasız |
 | `vite build` (web) | Başarılı |
 | `expo export --platform android` (mobile) | Derlendi; gerçek cihazda çalıştırılmadı |
@@ -41,6 +41,16 @@ Son güncelleme: 26.09.2026 — oturum 33 (satın alma sipariş onay limiti gön
 | Playwright uçtan uca (oturum 31) | Yönetim toplantı açar (gündem, yer, katılımcı); toplantı detayında "Takvime ekle (.ics)" düğmesine tıklanır, tarayıcı gerçek bir dosya indirir (`toplanti-TOP-000001.ics`); indirilen dosya `BEGIN:VCALENDAR`, başlık, yer ve `mailto:` katılımcı satırlarını içerir; sayfa hatası yok |
 | Mobil (oturum 32) | `tsc --noEmit` temiz, `EXPO_OFFLINE=1 expo export --platform android` başarılı; backend/web dokunulmadı (mevcut `/api/tasks/delegated` ucu yeniden kullanıldı), tam test paketi (166/166) yine de yeniden çalıştırılıp doğrulandı; gerçek cihazda/simülatörde çalıştırılmadı |
 | Playwright uçtan uca (oturum 33) | Yönetici satın alma politikası yayımlar (satın alma 1.000 TRY, yönetici sınırsız); talep→onay→RFQ→yüksek teklif (birim 25 TRY, toplam 1.250 TRY)→gerekçeyle ödül; satın alma rolü siparişi gönderemez ("Tutar 1250.000000 TRY; onay limitiniz 1000.00 TRY (over_limit)", yöneticiye görev açılır); yönetici aynı siparişi gönderir → "gönderildi (test)", işlem geçmişinde `approval.blocked.over_limit` → `sent`; sayfa hatası yok |
+| Playwright uçtan uca (oturum 34) | Yeni fason iş formunda "Bağlı iş emri (isteğe bağlı — maliyete yansır)" seçici doğrulandı; bir iş emrine bağlı fason iş (dış test, 300 TRY) kabul→ilerlet→beyan→kesin kabul ile tamamlanır; iş emrinin Maliyet panelinde "dış hizmet 300" KPI özetinde ve ayrı "FASON İŞ" tablosunda (SJ-000001, Tamamlandı, 300 TRY) görünür; toplam malzeme+işçilik+genel+dış hizmete göre güncellenir; sayfa hatası yok |
+
+## Oturum 34'de eklenenler (dış hizmet/fason maliyetinin iş emri maliyetine yansıması)
+
+1. **Dış hizmet maliyeti**: `computeWorkOrderCost`'ta (`apps/api/src/modules/costing.ts`) sabit `external = 0n` idi (`externalNote: "Dış hizmet (fason) kaydı yok — W32"` ile açıkça işaretlenmiş bir eksikti). Artık bir iş emrine bağlı (isteğe bağlı, elle seçilen — sunucu tahmin etmez) fason iş(ler) varsa, **tamamlanmış** olanların anlaşılan fiyatı (`subcontract_jobs.price`, kabul/karşı teklif sonrası nihaileşen) dış hizmet kalemi olarak toplama girer. Tamamlanmamış bir bağlı iş varsa maliyete henüz sayılmaz; bunun yerine "eksik" listesine "durumu ... henüz tamamlanmadı" notu düşer — uydurulmaz. Para birimi politika para biriminden farklıysa (kur dönüşümü yok, mevcut malzeme kuralıyla tutarlı) aynı şekilde not düşülüp sayılmaz.
+2. Yeni sütun: `subcontract_jobs.work_order_id` (migration 029, nullable, `work_orders(id)`). Fason iş oluşturma formunda (yalnız `production.view` yetkisi olanlara görünen) yeni "Bağlı iş emri" seçici; iş detayında bağlı iş emri kodu gösterilir.
+3. Web: Maliyet panelinde (`Reports.tsx`'teki `WorkOrderCost`, `Production.tsx`'te iş emri detayına gömülü) "dış hizmet" tutarı KPI özetine eklendi; bağlı fason iş(ler) için ayrı bir tablo (kod, durum, fiyat, tutar, not).
+4. `costing.test.ts`'e 1 yeni test (10/10, tam paket 168/168): bir iş emrine bağlı fason iş tamamlanmadan maliyete sayılmadığı (gaps'te not), tamamlanınca 250 TRY'nin dış hizmet toplamına ve genel toplama doğru yansıdığı doğrulandı.
+5. `tsc`/`vite build` temiz; Playwright E2E ile uçtan uca doğrulandı (yeni ürün+BOM+revizyon+iş emri+dış test fason işi tamamlanana kadar götürüldü, Maliyet panelinde "dış hizmet 300" ve fason iş satırı gerçek ekran görüntüsünde görüldü).
+6. **Kalan**: iade tamiri/hurda maliyetinin maliyete yansıması hâlâ yok (ayrı, benzer ama farklı bir bağlantı — iade akışına özgü); kur dönüşümü genel sınırı devam ediyor.
 
 ## Oturum 33'de eklenenler (satın alma sipariş onay limiti gönderim aşamasında)
 
@@ -340,7 +350,7 @@ Son güncelleme: 26.09.2026 — oturum 33 (satın alma sipariş onay limiti gön
 - Satın alma: tedarikçiye gerçek gönderim (e-posta/EDI/portal) yok; teklifler elle, fiyat dosyasından veya TEST kataloğundan (gerçek distribütör API'si yok); çok kalemli RFQ/sipariş yok (talep başına bir satır); kur dönüşümü yok (farklı para birimli teklif sapma hesaplanmaz). Sipariş onay limiti gönderim aşamasında da kontrol edilir (oturum 33, gerçek RFQ ödül tutarı üzerinden).
 - Borçlar: e-fatura (GİB) alımı yok (fatura elle girilir, W36); banka/ödeme bağlantısı yok (yalnız kayıt); kur farkı, stopaj ve iade faturası (fiyat farkı/iade) yok; iade/fiyat farkı (alacak dekontu) yok; kısmi sevkiyatta sipariş toplamı değil sevk edilen miktar faturalanır; kur dönüşümü olmadığından kredi riski yalnız müşterinin kredi para biriminde hesaplanır; muhasebe fişi/entegrasyonu yok.
 - Akış: politika yalnızca beş onay türü için; satın alma dışındaki türlerde parasal limit yok. Yükseltme tek seviye (üst rolün de süresi dolarsa ikinci yükseltme yok). Bildirim yalnızca çıkış kutusunda (e-posta/anlık bildirim bağlanmadı). Vekâleten bekleyen işler artık mobilde de görünür (oturum 32, salt okunur); işlem yine web'den yapılır. Tahmini tutar son lot maliyetinden; tedarikçi teklifi/fiyat listesi yok (W18).
-- Maliyet: kur dönüşümü yok (farklı para birimli satır "hesaplanamadı"); dış hizmet (fason) maliyeti yok; iade tamiri ve iade hurdası maliyete yansımıyor; bütçe modülü yok; prototip/pilot/seri ayrımı ve ekip performansı raporu (W26) yok. İşçilik yalnızca operasyon başlat/tamamla süresinden; hızlı tıklanan operasyon süre biriktirmez (uyarı olarak eksik listesine düşer). Mobilde maliyet ekranı yok (ofis işi).
+- Maliyet: kur dönüşümü yok (farklı para birimli satır "hesaplanamadı"); iade tamiri ve iade hurdası maliyete yansımıyor; bütçe modülü yok; prototip/pilot/seri ayrımı ve ekip performansı raporu (W26) yok. İşçilik yalnızca operasyon başlat/tamamla süresinden; hızlı tıklanan operasyon süre biriktirmez (uyarı olarak eksik listesine düşer). Mobilde maliyet ekranı yok (ofis işi). Dış hizmet (fason) maliyeti artık iş emrine bağlıysa ve iş tamamlandıysa maliyete yansır (oturum 34).
 
 ## Sıradaki uygulanabilir iş
 
@@ -351,4 +361,5 @@ Son güncelleme: 26.09.2026 — oturum 33 (satın alma sipariş onay limiti gön
 5. W28 devamı (tek küçük kalan): toplantı takvim daveti (.ics) oturum 31'de tamamlandı; kalan (görüşme/kayıt/transkript, gerçek Outlook/Google canlı senkronu) dış bağlayıcı kararı gerektiriyor.
 6. "Akış" bilinen sınırı: vekâleten bekleyen işler mobilde görünürlüğü oturum 32'de tamamlandı.
 7. "Satın alma" bilinen sınırı: sipariş onay limitinin (W10 politikası) sipariş gönderim aşamasına bağlanması oturum 33'te tamamlandı.
-8. Kalanların çoğu (W03, W27 devamı — video eki, W28 devamı — canlı takvim senkronu, W30, W31, W39–W42) dış sağlayıcı kararı, gerçek AI kapsamı veya iş/pilot süreci gerektiriyor. Kod ile ilerletilebilecek net, küçük bir kalan bulmak için önce bu listeye, sonra "Bilinen sorunlar ve sınırlar" bölümüne bakılmalı (oturum 30/31/32/33'te ICS, vekâlet görünürlüğü ve sipariş onay limiti gibi küçük ama gerçek boşluklar oradan bulundu) — yeni bir iş paketi tanımlanmadıkça bu liste bundan sonra büyük ölçüde sabit kalacak.
+8. "Maliyet" bilinen sınırı: dış hizmet (fason) maliyetinin iş emri maliyetine yansıması oturum 34'te tamamlandı (iade tamiri/hurda maliyeti hâlâ ayrı bir kalan).
+9. Kalanların çoğu (W03, W27 devamı — video eki, W28 devamı — canlı takvim senkronu, W30, W31, W39–W42) dış sağlayıcı kararı, gerçek AI kapsamı veya iş/pilot süreci gerektiriyor. Kod ile ilerletilebilecek net, küçük bir kalan bulmak için önce bu listeye, sonra "Bilinen sorunlar ve sınırlar" bölümüne bakılmalı (oturum 30/31/32/33/34'te ICS, vekâlet görünürlüğü, sipariş onay limiti ve dış hizmet maliyeti gibi küçük ama gerçek boşluklar oradan bulundu) — yeni bir iş paketi tanımlanmadıkça bu liste bundan sonra büyük ölçüde sabit kalacak.
