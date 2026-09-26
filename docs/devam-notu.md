@@ -22,7 +22,7 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | W03 API erişim matrisi | **geliştirilmedi** (matris dokümanı yok) | `distributors.ts` TEST/fiyat dosyası modlarını destekliyor (`distributors.test.ts` 5 test) ama resmî "her sağlayıcı için erişim matrisi" dokümanı hâlâ yok. |
 | W39 Tarihsel veri geçişi | **kısmen uygulandı, otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | BOM ve stok import sihirbazı vardı; oturum 39 devamında aynı desenle müşteri/tedarikçi ana veri içe aktarımı (upsert) ve tüm import türleri için kaynak-hedef uzlaşma göstergesi eklendi (bkz. aşağıda). Açık sipariş/tarihsel üretim-kalite-maliyet/AP-AR göçü hâlâ **geliştirilmedi**. |
 | W40 Uçtan uca/yük/dayanıklılık | **kısmen uygulandı** | 22 test dosyasında iş kuralı/yetki/RLS testleri var (170/170) — bunlar fonksiyonel kabul testidir, **yük testi hiç çalıştırılmadı** (100.000 komponent/1M kayıt/100 eşzamanlı kullanıcı hedefleri test edilmedi). |
-| W41 Eğitim/destek | **geliştirilmedi** | Rol bazlı kısa rehber/yardım içeriği yok. |
+| W41 Eğitim/destek | **uygulandı, gerçek tarayıcıda doğrulandı (yerel)** | `/help` sayfası: rol bazlı görev rehberleri (8 rol), örnek eğitim şirketi notu, `DEFAULT_ROLES`'ten otomatik üretilen yetki matrisi, içe/dışa aktarma ve video/dosya rehberi, AI önerisi inceleme rehberi, hatalı işlem düzeltme rehberi, destek talebi öncelik/sorumlu/eskalasyon tablosu, canlı geçiş kontrol listesi (bkz. aşağıda). Otomatik test yok (yeni API yüzeyi eklemeyen, salt içerik/frontend işi); doğrulama gerçek tarayıcı ekran görüntüsüyle yapıldı. |
 | W42 SaaS/abonelik yaşam döngüsü | **geliştirilmedi** | Şirket izolasyonu (RLS, her tabloda `company_id`) var ve testli, ama abonelik durumu (deneme/aktif/gecikmiş/kısıtlı/iptal), paket hakları, kullanım sayacı, ödeme idempotency **geliştirilmedi**. |
 
 ## Dışarıdan beklenen girdiler (gizli değer yazılmaz — yalnız ne gerektiği)
@@ -36,6 +36,28 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | Distribütör API'leri (DigiKey/Mouser/Farnell/Nexar) | Her birinin kendi geliştirici hesabı + ticari kullanım lisansı | `DIGIKEY_CLIENT_ID` vb. (sağlayıcı başına) | Gerçek kimlik doğrulama + ticari yeniden gösterim izni |
 | Ödeme sağlayıcısı (W42, ileride) | Henüz seçilmedi | — | Seçim sonrası |
 | AI/LLM sağlayıcısı (W30 yorum katmanı) | Henüz seçilmedi (sağlayıcı ve model şirkete ait karar) | `AI_PROVIDER`, `AI_API_KEY` (sunucu tarafı secret store) | Sağlayıcı seçilip bağlanınca: gerçek yorum üretimi ve `ai_status='generated'` doğrulaması |
+
+## Oturum 39 devamı — W41: Yardım & eğitim sayfası
+
+**Durum: uygulandı, gerçek tarayıcıda (yerel geliştirme ortamı) doğrulandı.** Dış bağımlılık gerektirmiyor — talimatın "eğitimi tamamen erteleme, şimdiden hazırla" maddesine göre, dış sağlayıcı/pilot kararı beklemeden hazırlanabilecek bir sonraki net kalem olarak seçildi.
+
+**Ne yapıldı:**
+- `apps/web/src/pages/Help.tsx` (yeni): 9 bölümlük tek sayfa —
+  1. **Rol bazlı görev rehberleri** (8 rol: Satış, Muhasebe, Satın alma, Üretim/Teknisyen, Ar-Ge, Kalite, Depo, Yönetici) — her biri sistemde gerçekten yapılabilen işlemlere dayanan 3-5 maddelik kısa rehber (uydurulmuş/henüz uygulanmamış özellik yok; örn. "geri alma" düğmesi olmadığı için düzeltme rehberinde bunun yerine audit-log üzerinden yeni kayıtla düzeltme anlatılıyor).
+  2. **Örnek eğitim şirketi** — yeni oluşturulmadı, var olan `seed.ts` demo/eğitim ortamı ("DEMO Elektronik A.Ş.", `DEMO_PASSWORD`, rol başına demo kullanıcı) gerçek eğitim ortamı olarak tarif ediliyor.
+  3. **Yetki matrisi** — sabit/elle yazılan bir tablo değil, `packages/shared/src/permissions.ts`'teki `DEFAULT_ROLES`'ten `Object.entries()` ile canlı üretiliyor; böylece gerçek yetki kontrolünden asla sapamaz. Her rol satırında yetki sayısı + açılır `<details>` ile kod listesi (boş yetkili `subcontractor` rolü için açıklayıcı not).
+  4. İçe/dışa aktarma yönergeleri (5 madde, W39 import sihirbazı ve uzlaşma göstergesine atıfla).
+  5. Video/dosya kullanımı (W27 video altyapısına atıfla).
+  6. AI önerisi nasıl incelenir (6 madde, W31'in gerçek mekaniğine dayalı: LLM bağlanmadıkça "AI yorumu değil" notu, kural tabanlı hesap vs. AI yorumu ayrımı, bağımsız doğrulama zorunluluğu).
+  7. Hatalı işlem düzeltme rehberi (6 madde).
+  8. Destek talebi politikası (4 satır: Kritik/Yüksek/Normal/İyileştirme × tanım/sorumlu/eskalasyon) — sözleşmeyle taahhüt edilmiş bir SLA olmadığı açıkça belirtiliyor.
+  9. Canlı geçiş kontrol listesi (8 madde) — nihai kabulün hâlâ pilot ve kritik testler gerektirdiği açıkça belirtiliyor.
+- `apps/web/src/App.tsx`: `HelpPage` import edildi; `NAV` dizisine `perm` alanı olmayan (tüm iç kullanıcılara görünen) `{ to: "/help", key: "nav.help" }` eklendi; `/help` rotası eklendi.
+- `packages/shared/src/i18n.ts`: `nav.help` anahtarı (tr: "Yardım & eğitim", en: "Help & training").
+- **Testler**: yeni bir API rotası eklenmediği için yeni backend testi yazılmadı (mevcut 204/204 paket bu değişiklikten etkilenmiyor). `pnpm -r exec tsc --noEmit` ve `npx vite build` temiz.
+- **Doğrulama**: API + web sunucuları yerelde ayağa kaldırılıp gerçek Chromium (Playwright) ile `depo@demo.apisfactory.com` kullanıcısıyla `/help` sayfası uçtan uca gezildi; tam sayfa ekran görüntüsünde 9 bölümün tamamı, yetki matrisinin `admin` satırındaki `<details>` açılışının gerçek yetki kodlarını gösterdiği (`admin.users, admin.roles, audit.view, task.view, org.manage, delegation.manage`) doğrulandı.
+
+Kalan: bu bir içerik/dokümantasyon sayfası olduğu için "kalan" işlevsel bir eksik değil — içerik zamanla (yeni rol/özellik eklendikçe) güncellenmeye ihtiyaç duyacak, özellikle rol rehberleri elle yazıldığından yeni bir rol eklenirse ayrıca eklenmesi gerekir (yetki matrisi otomatik güncellenir, rol rehberleri güncellenmez).
 
 ## Oturum 39 devamı — W39 devamı: müşteri/tedarikçi ana veri içe aktarımı
 
