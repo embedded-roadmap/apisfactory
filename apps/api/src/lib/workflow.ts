@@ -9,11 +9,11 @@ export type PolicyKind = "purchase_request" | "change_request" | "rma_decision" 
 export async function currentPolicy(db: Db, kind: PolicyKind) {
   const p = (await db.query(
     `select id, kind, version_no as "versionNo", allow_self_approval as "allowSelfApproval", timeout_hours as "timeoutHours",
-            escalate_to_role as "escalateToRole", note, created_at as "createdAt"
+            escalate_to_role as "escalateToRole", escalate_to_role_2 as "escalateToRole2", note, created_at as "createdAt"
        from approval_policies where kind = $1 order by version_no desc limit 1`,
     [kind],
   )).rows[0] as
-    | { id: string; kind: string; versionNo: number; allowSelfApproval: boolean; timeoutHours: number | null; escalateToRole: string | null; note: string; createdAt: string }
+    | { id: string; kind: string; versionNo: number; allowSelfApproval: boolean; timeoutHours: number | null; escalateToRole: string | null; escalateToRole2: string | null; note: string; createdAt: string }
     | undefined;
   if (!p) return null;
   const limits = (await db.query(
@@ -116,12 +116,16 @@ export async function estimatePurchase(db: Db, itemId: string, qty: string) {
 /**
  * Zaman aşımı ve yükseltme (prompt §7): süresi geçen açık sistem görevi için politikadaki üst role görev açılır,
  * olay yazılır ve bildirim çıkış kutusuna konur (test modu). Aynı görev ikinci kez yükseltilmez.
+ * İki seviyeli yükseltme (W10 devamı): politika ikinci bir üst rol (escalate_to_role_2) tanımlıyorsa, birinci
+ * yükseltme görevi de süresi geçerse (aynı politika timeout_hours'ı kadar) ikinci role yükseltilir — birinci
+ * yükseltme görevi kapatılır (üst üste iki açık görev bırakılmaz). Politika ikinci rol tanımlamazsa (varsayılan)
+ * davranış eskisiyle birebir aynıdır: birinci yükseltme görevinin due_at'ı boş kalır, ikinci tur hiçbir şey yapmaz.
  */
 export async function runEscalations(db: Db, actor: Actor) {
   const due = await db.query(
-    `select t.id, t.title, t.kind, t.assignee_role, t.due_at, p.escalate_to_role
+    `select t.id, t.title, t.kind, t.assignee_role, t.due_at, p.escalate_to_role, p.escalate_to_role_2, p.timeout_hours, p.kind as "policyKind"
        from tasks t
-       join lateral (select escalate_to_role from approval_policies ap
+       join lateral (select ap.kind, ap.escalate_to_role, ap.escalate_to_role_2, ap.timeout_hours from approval_policies ap
                       where ap.company_id = t.company_id and ap.kind = case t.kind
                         when 'purchase_request_review' then 'purchase_request' when 'change_decision' then 'change_request'
                         when 'rma_inspect' then 'rma_decision' when 'incoming_inspection' then 'incoming_inspection'
@@ -133,15 +137,43 @@ export async function runEscalations(db: Db, actor: Actor) {
   );
   for (const t of due.rows) {
     await db.query(`update tasks set escalated_at = now(), escalation_level = escalation_level + 1 where id = $1`, [t.id]);
-    await openTask(db, actor.companyId, {
-      kind: "escalation", title: `Süresi geçti: ${t.title} (${t.assignee_role})`, entityType: "task", entityId: t.id, assigneeRole: t.escalate_to_role,
-    });
+    const secondLevelHours: number | null = t.escalate_to_role_2 ? t.timeout_hours : null;
+    await db.query(
+      `insert into tasks (company_id, kind, title, entity_type, entity_id, assignee_role, due_at, escalation_policy_kind)
+       values ($1, 'escalation', $2, 'task', $3, $4,
+               case when $6::int is not null then now() + make_interval(hours => $6::int) else null end, $5)
+       on conflict (company_id, kind, entity_id, assignee_role) where kind <> 'manual'
+       do update set status = 'open', closed_at = null, title = excluded.title, due_at = excluded.due_at,
+                     escalated_at = null, escalation_level = 0, escalation_policy_kind = excluded.escalation_policy_kind`,
+      [actor.companyId, `Süresi geçti: ${t.title} (${t.assignee_role})`, t.id, t.escalate_to_role, t.policyKind, secondLevelHours],
+    );
     await recordEvent(db, { ...actor, kind: "automation" }, {
       entityType: "task", entityId: t.id, eventType: "escalated", after: { toRole: t.escalate_to_role, dueAt: t.due_at, kind: t.kind },
     });
     await enqueue(db, actor.companyId, "notification.escalation", { taskId: t.id, toRole: t.escalate_to_role, title: t.title });
   }
-  return due.rowCount ?? 0;
+
+  const due2 = await db.query(
+    `select t.id, t.title, t.entity_id as "entityId", ap.escalate_to_role_2 as "escalateToRole2"
+       from tasks t
+       join lateral (select escalate_to_role_2 from approval_policies ap2
+                      where ap2.company_id = t.company_id and ap2.kind = t.escalation_policy_kind
+                      order by ap2.version_no desc limit 1) ap on true
+      where t.kind = 'escalation' and t.status in ('open', 'in_progress', 'blocked') and t.due_at is not null and t.due_at < now()
+        and t.escalated_at is null and ap.escalate_to_role_2 is not null
+      order by t.due_at limit 200 for update of t skip locked`,
+  );
+  for (const t of due2.rows) {
+    await db.query(`update tasks set status = 'done', closed_at = now(), escalated_at = now(), escalation_level = escalation_level + 1 where id = $1`, [t.id]);
+    await openTask(db, actor.companyId, {
+      kind: "escalation", title: `Süresi geçti (2. seviye): ${t.title}`, entityType: "task", entityId: t.entityId, assigneeRole: t.escalateToRole2,
+    });
+    await recordEvent(db, { ...actor, kind: "automation" }, {
+      entityType: "task", entityId: t.id, eventType: "escalated", after: { toRole: t.escalateToRole2, dueAt: t.due_at, kind: "escalation", level: 2 },
+    });
+    await enqueue(db, actor.companyId, "notification.escalation", { taskId: t.id, toRole: t.escalateToRole2, title: t.title });
+  }
+  return (due.rowCount ?? 0) + (due2.rowCount ?? 0);
 }
 
 /**

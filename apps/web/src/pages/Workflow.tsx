@@ -49,7 +49,7 @@ export function WorkflowPage() {
                   <td>{p ? `v${p.versionNo}` : <span className="muted">varsayılan</span>}</td>
                   <td>{p?.allowSelfApproval ? <span className="badge warn">Açık</span> : "Kapalı"}</td>
                   <td>{p?.timeoutHours ? `${p.timeoutHours} saat` : "—"}</td>
-                  <td>{p?.escalateToRole ? ROLE[p.escalateToRole] : "—"}</td>
+                  <td>{p?.escalateToRole ? ROLE[p.escalateToRole] : "—"}{p?.escalateToRole2 ? ` → ${ROLE[p.escalateToRole2]}` : ""}</td>
                   <td className="muted">{p?.limits?.length ? p.limits.map((l: any) => `${ROLE[l.roleCode] ?? l.roleCode}: ${l.maxAmount === null ? "sınırsız" : `${Number(l.maxAmount).toLocaleString("tr-TR")} ${l.currency}`}`).join(" · ") : "limit yok"}</td>
                   <td>{can("workflow.manage") ? <button onClick={() => setEdit(edit === kind ? null : kind)}>Yeni sürüm</button> : null}</td>
                 </tr>
@@ -76,14 +76,15 @@ function PolicyEditor({ kind, current, onDone }: { kind: string; current: any; o
   const qc = useQueryClient();
   const [f, setF] = useState({
     allowSelfApproval: current?.allowSelfApproval ?? false, timeoutHours: current?.timeoutHours ? String(current.timeoutHours) : "",
-    escalateToRole: current?.escalateToRole ?? "", note: "",
+    escalateToRole: current?.escalateToRole ?? "", escalateToRole2: current?.escalateToRole2 ?? "", note: "",
   });
   const [limits, setLimits] = useState<{ roleCode: string; maxAmount: string; unlimited: boolean; currency: string }[]>(
     (current?.limits ?? []).map((l: any) => ({ roleCode: l.roleCode, maxAmount: l.maxAmount ?? "", unlimited: l.maxAmount === null, currency: l.currency })),
   );
   const save = useMutation({
     mutationFn: () => post("/api/workflow/policies", {
-      kind, allowSelfApproval: f.allowSelfApproval, timeoutHours: f.timeoutHours ? Number(f.timeoutHours) : null, escalateToRole: f.escalateToRole || null, note: f.note,
+      kind, allowSelfApproval: f.allowSelfApproval, timeoutHours: f.timeoutHours ? Number(f.timeoutHours) : null,
+      escalateToRole: f.escalateToRole || null, escalateToRole2: f.escalateToRole2 || null, note: f.note,
       limits: limits.map((l) => ({ roleCode: l.roleCode, maxAmount: l.unlimited ? null : l.maxAmount, currency: l.currency })),
     }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["policies"] }); onDone(); },
@@ -98,6 +99,13 @@ function PolicyEditor({ kind, current, onDone }: { kind: string; current: any; o
           <label className="field">Süre aşımında yükselt
             <select aria-label="Yükseltilecek rol" value={f.escalateToRole} onChange={(e) => setF({ ...f, escalateToRole: e.target.value })}><option value="">—</option>{Object.entries(ROLE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
           </label>
+          {f.escalateToRole ? (
+            <label className="field">O da süresi geçerse (aynı süre) yükselt
+              <select aria-label="2. seviye yükseltilecek rol" value={f.escalateToRole2} onChange={(e) => setF({ ...f, escalateToRole2: e.target.value })}>
+                <option value="">—</option>{Object.entries(ROLE).filter(([k]) => k !== f.escalateToRole).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </label>
+          ) : null}
         </div>
         {kind === "purchase_request" ? (
           <>

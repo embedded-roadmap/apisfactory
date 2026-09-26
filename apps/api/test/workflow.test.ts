@@ -183,6 +183,37 @@ describe("Zaman aşımı, yükseltme ve elle müdahale", () => {
     expect(mine.map((x: any) => x.id)).toContain(t);
   });
 
+  it("W10 devamı: politika ikinci bir üst rol tanımlarsa, birinci yükseltme görevi de süresi geçince ikinci role yükseltilir", async () => {
+    const p2 = expectOk(await call(w.app, M, A, "POST", "/api/workflow/policies", {
+      kind: "purchase_request", note: "İki seviyeli yükseltme denemesi", timeoutHours: 24, escalateToRole: "manager", escalateToRole2: "accounting",
+      limits: [{ roleCode: "purchasing", maxAmount: "1000", currency: "TRY" }, { roleCode: "manager", maxAmount: null, currency: "TRY" }],
+    }));
+    expect(p2).toMatchObject({ versionNo: 2, escalateToRole: "manager", escalateToRole2: "accounting" });
+
+    const r = await pr(R, costedItem, "22");
+    const t = (await ownerQuery(`select id from tasks where kind = 'purchase_request_review' and entity_id = $1`, [r.id])).rows[0];
+    await ownerQuery(`update tasks set due_at = now() - interval '1 hour' where id = $1`, [t.id]);
+    expect(expectOk(await call(w.app, M, A, "POST", "/api/workflow/escalations/run")).escalated).toBeGreaterThanOrEqual(1);
+    const esc1 = (await ownerQuery(`select id, status, assignee_role, due_at from tasks where kind = 'escalation' and entity_id = $1`, [t.id])).rows[0];
+    expect(esc1).toMatchObject({ status: "open", assignee_role: "manager" });
+    expect(esc1.due_at).not.toBeNull(); // ikinci seviye tanımlı olduğundan bu görevin de süresi var
+
+    // Birinci yükseltme görevinin süresi de geçmeden ikinci tur hiçbir şey yapmaz
+    expect(expectOk(await call(w.app, M, A, "POST", "/api/workflow/escalations/run")).escalated).toBe(0);
+
+    await ownerQuery(`update tasks set due_at = now() - interval '1 hour' where id = $1`, [esc1.id]);
+    expect(expectOk(await call(w.app, M, A, "POST", "/api/workflow/escalations/run")).escalated).toBe(1);
+    const esc1After = (await ownerQuery(`select status from tasks where id = $1`, [esc1.id])).rows[0];
+    expect(esc1After.status).toBe("done"); // birinci seviye kapatılır, ikinci seviye açılır
+    const esc2 = (await ownerQuery(`select status, assignee_role, due_at from tasks where kind = 'escalation' and entity_id = $1 and assignee_role = 'accounting'`, [t.id])).rows[0];
+    expect(esc2).toMatchObject({ status: "open", assignee_role: "accounting" });
+    expect(esc2.due_at).toBeNull(); // üçüncü seviye yok
+
+    // Üçüncü tur artık yeni bir şey yükseltmez (yalnızca iki seviye tanımlı)
+    expect(expectOk(await call(w.app, M, A, "POST", "/api/workflow/escalations/run")).escalated).toBe(0);
+    expectOk(await decide(P, r.id));
+  });
+
   it("değişiklik talebinde kendi kararı politikayla açılabilir (varsayılan kapalı)", async () => {
     const productId = (await ownerQuery(`select id from products where code = 'WF-1'`)).rows[0].id;
     const rev = expectOk(await call(w.app, R, A, "POST", `/api/products/${productId}/revisions`, { rev: "A" })).id;

@@ -18,7 +18,7 @@ export async function workflowRoutes(app: FastifyInstance) {
       for (const k of KINDS) current.push({ kind: k, policy: await currentPolicy(db, k) });
       const history = (await db.query(
         `select p.kind, p.version_no as "versionNo", p.allow_self_approval as "allowSelfApproval", p.timeout_hours as "timeoutHours",
-                p.escalate_to_role as "escalateToRole", p.note, p.created_at as "createdAt", u.name as "createdBy"
+                p.escalate_to_role as "escalateToRole", p.escalate_to_role_2 as "escalateToRole2", p.note, p.created_at as "createdAt", u.name as "createdBy"
            from approval_policies p left join users u on u.id = p.created_by order by p.kind, p.version_no desc`,
       )).rows;
       return { current, history, defaults: "Politika yoksa: kendi talebini onaylama kapalı, parasal limit ve süre yok." };
@@ -33,6 +33,7 @@ export async function workflowRoutes(app: FastifyInstance) {
         allowSelfApproval: z.boolean().default(false),
         timeoutHours: z.number().int().min(1).max(2160).nullable().default(null),
         escalateToRole: z.string().nullable().default(null),
+        escalateToRole2: z.string().nullable().default(null),
         note: z.string().min(3).max(1000),
         limits: z.array(z.object({ roleCode: z.string(), maxAmount: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable(), currency: z.string().regex(/^[A-Z]{3}$/) })).max(20).default([]),
       }),
@@ -42,6 +43,10 @@ export async function workflowRoutes(app: FastifyInstance) {
       if (input.escalateToRole && !ROLE_CODES.includes(input.escalateToRole)) throw badRequest("Bilinmeyen rol");
       if (input.timeoutHours && !input.escalateToRole) throw conflict("escalation_role_required", "Süre tanımlandıysa yükseltilecek rol seçilmeli");
       if (input.escalateToRole === "admin") throw conflict("admin_not_allowed", "Teknik sistem yöneticisi iş onayı almaz");
+      if (input.escalateToRole2 && !ROLE_CODES.includes(input.escalateToRole2)) throw badRequest("Bilinmeyen rol (2. seviye)");
+      if (input.escalateToRole2 && !input.escalateToRole) throw conflict("escalation_role_required", "İkinci seviye için önce birinci yükseltme rolü tanımlanmalı");
+      if (input.escalateToRole2 === "admin") throw conflict("admin_not_allowed", "Teknik sistem yöneticisi iş onayı almaz");
+      if (input.escalateToRole2 && input.escalateToRole2 === input.escalateToRole) throw badRequest("İkinci seviye birinci seviyeyle aynı rol olamaz");
       for (const l of input.limits) {
         if (!ROLE_CODES.includes(l.roleCode)) throw badRequest(`Bilinmeyen rol: ${l.roleCode}`);
         if (l.roleCode === "admin") throw conflict("admin_not_allowed", "Teknik sistem yöneticisine onay limiti verilemez");
@@ -49,9 +54,9 @@ export async function workflowRoutes(app: FastifyInstance) {
       await db.query(`select pg_advisory_xact_lock(hashtext('policy:' || app_company_id()::text || $1))`, [input.kind]);
       const n = (await db.query(`select coalesce(max(version_no), 0) + 1 as n from approval_policies where kind = $1`, [input.kind])).rows[0].n;
       const p = await db.query(
-        `insert into approval_policies (company_id, kind, version_no, allow_self_approval, timeout_hours, escalate_to_role, note, created_by)
-         values (app_company_id(), $1, $2, $3, $4, $5, $6, $7) returning id`,
-        [input.kind, n, input.allowSelfApproval, input.timeoutHours, input.escalateToRole, input.note, actor.userId],
+        `insert into approval_policies (company_id, kind, version_no, allow_self_approval, timeout_hours, escalate_to_role, escalate_to_role_2, note, created_by)
+         values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8) returning id`,
+        [input.kind, n, input.allowSelfApproval, input.timeoutHours, input.escalateToRole, input.escalateToRole2, input.note, actor.userId],
       );
       for (const l of input.limits) {
         await db.query(`insert into approval_limits (company_id, policy_id, role_code, max_amount, currency) values (app_company_id(), $1, $2, $3, $4)`, [p.rows[0].id, l.roleCode, l.maxAmount, l.currency]);
