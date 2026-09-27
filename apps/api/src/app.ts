@@ -32,6 +32,7 @@ import { AppError, mapDbError } from "./lib/errors";
 import { authenticate } from "./http/context";
 import { authRoutes } from "./modules/auth";
 import { setupRoutes } from "./modules/setup";
+import { offlineRoutes } from "./modules/offline";
 import { productRoutes } from "./modules/products";
 import { importRoutes } from "./modules/imports";
 import { inventoryRoutes } from "./modules/inventory";
@@ -70,6 +71,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
 
   await app.register(authRoutes);
   await app.register(setupRoutes);
+  await app.register(offlineRoutes);
   await app.register(productRoutes);
   await app.register(importRoutes);
   await app.register(inventoryRoutes);

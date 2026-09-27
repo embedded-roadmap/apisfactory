@@ -1,5 +1,5 @@
 import { useState, useSyncExternalStore, type FormEvent } from "react";
-import { NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { Link, NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Locale, Me, Permission, Session } from "@apisfactory/shared";
 import { api, auth, get, post } from "./lib/api";
@@ -38,6 +38,7 @@ import { SubcontractJobsPage } from "./pages/Subcontract";
 import { HelpPage } from "./pages/Help";
 import { RdProjectPage, RdProjectsPage } from "./pages/RdProjects";
 import { CompanySetupPage, OnboardingPage } from "./pages/Setup";
+import { OfflinePage } from "./pages/Offline";
 
 function useAuthState() {
   return useSyncExternalStore(auth.subscribe, auth.get);
@@ -158,7 +159,19 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
     auth.clear();
   }
   if (me.isLoading) return <div className="content"><Loading /></div>;
-  if (me.error) return <div className="content"><ErrorNotice error={me.error} /><button onClick={() => auth.clear()}>Tekrar giriş yap</button></div>;
+  if (me.error) {
+    // R46 (W37 §28): bağlantı kesikken bile atanmış iş listesine ve talimatlara erişilebilsin diye,
+    // /offline yolu normal hata ekranını atlayıp yalnızca localStorage'daki kayıtlı kopyayı gösterir —
+    // bu dal hiçbir ağ isteği yapmaz.
+    if (window.location.pathname === "/offline") return <div className="content"><OfflinePage /></div>;
+    return (
+      <div className="content">
+        <ErrorNotice error={me.error} />
+        <p><Link to="/offline">Çevrimdışı kopyanızı görüntüleyin</Link> (bağlantı sorunuysa, daha önce kaydettiyseniz)</p>
+        <button onClick={() => auth.clear()}>Tekrar giriş yap</button>
+      </div>
+    );
+  }
   const perms = new Set(me.data!.permissions);
   // Fason/dış kullanıcı: genel menü ve günlük iş akışı yerine yalnız kendisine atanan işler (prompt §19).
   const external = me.data!.roles.includes("subcontractor");
@@ -263,6 +276,7 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/admin" element={<AdminPage />} />
               <Route path="/help" element={<HelpPage />} />
               <Route path="/onboarding" element={<OnboardingPage />} />
+              <Route path="/offline" element={<OfflinePage />} />
               <Route path="/password" element={<PasswordPage />} />
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>

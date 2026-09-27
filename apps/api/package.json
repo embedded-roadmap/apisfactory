@@ -11,7 +11,9 @@
     "outbox": "tsx src/worker/outbox.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "loadtest": "node scripts/loadtest.mjs"
+    "loadtest": "node scripts/loadtest.mjs",
+    "backup": "node scripts/backup.mjs",
+    "restore": "node scripts/restore.mjs"
   },
   "dependencies": {
     "@apisfactory/shared": "workspace:*",
