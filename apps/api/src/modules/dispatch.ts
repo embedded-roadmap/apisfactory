@@ -4,20 +4,24 @@ import { z } from "zod";
 import type { Db } from "../db/pool";
 import { badRequest, conflict, notFound } from "../lib/errors";
 import { recordEvent, type Actor } from "../lib/records";
-import { decryptSecret, encryptSecret } from "../lib/secrets";
+import { decryptSecret } from "../lib/secrets";
+import { credentialsSchema, saveConnectorCredentials } from "../lib/connector-credentials";
 import { EINVOICE_PROVIDERS, einvoiceReadiness, type EinvoiceEnvironment } from "../lib/einvoice-providers";
+import { CARGO_PROVIDERS, cargoReadiness, type CargoEnvironment } from "../lib/cargo-providers";
+import { newObjectKey, objectStorage } from "../lib/storage";
 import { parse, tenant } from "../http/context";
 
 /**
- * W36 — e-fatura/e-arşiv ve kargo bağlayıcıları. GERÇEK ENTEGRASYON YOK.
- *  - Sağlayıcı seçimi (entegratör, kargo firması) şirketin ticari kararıdır; burada yaygın seçenekler taslak listelenir,
- *    varsayılan BAĞLANMADI. Yalnız TEST modu var: sentetik ETTN/takip no üretir, hiçbir dış sisteme gönderilmez.
+ * W36 — e-fatura/e-arşiv ve kargo bağlayıcıları.
+ *  - Sağlayıcı seçimi (entegratör, kargo firması) şirketin ticari kararıdır; yaygın seçenekler taslak listelenir,
+ *    varsayılan BAĞLANMADI. TEST modu sentetik ETTN/takip no üretir, hiçbir dış sisteme gönderilmez.
  *  - E-belge: kesilmiş (issued) müşteri faturası için, tür (e-Fatura / e-Arşiv) elle seçilir — mükellef sorgusu yok.
- *    Belge modu "test" olur ve sabitlenir (yeniden gönderilemez); iptal edilen fatura yeniden faturalanır (W24 kuralı).
- *  - Kargo: paketlenmiş sevkiyat için sentetik etiket/takip no üretir; mevcut "sevk et" adımı bunu taşıyıcı olarak kullanır.
- *  - Oturum 41: e-belgede CANLI mod altyapısı — şirket başına şifreli erişim bilgisi (düz metin asla geri dönmez),
- *    sağlayıcıdan bağımsız hazırlık denetimi (vergi kimliği, adres, satır). 'live' moda geçiş yalnız o sağlayıcının
- *    adaptörü EINVOICE_PROVIDERS'a eklenmişse ve erişim bilgisi + ortam kayıtlıysa mümkündür; şu an hiçbir adaptör yok.
+ *    Belge modu sabitlenir (yeniden gönderilemez); iptal edilen fatura yeniden faturalanır (W24 kuralı).
+ *  - Kargo: paketlenmiş sevkiyat için etiket/takip no üretir; mevcut "sevk et" adımı bunu taşıyıcı olarak kullanır.
+ *  - Oturum 41: CANLI mod altyapısı (her iki tür) — şirket başına şifreli erişim bilgisi (düz metin asla geri dönmez),
+ *    sağlayıcıdan bağımsız hazırlık denetimi ve adaptör kayıt defterleri (EINVOICE_PROVIDERS, CARGO_PROVIDERS).
+ *    'live' moda geçiş yalnız o sağlayıcının adaptörü eklenmişse ve erişim bilgisi + ortam kayıtlıysa mümkündür;
+ *    şu an hiçbir adaptör yok. Kargoda firmaya özel gizli olmayan ayarlar (settings) ayrıca tutulur.
  */
 
 const EINVOICE_NAMES: Record<string, string> = { gib_portal: "GİB e-Belge Portalı", uyumsoft: "Uyumsoft", foriba: "Foriba", logo: "Logo e-Fatura", parasut: "Paraşüt", nesbilgi: "Nesbilgi" };
@@ -41,16 +45,15 @@ function syntheticTrackingNo(key: string, shipmentCode: string) {
   return `${CARGO_PREFIX[key] ?? "CG"}${digits}`;
 }
 
-const modeSchema = z.object({ mode: z.enum(["not_connected", "test"]), note: z.string().max(500).nullable().optional(), reason: z.string().min(3).max(500) });
-const einvoiceModeSchema = modeSchema.extend({ mode: z.enum(["not_connected", "test", "live"]) });
-const credentialsSchema = z.object({
-  environment: z.enum(["sandbox", "production"]),
-  credentials: z
-    .record(z.string().min(1).max(100), z.string().min(1).max(4000))
-    .refine((c) => Object.keys(c).length >= 1 && Object.keys(c).length <= 10, "1–10 erişim bilgisi alanı gerekli"),
-  reason: z.string().min(3).max(500),
-});
+const modeSchema = z.object({ mode: z.enum(["not_connected", "test", "live"]), note: z.string().max(500).nullable().optional(), reason: z.string().min(3).max(500) });
 const kindSchema = z.enum(["e_fatura", "e_arsiv"]);
+type TenantActor = Actor & { userId: string };
+
+/** 'live' moda geçiş kapısı — iki bağlayıcı türü için aynı kural. */
+function assertLiveAllowed(cur: { name: string; hasCredentials: boolean; environment: string | null }, hasAdapter: boolean) {
+  if (!hasAdapter) throw conflict("adapter_not_available", `${cur.name} için gerçek bağlantı henüz geliştirilmedi; canlı moda alınamaz`);
+  if (!cur.hasCredentials || !cur.environment) throw conflict("credentials_missing", "Canlı mod için önce erişim bilgisi ve ortam (sandbox/production) kaydedilmeli");
+}
 
 export async function dispatchRoutes(app: FastifyInstance) {
   // ---- e-fatura/e-arşiv bağlayıcıları ----
@@ -69,14 +72,11 @@ export async function dispatchRoutes(app: FastifyInstance) {
 
   app.post("/api/einvoice-connectors/:id", async (req) => {
     const { id } = req.params as { id: string };
-    const input = parse(einvoiceModeSchema, req.body);
+    const input = parse(modeSchema, req.body);
     return tenant(req, "receivable.manage", async (db, actor) => {
       const cur = (await db.query(`select key, name, mode, note, environment, credentials_enc is not null as "hasCredentials" from einvoice_connectors where id = $1 for update`, [id])).rows[0];
       if (!cur) throw notFound("Bağlayıcı");
-      if (input.mode === "live") {
-        if (!EINVOICE_PROVIDERS[cur.key]) throw conflict("adapter_not_available", `${cur.name} için gerçek bağlantı henüz geliştirilmedi; canlı moda alınamaz`);
-        if (!cur.hasCredentials || !cur.environment) throw conflict("credentials_missing", "Canlı mod için önce erişim bilgisi ve ortam (sandbox/production) kaydedilmeli");
-      }
+      if (input.mode === "live") assertLiveAllowed(cur, Boolean(EINVOICE_PROVIDERS[cur.key]));
       const before = { mode: cur.mode, note: cur.note };
       await db.query(`update einvoice_connectors set mode = $2, note = $3, updated_by = $4, updated_at = now() where id = $1`, [id, input.mode, input.note ?? null, actor.userId]);
       await recordEvent(db, actor, { entityType: "einvoice_connector", entityId: id, eventType: "updated", before, after: { mode: input.mode, note: input.note }, reason: input.reason });
@@ -88,22 +88,7 @@ export async function dispatchRoutes(app: FastifyInstance) {
   app.post("/api/einvoice-connectors/:id/credentials", async (req) => {
     const { id } = req.params as { id: string };
     const input = parse(credentialsSchema, req.body);
-    return tenant(req, "receivable.manage", async (db, actor) => {
-      const cur = (await db.query(`select key, environment, credentials_enc is not null as "hasCredentials" from einvoice_connectors where id = $1 for update`, [id])).rows[0];
-      if (!cur) throw notFound("Bağlayıcı");
-      const missing = EINVOICE_PROVIDERS[cur.key]?.credentialFields.filter((f) => !input.credentials[f]) ?? [];
-      if (missing.length) throw badRequest(`Eksik erişim bilgisi alanları: ${missing.join(", ")}`, { missing });
-      await db.query(
-        `update einvoice_connectors set environment = $2, credentials_enc = $3, credentials_updated_by = $4, credentials_updated_at = now() where id = $1`,
-        [id, input.environment, encryptSecret(input.credentials), actor.userId],
-      );
-      const fields = Object.keys(input.credentials).sort();
-      await recordEvent(db, actor, {
-        entityType: "einvoice_connector", entityId: id, eventType: "credentials.updated",
-        before: { environment: cur.environment, hasCredentials: cur.hasCredentials }, after: { environment: input.environment, fields }, reason: input.reason,
-      });
-      return { id, environment: input.environment, hasCredentials: true, fields };
-    });
+    return tenant(req, "receivable.manage", (db, actor) => saveConnectorCredentials(db, actor, "einvoice", id, input, (k) => EINVOICE_PROVIDERS[k]?.credentialFields));
   });
 
   /** Sağlayıcıdan bağımsız e-belge hazırlık denetimi: eksik vergi kimliği / adres / satır listesi. */
@@ -123,7 +108,7 @@ export async function dispatchRoutes(app: FastifyInstance) {
    */
   async function sendLive(
     db: Db,
-    actor: Actor & { userId: string },
+    actor: TenantActor,
     id: string,
     code: string,
     input: { connectorId: string; kind: "e_fatura" | "e_arsiv" },
@@ -143,7 +128,7 @@ export async function dispatchRoutes(app: FastifyInstance) {
     return { id, code, documentMode: "live", einvoiceKind: input.kind, einvoiceEttn: res.ettn, connector: c.name, environment: c.environment, testData: false };
   }
 
-  /** Kesilmiş müşteri faturası için sentetik e-belge (TEST — GİB'e iletilmez). Bir kez gönderilir. */
+  /** Kesilmiş müşteri faturası için e-belge: TEST'te sentetik ETTN (GİB'e iletilmez), CANLI'da adaptör. Bir kez gönderilir. */
   app.post("/api/customer-invoices/:id/send-einvoice", async (req) => {
     const { id } = req.params as { id: string };
     const input = parse(z.object({ connectorId: z.string().uuid(), kind: kindSchema }), req.body);
@@ -171,7 +156,16 @@ export async function dispatchRoutes(app: FastifyInstance) {
   app.get("/api/cargo-connectors", async (req) =>
     tenant(req, "shipment.view", async (db) => {
       await ensureEinvoiceCargoConnectors(db);
-      return (await db.query(`select id, key, name, mode, note, updated_at as "updatedAt" from cargo_connectors order by key`)).rows;
+      return (
+        await db.query(
+          `select id, key, name, mode, note, updated_at as "updatedAt", environment, settings,
+                  credentials_enc is not null as "hasCredentials", credentials_updated_at as "credentialsUpdatedAt"
+             from cargo_connectors order by key`,
+        )
+      ).rows.map((r) => {
+        const p = CARGO_PROVIDERS[r.key];
+        return { ...r, adapterAvailable: Boolean(p), credentialFields: p?.credentialFields ?? null, settingFields: p?.settingFields ?? null, trackingSupported: Boolean(p?.track) };
+      });
     }),
   );
 
@@ -179,15 +173,90 @@ export async function dispatchRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const input = parse(modeSchema, req.body);
     return tenant(req, "shipment.create", async (db, actor) => {
-      const before = (await db.query(`select mode, note from cargo_connectors where id = $1 for update`, [id])).rows[0];
-      if (!before) throw notFound("Bağlayıcı");
+      const cur = (await db.query(`select key, name, mode, note, environment, credentials_enc is not null as "hasCredentials" from cargo_connectors where id = $1 for update`, [id])).rows[0];
+      if (!cur) throw notFound("Bağlayıcı");
+      if (input.mode === "live") assertLiveAllowed(cur, Boolean(CARGO_PROVIDERS[cur.key]));
+      const before = { mode: cur.mode, note: cur.note };
       await db.query(`update cargo_connectors set mode = $2, note = $3, updated_by = $4, updated_at = now() where id = $1`, [id, input.mode, input.note ?? null, actor.userId]);
       await recordEvent(db, actor, { entityType: "cargo_connector", entityId: id, eventType: "updated", before, after: { mode: input.mode, note: input.note }, reason: input.reason });
       return { id, mode: input.mode, note: input.note ?? null };
     });
   });
 
-  /** Paketlenmiş sevkiyat için sentetik kargo etiketi/takip no (TEST — kargo firmasına iletilmez). "Sevk et" bunu taşıyıcı olarak kullanır. */
+  app.post("/api/cargo-connectors/:id/credentials", async (req) => {
+    const { id } = req.params as { id: string };
+    const input = parse(credentialsSchema, req.body);
+    return tenant(req, "shipment.create", (db, actor) => saveConnectorCredentials(db, actor, "cargo", id, input, (k) => CARGO_PROVIDERS[k]?.credentialFields));
+  });
+
+  /** Firmaya özel, gizli olmayan ayarlar (servis tipi, ödeme tipi vb.). Adaptör varsa alanlar ona göre doğrulanır. */
+  app.post("/api/cargo-connectors/:id/settings", async (req) => {
+    const { id } = req.params as { id: string };
+    const input = parse(z.object({ settings: z.record(z.string().min(1).max(60), z.string().max(200)), reason: z.string().min(3).max(500) }), req.body);
+    return tenant(req, "shipment.create", async (db, actor) => {
+      const cur = (await db.query(`select key, settings from cargo_connectors where id = $1 for update`, [id])).rows[0];
+      if (!cur) throw notFound("Bağlayıcı");
+      const fields = CARGO_PROVIDERS[cur.key]?.settingFields;
+      if (fields) {
+        const known = new Set(fields.map((f) => f.key));
+        const unknown = Object.keys(input.settings).filter((k) => !known.has(k));
+        if (unknown.length) throw badRequest(`Bu firma için tanımsız ayar: ${unknown.join(", ")}`, { unknown });
+        for (const f of fields) {
+          const v = input.settings[f.key];
+          if (f.required && !v) throw badRequest(`Zorunlu ayar eksik: ${f.label}`, { field: f.key });
+          if (v && f.options && !f.options.includes(v)) throw badRequest(`${f.label} için geçersiz değer: ${v}`, { field: f.key, options: f.options });
+        }
+      }
+      if (Object.keys(input.settings).length > 20) throw badRequest("En fazla 20 ayar");
+      await db.query(`update cargo_connectors set settings = $2, updated_by = $3, updated_at = now() where id = $1`, [id, JSON.stringify(input.settings), actor.userId]);
+      await recordEvent(db, actor, { entityType: "cargo_connector", entityId: id, eventType: "settings.updated", before: { settings: cur.settings }, after: { settings: input.settings }, reason: input.reason });
+      return { id, settings: input.settings };
+    });
+  });
+
+  /** Firmadan bağımsız kargo hazırlık denetimi: gönderici/alıcı adres ve telefonu, kapalı koli. */
+  app.get("/api/shipments/:id/cargo-readiness", async (req) => {
+    const { id } = req.params as { id: string };
+    return tenant(req, "shipment.view", async (db) => {
+      const r = await cargoReadiness(db, id);
+      if (r.issues.some((i) => i.field === "shipment")) throw notFound("Sevkiyat");
+      return { id, ready: r.issues.length === 0, issues: r.issues, totalWeightKg: r.req?.totalWeightKg ?? null, packages: r.req?.packages.length ?? null };
+    });
+  });
+
+  /**
+   * Canlı kargo kaydı: hazırlık denetimi zorunlu; adaptör firmaya gönderir, GERÇEK takip no kaydedilir, etiket dosyası
+   * (varsa) nesne depolamaya yazılır. Not: çağrı sevkiyat satırı kilitliyken yapılır (çift kaydı engeller).
+   */
+  async function labelLive(
+    db: Db,
+    actor: TenantActor,
+    id: string,
+    connectorId: string,
+    c: { key: string; name: string; environment: CargoEnvironment; credentials_enc: string; settings: Record<string, string> },
+  ) {
+    const provider = CARGO_PROVIDERS[c.key];
+    if (!provider) throw conflict("adapter_not_available", `${c.name} için gerçek bağlantı geliştirilmedi`);
+    const ready = await cargoReadiness(db, id);
+    if (!ready.req) throw conflict("cargo_not_ready", "Kargo kaydı ön koşulları eksik", { issues: ready.issues });
+    const res = await provider.createShipment(ready.req, { credentials: decryptSecret<Record<string, string>>(c.credentials_enc), settings: c.settings, environment: c.environment });
+    let labelKey: string | null = null;
+    if (res.label) {
+      labelKey = newObjectKey(actor.companyId, "cargo-labels", `${ready.req.shipmentCode}.${res.label.contentType === "application/pdf" ? "pdf" : res.label.contentType === "image/png" ? "png" : "zpl"}`);
+      await objectStorage().put(labelKey, res.label.data);
+    }
+    const labelRef = res.labelRef ?? `${c.key.toUpperCase()}-${res.trackingNo}`;
+    await db.query(
+      `update shipments set cargo_connector_id = $2, carrier = $3, tracking_no = $4, label_ref = $5, cargo_label_mode = 'live',
+              label_object_key = $6, label_content_type = $7, cargo_status = 'created', cargo_status_at = now() where id = $1`,
+      [id, connectorId, c.name, res.trackingNo, labelRef, labelKey, res.label?.contentType ?? null],
+    );
+    await db.query(`insert into document_dispatches (company_id, kind, connector_id, entity_type, entity_id, ref, dispatched_by) values (app_company_id(), 'cargo_label', $1, 'shipment', $2, $3, $4)`, [connectorId, id, labelRef, actor.userId]);
+    await recordEvent(db, actor, { entityType: "shipment", entityId: id, eventType: "cargo_label.created", after: { connector: c.name, trackingNo: res.trackingNo, labelRef, environment: c.environment, hasLabelFile: Boolean(labelKey) } });
+    return { id, carrier: c.name, trackingNo: res.trackingNo, labelRef, labelMode: "live", hasLabelFile: Boolean(labelKey), environment: c.environment, testData: false };
+  }
+
+  /** Paketlenmiş sevkiyat için kargo etiketi/takip no: TEST'te sentetik (firmaya iletilmez), CANLI'da adaptör. */
   app.post("/api/shipments/:id/cargo-label", async (req) => {
     const { id } = req.params as { id: string };
     const input = parse(z.object({ connectorId: z.string().uuid() }), req.body);
@@ -196,15 +265,55 @@ export async function dispatchRoutes(app: FastifyInstance) {
       if (!s) throw notFound("Sevkiyat");
       if (!["preparing", "packed"].includes(s.status)) throw conflict("invalid_transition", "Etiket yalnız sevk edilmeden önce üretilir");
       if (s.trackingNo) throw conflict("already_labeled", "Bu sevkiyat için zaten takip no var");
-      const c = (await db.query(`select key, name, mode from cargo_connectors where id = $1`, [input.connectorId])).rows[0];
+      const c = (await db.query(`select key, name, mode, environment, credentials_enc, settings from cargo_connectors where id = $1`, [input.connectorId])).rows[0];
       if (!c) throw notFound("Bağlayıcı");
+      if (c.mode === "live") return labelLive(db, actor, id, input.connectorId, c);
       if (c.mode !== "test") throw conflict("connector_not_ready", `${c.name} bağlı değil (sağlayıcı seçimi bekleniyor); yalnız TEST modunda etiket üretilebilir`);
       const trackingNo = syntheticTrackingNo(c.key, s.code);
       const labelRef = `${c.key.toUpperCase()}-${trackingNo}`;
-      await db.query(`update shipments set cargo_connector_id = $2, carrier = $3, tracking_no = $4, label_ref = $5 where id = $1`, [id, input.connectorId, c.name, trackingNo, labelRef]);
+      await db.query(`update shipments set cargo_connector_id = $2, carrier = $3, tracking_no = $4, label_ref = $5, cargo_label_mode = 'test' where id = $1`, [id, input.connectorId, c.name, trackingNo, labelRef]);
       await db.query(`insert into document_dispatches (company_id, kind, connector_id, entity_type, entity_id, ref, dispatched_by) values (app_company_id(), 'cargo_label', $1, 'shipment', $2, $3, $4)`, [input.connectorId, id, labelRef, actor.userId]);
       await recordEvent(db, actor, { entityType: "shipment", entityId: id, eventType: "cargo_label.created", after: { connector: c.name, trackingNo, labelRef, note: "TEST — kargo firmasına iletilmedi" } });
-      return { id, carrier: c.name, trackingNo, labelRef, testData: true };
+      return { id, carrier: c.name, trackingNo, labelRef, labelMode: "test", testData: true };
+    });
+  });
+
+  /** Firmanın döndürdüğü etiket dosyası (PDF/ZPL/PNG) — yalnız CANLI etiketlerde ve firma dosya verdiyse. */
+  app.get("/api/shipments/:id/cargo-label-file", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const out = await tenant(req, "shipment.view", async (db) => {
+      const s = (await db.query(`select code, label_object_key, label_content_type from shipments where id = $1`, [id])).rows[0];
+      if (!s) throw notFound("Sevkiyat");
+      if (!s.label_object_key) throw notFound("Etiket dosyası");
+      return { code: s.code as string, contentType: s.label_content_type as string, data: await objectStorage().get(s.label_object_key) };
+    });
+    const ext = out.contentType === "application/pdf" ? "pdf" : out.contentType === "image/png" ? "png" : "zpl";
+    reply.header("content-type", out.contentType).header("content-disposition", `inline; filename="${out.code}-kargo.${ext}"`);
+    return out.data;
+  });
+
+  /** Takip durumunu firmadan günceller (yalnız CANLI etiket ve firma takip sorgusunu destekliyorsa). */
+  app.post("/api/shipments/:id/cargo-track", async (req) => {
+    const { id } = req.params as { id: string };
+    return tenant(req, "shipment.view", async (db, actor) => {
+      const s = (
+        await db.query(
+          `select s.tracking_no, s.cargo_label_mode, s.cargo_status, c.key, c.name, c.environment, c.credentials_enc, c.settings
+             from shipments s left join cargo_connectors c on c.id = s.cargo_connector_id where s.id = $1 for update of s`,
+          [id],
+        )
+      ).rows[0];
+      if (!s) throw notFound("Sevkiyat");
+      if (s.cargo_label_mode !== "live" || !s.tracking_no) throw conflict("not_live", "Takip sorgusu yalnız canlı kargo kaydı için yapılır");
+      const track = CARGO_PROVIDERS[s.key]?.track;
+      if (!track) throw conflict("tracking_not_supported", `${s.name} için takip sorgusu geliştirilmedi`);
+      if (!s.credentials_enc) throw conflict("credentials_missing", "Bağlayıcının erişim bilgisi silinmiş");
+      const t = await track(s.tracking_no, { credentials: decryptSecret<Record<string, string>>(s.credentials_enc), settings: s.settings, environment: s.environment });
+      await db.query(`update shipments set cargo_status = $2, cargo_status_raw = $3, cargo_status_at = coalesce($4::timestamptz, now()) where id = $1`, [id, t.status, t.raw, t.at]);
+      if (t.status !== s.cargo_status) {
+        await recordEvent(db, actor, { entityType: "shipment", entityId: id, eventType: "cargo_status.changed", before: { status: s.cargo_status }, after: { status: t.status, raw: t.raw } });
+      }
+      return { id, cargoStatus: t.status, cargoStatusRaw: t.raw, cargoStatusAt: t.at };
     });
   });
 }

@@ -5,6 +5,7 @@ import { get, newKey, post } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, fmt, fmtDate, useCan } from "../lib/ui";
 import { History } from "./Sales";
 import { Discussion } from "../components/Discussion";
+import { ConnectorCredentialsForm, ENV_LABEL, MODE_LABEL, ModeBadge, ModeOptions } from "../components/Connectors";
 
 const ST: Record<string, [string, string]> = { draft: ["taslak", "warn"], issued: ["kesildi — açık", "warn"], paid: ["tahsil edildi", "ok"], cancelled: ["iptal", ""] };
 const today = () => new Date().toISOString().slice(0, 10);
@@ -20,9 +21,6 @@ function Tabs() {
     </div>
   );
 }
-
-const MODE_LABEL: Record<string, [string, string]> = { not_connected: ["BAĞLANMADI", ""], test: ["TEST", "warn"], live: ["CANLI", "ok"] };
-const ENV_LABEL: Record<string, string> = { sandbox: "test ortamı", production: "üretim" };
 
 /**
  * W36 + oturum 41 — e-fatura/e-arşiv ayarları: şirket ve müşteri vergi kimliği (sağlayıcıdan bağımsız ön koşul),
@@ -49,7 +47,7 @@ export function EinvoiceConnectorsPage() {
           <tbody>{q.data?.map((c: any) => (
             <tr key={c.id}>
               <td>{c.name}</td>
-              <td><span className={`badge ${MODE_LABEL[c.mode]![1]}`}>{MODE_LABEL[c.mode]![0]}</span></td>
+              <td><ModeBadge mode={c.mode} /></td>
               <td>{c.adapterAvailable ? <span className="badge ok">var</span> : <span className="muted">geliştirilmedi</span>}</td>
               <td>{c.hasCredentials ? <>kayıtlı · {ENV_LABEL[c.environment] ?? c.environment}<div className="muted" style={{ fontSize: 13 }}>{fmtDate(c.credentialsUpdatedAt)}</div></> : <span className="muted">yok</span>}</td>
               <td className="muted">{c.note ?? "—"}</td>
@@ -66,9 +64,7 @@ export function EinvoiceConnectorsPage() {
           <div className="row" style={{ alignItems: "flex-end" }}>
             <label className="field">Mod
               <select aria-label="Bağlayıcı modu" value={edit.mode} onChange={(e) => setEdit({ ...edit, mode: e.target.value })}>
-                <option value="not_connected">BAĞLANMADI</option>
-                <option value="test">TEST</option>
-                <option value="live" disabled={!edit.adapterAvailable || !edit.hasCredentials}>CANLI{!edit.adapterAvailable ? " (gerçek bağlantı geliştirilmedi)" : !edit.hasCredentials ? " (önce erişim bilgisi)" : ""}</option>
+                <ModeOptions c={edit} />
               </select>
             </label>
             <label className="field" style={{ flex: 1 }}>Not<input value={edit.note ?? ""} onChange={(e) => setEdit({ ...edit, note: e.target.value })} /></label>
@@ -76,56 +72,14 @@ export function EinvoiceConnectorsPage() {
             <button className="primary" disabled={edit.reason.trim().length < 3 || save.isPending} onClick={() => save.mutate()}>Kaydet</button>
             <button onClick={() => setEdit(null)}>Vazgeç</button>
           </div>
-          <ConnectorCredentialsForm connector={edit} onSaved={() => { setEdit(null); qc.invalidateQueries({ queryKey: ["einvoiceConnectors"] }); }} />
+          <ConnectorCredentialsForm basePath="/api/einvoice-connectors" connector={edit} onSaved={() => { setEdit(null); qc.invalidateQueries({ queryKey: ["einvoiceConnectors"] }); }} />
         </section>
       ) : null}
     </>
   );
 }
 
-/** Entegratör erişim bilgisi: yalnız yazılır, sunucu şifreli saklar ve hiçbir zaman geri göstermez. */
-function ConnectorCredentialsForm({ connector: c, onSaved }: { connector: any; onSaved: () => void }) {
-  const known: string[] | null = c.credentialFields;
-  const [environment, setEnvironment] = useState<string>(c.environment ?? "sandbox");
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [extra, setExtra] = useState([{ k: "", v: "" }]);
-  const [reason, setReason] = useState("");
-  const credentials = known
-    ? Object.fromEntries(known.map((f) => [f, values[f] ?? ""]))
-    : Object.fromEntries(extra.filter((x) => x.k.trim() && x.v).map((x) => [x.k.trim(), x.v]));
-  const complete = Object.keys(credentials).length > 0 && Object.values(credentials).every(Boolean);
-  const save = useMutation({ mutationFn: () => post(`/api/einvoice-connectors/${c.id}/credentials`, { environment, credentials, reason }), onSuccess: onSaved });
-  return (
-    <div className="stack" style={{ marginTop: 12 }}>
-      <h4 style={{ margin: 0 }}>Erişim bilgisi {c.hasCredentials ? <span className="badge ok">kayıtlı</span> : null}</h4>
-      <p className="muted" style={{ margin: 0 }}>Entegratörün verdiği kullanıcı/parola veya API anahtarı. Şifreli saklanır; kaydedildikten sonra hiçbir ekranda gösterilmez — değiştirmek için yeniden girin.</p>
-      <ErrorNotice error={save.error} />
-      <div className="row" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
-        <label className="field">Ortam
-          <select aria-label="Entegratör ortamı" value={environment} onChange={(e) => setEnvironment(e.target.value)}>
-            <option value="sandbox">Test ortamı (sandbox)</option>
-            <option value="production">Üretim</option>
-          </select>
-        </label>
-        {known
-          ? known.map((f) => (
-              <label key={f} className="field">{f}<input aria-label={`Erişim bilgisi ${f}`} type="password" autoComplete="off" value={values[f] ?? ""} onChange={(e) => setValues({ ...values, [f]: e.target.value })} /></label>
-            ))
-          : extra.map((x, i) => (
-              <div key={i} className="row" style={{ gap: 6 }}>
-                <input aria-label="Alan adı" placeholder="alan (ör. username)" value={x.k} onChange={(e) => setExtra(extra.map((y, j) => (j === i ? { ...y, k: e.target.value } : y)))} />
-                <input aria-label="Alan değeri" type="password" autoComplete="off" placeholder="değer" value={x.v} onChange={(e) => setExtra(extra.map((y, j) => (j === i ? { ...y, v: e.target.value } : y)))} />
-              </div>
-            ))}
-        {!known && extra.length < 10 ? <button type="button" onClick={() => setExtra([...extra, { k: "", v: "" }])}>+ alan</button> : null}
-        <label className="field" style={{ flex: 1 }}>Gerekçe<input aria-label="Erişim bilgisi gerekçesi" value={reason} onChange={(e) => setReason(e.target.value)} /></label>
-        <button className="primary" disabled={!complete || reason.trim().length < 3 || save.isPending} onClick={() => save.mutate()}>Erişim bilgisini kaydet</button>
-      </div>
-    </div>
-  );
-}
-
-const emptyProfile = { legalName: "", taxNo: "", taxOffice: "", addressLine: "", district: "", city: "", postalCode: "" };
+const emptyProfile = { legalName: "", taxNo: "", taxOffice: "", addressLine: "", district: "", city: "", postalCode: "", phone: "" };
 
 /** Satıcı (şirket) vergi kimliği — hangi entegratör seçilirse seçilsin e-belgenin ön koşulu. */
 function CompanyTaxProfileCard() {
@@ -135,7 +89,7 @@ function CompanyTaxProfileCard() {
   const [f, setF] = useState<typeof emptyProfile | null>(null);
   const v = f ?? { ...emptyProfile, ...Object.fromEntries(Object.entries(q.data ?? {}).map(([k, x]) => [k, x ?? ""])) };
   const save = useMutation({
-    mutationFn: () => post("/api/company/tax-profile", { ...v, district: v.district || null, postalCode: v.postalCode || null }),
+    mutationFn: () => post("/api/company/tax-profile", { ...v, district: v.district || null, postalCode: v.postalCode || null, phone: v.phone || null }),
     onSuccess: (r) => { setF(null); qc.setQueryData(["companyTaxProfile"], r); },
   });
   const edit = can("org.manage");
@@ -144,7 +98,7 @@ function CompanyTaxProfileCard() {
   );
   return (
     <section className="card">
-      <h2>Şirket vergi kimliği</h2>
+      <h2>Şirket vergi kimliği ve adresi</h2>
       <p className="muted" style={{ margin: 0 }}>E-fatura/e-arşivde satıcı bilgisi olarak kullanılır. VKN (10 hane) veya TCKN (11 hane) kontrol hanesiyle doğrulanır.{edit ? "" : " Değiştirmek için organizasyon yönetimi yetkisi gerekir."}</p>
       {q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />}
       <div className="row" style={{ flexWrap: "wrap" }}>
@@ -157,6 +111,7 @@ function CompanyTaxProfileCard() {
         {field("district", "İlçe", 150)}
         {field("city", "İl", 150)}
         {field("postalCode", "Posta kodu", 110)}
+        {field("phone", "Telefon (kargo göndericisi)", 190)}
       </div>
       {edit ? <div className="row"><button className="primary" disabled={!f || save.isPending} onClick={() => save.mutate()}>Kaydet</button></div> : null}
       <ErrorNotice error={save.error} />

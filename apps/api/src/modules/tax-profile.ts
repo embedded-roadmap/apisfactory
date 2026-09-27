@@ -21,6 +21,8 @@ const CompanyTaxProfile = z.object({
   district: text(100).nullable().optional(),
   city: text(100),
   postalCode: z.string().trim().regex(/^[0-9]{5}$/, "Posta kodu 5 hane olmalı").nullable().optional(),
+  // Kargo göndericisi için (dış bağımlılık maddesi 2) — e-belge için zorunlu değil.
+  phone: z.string().trim().regex(/^\+?[0-9 ()-]{7,20}$/, "Geçersiz telefon").nullable().optional(),
 });
 
 const CustomerTaxIdentity = z.object({
@@ -30,7 +32,7 @@ const CustomerTaxIdentity = z.object({
 });
 
 const companyCols = `legal_name as "legalName", tax_no as "taxNo", tax_office as "taxOffice", address_line as "addressLine",
-  district, city, postal_code as "postalCode", country`;
+  district, city, postal_code as "postalCode", country, phone`;
 
 export async function taxProfileRoutes(app: FastifyInstance) {
   app.get("/api/company/tax-profile", async (req) =>
@@ -47,9 +49,9 @@ export async function taxProfileRoutes(app: FastifyInstance) {
       const before = (await db.query(`select ${companyCols} from companies where id = $1 for update`, [actor.companyId])).rows[0];
       if (!before) throw notFound("Şirket");
       const r = await db.query(
-        `update companies set legal_name = $2, tax_no = $3, tax_office = $4, address_line = $5, district = $6, city = $7, postal_code = $8
+        `update companies set legal_name = $2, tax_no = $3, tax_office = $4, address_line = $5, district = $6, city = $7, postal_code = $8, phone = $9
           where id = $1 returning ${companyCols}`,
-        [actor.companyId, input.legalName, input.taxNo, input.taxOffice, input.addressLine, input.district ?? null, input.city, input.postalCode ?? null],
+        [actor.companyId, input.legalName, input.taxNo, input.taxOffice, input.addressLine, input.district ?? null, input.city, input.postalCode ?? null, input.phone ?? null],
       );
       await recordEvent(db, actor, { entityType: "company", entityId: actor.companyId, eventType: "tax_profile.updated", before, after: r.rows[0] });
       return r.rows[0];

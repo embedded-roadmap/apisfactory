@@ -63,6 +63,7 @@ export async function shippableLines(db: Db, orderId: string, excludeShipmentId?
 async function loadShipment(db: Db, id: string) {
   const s = await db.query(
     `select s.id, s.code, s.status, s.document_mode as "documentMode", s.carrier, s.tracking_no as "trackingNo", s.label_ref as "labelRef", cc.name as "cargoConnector",
+            s.cargo_label_mode as "cargoLabelMode", s.label_object_key is not null as "hasLabelFile", s.label_content_type as "labelContentType", s.cargo_status as "cargoStatus", s.cargo_status_raw as "cargoStatusRaw", s.cargo_status_at as "cargoStatusAt",
             s.address_id as "addressId", s.address_snapshot as "addressSnapshot", s.shipped_at as "shippedAt", s.delivered_at as "deliveredAt",
             s.problem_note as "problemNote", s.cancel_reason as "cancelReason", s.created_at as "createdAt",
             so.id as "salesOrderId", so.code as "salesOrderCode", so.allow_partial as "allowPartial", c.name as "customerName", c.code as "customerCode",

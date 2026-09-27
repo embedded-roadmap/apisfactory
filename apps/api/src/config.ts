@@ -1,3 +1,19 @@
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { parseEnv } from "node:util";
+
+/**
+ * apps/api/.env varsa yüklenir (şablon: .env.example). Ortamda zaten tanımlı değişkenin üzerine YAZILMAZ —
+ * hosting'in secret store'u ve testlerin kendi değerleri her zaman önceliklidir. Testler (VITEST) dosyayı hiç okumaz.
+ */
+const envFile = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.env");
+if (!process.env.VITEST && existsSync(envFile)) {
+  for (const [k, v] of Object.entries(parseEnv(readFileSync(envFile, "utf8")))) {
+    if (process.env[k] === undefined && v !== "") process.env[k] = v;
+  }
+}
+
 function required(name: string, fallback?: string): string {
   const v = process.env[name] ?? fallback;
   if (!v) throw new Error(`Ortam değişkeni eksik: ${name}`);

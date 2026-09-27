@@ -2,7 +2,8 @@ import { useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SalesOrder } from "@apisfactory/shared";
-import { get, newKey, post } from "../lib/api";
+import { get, newKey, openDownload, post } from "../lib/api";
+import { ConnectorCredentialsForm, ENV_LABEL, MODE_LABEL, ModeBadge, ModeOptions } from "../components/Connectors";
 import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, fmtDate, useCan } from "../lib/ui";
 import { Barcode } from "../lib/Barcode";
 import { History } from "./Sales";
@@ -165,28 +166,34 @@ export function ShipmentsPage() {
 
 export const SH_LABEL: Record<string, string> = { preparing: "Hazırlanıyor", packed: "Paketlendi", shipped: "Sevk edildi", delivered: "Teslim edildi", problem: "Teslim sorunu", cancelled: "İptal" };
 
-/** W36 — kargo bağlayıcıları: sağlayıcı seçimi şirket kararı, varsayılan BAĞLANMADI; TEST modu sentetik takip no üretir. */
+/**
+ * W36 + oturum 41 — kargo bağlayıcıları. Firmalar arasında değişen şey (erişim bilgisi alanları, firmaya özel ayarlar,
+ * etiket biçimi, takip kodları) adaptördedir; bu ekran her firma için aynıdır. CANLI mod yalnız adaptörü olan firmada açılır.
+ */
 export function CargoConnectorsPage() {
   const can = useCan();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["cargoConnectors"], queryFn: () => get<any[]>("/api/cargo-connectors") });
   const [edit, setEdit] = useState<any | null>(null);
+  const done = () => { setEdit(null); qc.invalidateQueries({ queryKey: ["cargoConnectors"] }); };
   const save = useMutation({
     mutationFn: () => post(`/api/cargo-connectors/${edit.id}`, { mode: edit.mode, note: edit.note || null, reason: edit.reason }),
-    onSuccess: () => { setEdit(null); qc.invalidateQueries({ queryKey: ["cargoConnectors"] }); },
+    onSuccess: done,
   });
   return (
     <>
-      <PageHeader title="Kargo bağlayıcıları" sub="Gerçek kargo firması entegrasyonu yok; sağlayıcı seçimi şirket kararıdır. TEST modu sentetik takip no/etiket üretir, gerçek kargo firmasına hiçbir şey iletilmez." />
-      <p style={{ marginTop: 0 }}><Link to="/shipments">← Sevkiyat</Link></p>
+      <PageHeader title="Kargo bağlayıcıları" sub="Kargo firması seçimi şirket kararıdır. TEST modu sentetik takip no üretir, firmaya hiçbir şey iletilmez. CANLI mod, yalnız gerçek bağlantısı geliştirilip firmanın test ortamında doğrulanmış firmalarda açılır." />
+      <p style={{ marginTop: 0 }}><Link to="/shipments">← Sevkiyat</Link> · Gönderici adresi ve telefonu: <Link to="/receivables/einvoice-connectors">şirket bilgileri</Link></p>
       <section className="card">
         <table>
-          <thead><tr><th>Kargo firması</th><th>Mod</th><th>Not</th><th /></tr></thead>
+          <thead><tr><th>Kargo firması</th><th>Mod</th><th>Gerçek bağlantı</th><th>Erişim bilgisi</th><th>Ayarlar</th><th /></tr></thead>
           <tbody>{q.data?.map((c: any) => (
             <tr key={c.id}>
-              <td>{c.name}</td>
-              <td><span className={`badge ${c.mode === "test" ? "warn" : ""}`}>{c.mode === "test" ? "TEST" : "BAĞLANMADI"}</span></td>
-              <td className="muted">{c.note ?? "—"}</td>
+              <td>{c.name}{c.note ? <div className="muted" style={{ fontSize: 13 }}>{c.note}</div> : null}</td>
+              <td><ModeBadge mode={c.mode} /></td>
+              <td>{c.adapterAvailable ? <span className="badge ok">var{c.trackingSupported ? " · takip" : ""}</span> : <span className="muted">geliştirilmedi</span>}</td>
+              <td>{c.hasCredentials ? <>kayıtlı · {ENV_LABEL[c.environment] ?? c.environment}</> : <span className="muted">yok</span>}</td>
+              <td className="muted">{Object.keys(c.settings ?? {}).length ? Object.entries(c.settings).map(([k, v]) => `${k}: ${v}`).join(", ") : "—"}</td>
               <td>{can("shipment.create") ? <button onClick={() => setEdit({ ...c, reason: "" })}>Ayarla</button> : null}</td>
             </tr>
           ))}</tbody>
@@ -200,8 +207,7 @@ export function CargoConnectorsPage() {
           <div className="row" style={{ alignItems: "flex-end" }}>
             <label className="field">Mod
               <select aria-label="Bağlayıcı modu" value={edit.mode} onChange={(e) => setEdit({ ...edit, mode: e.target.value })}>
-                <option value="not_connected">BAĞLANMADI</option>
-                <option value="test">TEST</option>
+                <ModeOptions c={edit} />
               </select>
             </label>
             <label className="field" style={{ flex: 1 }}>Not<input value={edit.note ?? ""} onChange={(e) => setEdit({ ...edit, note: e.target.value })} /></label>
@@ -209,11 +215,55 @@ export function CargoConnectorsPage() {
             <button className="primary" disabled={edit.reason.trim().length < 3 || save.isPending} onClick={() => save.mutate()}>Kaydet</button>
             <button onClick={() => setEdit(null)}>Vazgeç</button>
           </div>
+          <CargoSettingsForm connector={edit} onSaved={done} />
+          <ConnectorCredentialsForm basePath="/api/cargo-connectors" connector={edit} onSaved={done} />
         </section>
       ) : null}
     </>
   );
 }
+
+/** Firmaya özel, gizli olmayan ayarlar. Adaptör alanları tanımlıysa (seçenekli) onlar; değilse serbest anahtar/değer. */
+function CargoSettingsForm({ connector: c, onSaved }: { connector: any; onSaved: () => void }) {
+  const fields: { key: string; label: string; options?: string[]; required?: boolean }[] | null = c.settingFields;
+  const [values, setValues] = useState<Record<string, string>>({ ...(c.settings ?? {}) });
+  const [newKeyName, setNewKeyName] = useState("");
+  const [reason, setReason] = useState("");
+  const save = useMutation({ mutationFn: () => post(`/api/cargo-connectors/${c.id}/settings`, { settings: Object.fromEntries(Object.entries(values).filter(([, v]) => v !== "")), reason }), onSuccess: onSaved });
+  const keys = fields ? fields.map((f) => f.key) : Object.keys(values);
+  return (
+    <div className="stack" style={{ marginTop: 12 }}>
+      <h4 style={{ margin: 0 }}>Firma ayarları</h4>
+      <p className="muted" style={{ margin: 0 }}>Gizli olmayan, firmaya özel yapılandırma (ör. servis tipi, ödeme tipi). Ekranda görünür ve değişiklik geçmişine yazılır.</p>
+      <ErrorNotice error={save.error} />
+      <div className="row" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
+        {keys.map((k) => {
+          const f = fields?.find((x) => x.key === k);
+          return (
+            <label key={k} className="field">{f?.label ?? k}{f?.required ? " *" : ""}
+              {f?.options ? (
+                <select aria-label={`Ayar ${k}`} value={values[k] ?? ""} onChange={(e) => setValues({ ...values, [k]: e.target.value })}>
+                  <option value="">—</option>{f.options.map((o) => <option key={o} value={o}>{o}</option>)}
+                </select>
+              ) : <input aria-label={`Ayar ${k}`} value={values[k] ?? ""} onChange={(e) => setValues({ ...values, [k]: e.target.value })} />}
+            </label>
+          );
+        })}
+        {!fields ? (
+          <div className="row" style={{ gap: 6 }}>
+            <input aria-label="Yeni ayar adı" placeholder="yeni ayar adı" value={newKeyName} onChange={(e) => setNewKeyName(e.target.value)} />
+            <button type="button" disabled={!newKeyName.trim()} onClick={() => { setValues({ ...values, [newKeyName.trim()]: "" }); setNewKeyName(""); }}>+ ayar</button>
+          </div>
+        ) : null}
+        <label className="field" style={{ flex: 1 }}>Gerekçe<input aria-label="Ayar gerekçesi" value={reason} onChange={(e) => setReason(e.target.value)} /></label>
+        <button disabled={reason.trim().length < 3 || save.isPending} onClick={() => save.mutate()}>Ayarları kaydet</button>
+      </div>
+    </div>
+  );
+}
+
+const CARGO_STATUS_LABEL: Record<string, string> = { created: "kayıt açıldı", in_transit: "yolda", out_for_delivery: "dağıtımda", delivered: "teslim edildi", returned: "iade", problem: "sorun", unknown: "bilinmiyor" };
+const LABEL_EXT: Record<string, string> = { "application/pdf": "pdf", "application/zpl": "zpl", "image/png": "png" };
 
 export function ShipmentPage() {
   const { id } = useParams();
@@ -230,6 +280,8 @@ export function ShipmentPage() {
   const [cargoConnectorId, setCargoConnectorId] = useState("");
   const needsLabel = can("shipment.create") && !q.data?.trackingNo && ["preparing", "packed"].includes(q.data?.status);
   const cargoQ = useQuery({ queryKey: ["cargoConnectors"], queryFn: () => get<any[]>("/api/cargo-connectors"), enabled: needsLabel });
+  const readyQ = useQuery({ queryKey: ["cargoReadiness", id, q.data?.status, q.data?.packages?.length], queryFn: () => get<any>(`/api/shipments/${id}/cargo-readiness`), enabled: needsLabel });
+  const selectedCargo = cargoQ.data?.find((c: any) => c.id === cargoConnectorId);
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorNotice error={q.error} />;
   const s = q.data;
@@ -245,7 +297,7 @@ export function ShipmentPage() {
       <section className="card">
         <div className="grid4">
           <div className="stat"><small>Teslim adresi {s.addressSnapshot ? "(sevk anındaki)" : ""}</small><b style={{ fontSize: 15 }}>{s.address?.label}</b><small>{addressText(s.address)}</small></div>
-          <div className="stat"><small>Kargo / takip</small><b style={{ fontSize: 15 }}>{s.carrier ?? "—"}</b><small className="mono">{s.trackingNo ?? ""}{s.labelRef ? <span className="badge mode warn" style={{ marginLeft: 6 }}>TEST</span> : null}</small></div>
+          <div className="stat"><small>Kargo / takip</small><b style={{ fontSize: 15 }}>{s.carrier ?? "—"}</b><small className="mono">{s.trackingNo ?? ""}{s.cargoLabelMode ? <span style={{ marginLeft: 6 }}><ModeBadge mode={s.cargoLabelMode} /></span> : null}</small></div>
           <div className="stat"><small>Sevk</small><b style={{ fontSize: 15 }}>{fmtDate(s.shippedAt)}</b><small>{s.shippedBy ?? ""}</small></div>
           <div className="stat"><small>Teslim</small><b style={{ fontSize: 15 }}>{fmtDate(s.deliveredAt)}</b><small>{s.problemNote ?? ""}</small></div>
         </div>
@@ -280,15 +332,38 @@ export function ShipmentPage() {
 
       {needsLabel ? (
         <section className="card">
-          <h2>Kargo etiketi (W36)</h2>
-          <p className="muted" style={{ margin: 0 }}>Sağlayıcı seçimi şirket kararıdır; varsayılan <b>BAĞLANMADI</b>. TEST modundaki bir bağlayıcı seçilirse sentetik takip no üretilir (gerçek kargo firmasına iletilmez); istenirse taşıyıcı aşağıda elle de girilebilir.</p>
+          <h2>Kargo etiketi</h2>
+          <p className="muted" style={{ margin: 0 }}>TEST modundaki bağlayıcı sentetik takip no üretir (firmaya iletilmez); CANLI bağlayıcı firmada kargo kaydı açar ve gerçek takip no + etiket dosyası alır. İstenirse taşıyıcı aşağıda elle de girilebilir.</p>
+          {readyQ.data && !readyQ.data.ready ? (
+            <div className="notice warn">
+              Kargo kaydı için eksik bilgi{selectedCargo?.mode === "live" ? " — CANLI kayıt bunlar tamamlanmadan açılamaz" : " (TEST etiketini etkilemez)"}:
+              <ul style={{ margin: "4px 0 0" }}>{readyQ.data.issues.map((x: any) => <li key={x.field}>{x.message}</li>)}</ul>
+            </div>
+          ) : readyQ.data?.ready ? <p className="muted" style={{ margin: 0 }}>{readyQ.data.packages} koli{readyQ.data.totalWeightKg ? ` · toplam ${fmt(readyQ.data.totalWeightKg)} kg` : " · ağırlığı girilmemiş koli var"}</p> : null}
           <div className="row">
             <select aria-label="Kargo bağlayıcısı" value={cargoConnectorId} onChange={(e) => setCargoConnectorId(e.target.value)}>
               <option value="">Seçin…</option>
-              {cargoQ.data?.map((c: any) => <option key={c.id} value={c.id}>{c.name}{c.mode !== "test" ? " (BAĞLANMADI)" : ""}</option>)}
+              {cargoQ.data?.map((c: any) => <option key={c.id} value={c.id}>{c.name} ({MODE_LABEL[c.mode]?.[0] ?? c.mode})</option>)}
             </select>
             <button disabled={!cargoConnectorId || act.isPending} onClick={() => act.mutate(() => post(`/api/shipments/${id}/cargo-label`, { connectorId: cargoConnectorId }))}>Etiket üret</button>
           </div>
+        </section>
+      ) : null}
+
+      {s.cargoLabelMode ? (
+        <section className="card">
+          <h2>Kargo kaydı <ModeBadge mode={s.cargoLabelMode} /></h2>
+          <p style={{ margin: 0 }}>
+            {s.cargoConnector} · takip no <span className="mono">{s.trackingNo}</span> · etiket <span className="mono">{s.labelRef}</span>
+            {s.cargoStatus ? <> · durum <b>{CARGO_STATUS_LABEL[s.cargoStatus] ?? s.cargoStatus}</b>{s.cargoStatusRaw ? <span className="muted"> ({s.cargoStatusRaw})</span> : null} {s.cargoStatusAt ? <span className="muted">{fmtDate(s.cargoStatusAt)}</span> : null}</> : null}
+          </p>
+          {s.cargoLabelMode === "test" ? <p className="muted" style={{ margin: 0 }}>TEST — sentetik takip no, kargo firmasına iletilmedi.</p> : null}
+          {s.cargoLabelMode === "live" ? (
+            <div className="row">
+              {s.hasLabelFile ? <button onClick={() => openDownload(`/api/shipments/${id}/cargo-label-file`, `${s.code}-kargo.${LABEL_EXT[s.labelContentType] ?? "bin"}`, s.labelContentType ?? "")}>Etiketi indir</button> : null}
+              <button disabled={act.isPending} onClick={() => act.mutate(() => post(`/api/shipments/${id}/cargo-track`))}>Takip durumunu güncelle</button>
+            </div>
+          ) : null}
         </section>
       ) : null}
 

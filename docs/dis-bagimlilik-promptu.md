@@ -65,24 +65,35 @@ canlı gönderim yolu (`sendLive`) hazır. Otomatik test + sağlayıcı test ort
 (Yurtiçi Kargo), `aras` (Aras Kargo), `mng` (MNG Kargo), `ptt` (PTT Kargo), `surat` (Sürat Kargo), `ups`.
 Paketlenmiş sevkiyattan etiket/takip no üretme akışı TEST modunda hazır (sentetik takip no, "TEST" etiketi).
 
+**Oturum 41'de eklenen — farklı firmalara uyarlanabilir yapı (kullanıcı talebi):** firmalar arasında değişen her
+şey bir **adaptöre** (`apps/api/src/lib/cargo-providers.ts` → `CargoProvider`) bırakıldı; sistemin geri kalanı
+ortak. Adaptör şunları tanımlar: istenen erişim bilgisi alanları (`credentialFields`), firmaya özel gizli olmayan
+ayarlar (`settingFields` — ör. servis tipi, seçenek listesiyle doğrulanır), kargo kaydı açma (`createShipment` —
+takip no + PDF/ZPL/PNG etiket) ve isteğe bağlı takip sorgusu (`track` — firmanın kendi durum kodunu ortak 7 duruma
+eşler: kayıt açıldı / yolda / dağıtımda / teslim / iade / sorun / bilinmiyor; ham metin de saklanır). Ortak kısım:
+migration 049 (`'live'` modu, ortam, şifreli erişim bilgisi, `settings`, `cargo_connectors_live_ready` kısıtı,
+şirket telefonu, sevkiyatta etiket modu/dosyası/takip durumu), `cargoReadiness()` (gönderici adres+telefon, alıcı
+adres+telefon, kapalı koli, toplam ağırlık), etiket dosyasının nesne depolamada saklanıp indirilmesi, web'de
+firma ayarları ve erişim bilgisi formu. Uyarlanabilirlik iki farklı sahte adaptörle (PDF/takipsiz ve ZPL/takipli)
+`cargo-live.test.ts`'te sınandı. **Yeni bir firma eklemek = bir adaptör nesnesi yazıp `CARGO_PROVIDERS`'a kaydetmek.**
+
 **Sizden/şirketten karar gerekenler:**
 1. Hangi kargo firması mevcut anlaşmalınız? (Zaten bir anlaşma varsa yeni sözleşme gerekmez, sadece o
    firmanın API erişimini açtırmanız gerekir — çoğu kargo firması ticari müşterilerine ücretsiz API erişimi
    verir.)
-2. API anahtarı / müşteri kodu (kargo firmasının kendi entegrasyon panelinden alınır).
+2. Firmanın API dokümantasyonu ve test ortamı erişimi.
 
-**Bağlanacağı yer:** `CARGO_PROVIDER`, `CARGO_API_KEY` ortam değişkenleri (önerilen adlar, henüz tanımlı değil).
+**Bağlanacağı yer:** erişim bilgisi **şirket başına**, kargo bağlayıcıları ekranından girilir ve şifreli saklanır
+(`cargo_connectors.credentials_enc`); platform düzeyinde yalnız `CONNECTOR_SECRET_KEY` (madde 1 ile ortak).
 
-**Gerekli şema değişikliği:** `cargo_connectors.mode` CHECK kısıtı şu an yalnızca `'not_connected'` ve
-`'test'`e izin veriyor (migration 024, satır 25). Gerçek etiket üretimi için yeni bir migration ile canlı mod
-(ör. `'live'`) eklenmeli.
+**Şema:** oturum 41'de tamamlandı (migration 049).
 
-**Kabul kriteri:** test ortamında gerçek bir etiket/takip numarası üretilmesi (kargo firmasının kendi test
-modu varsa onunla, yoksa küçük hacimli gerçek bir sevkiyatla).
+**Kabul kriteri:** firmanın test ortamında gerçek bir kargo kaydı açılması, gerçek takip numarası ve etiket
+dosyasının alınması; takip destekleniyorsa gerçek durum sorgusunun normalize edilmesi.
 
-**Bana ne söylemeniz yeterli:** "Aras Kargo'yu kullanıyoruz, API anahtarı/müşteri kodu şu" dediğinizde,
-`apps/api/src/modules/dispatch.ts`'teki TEST etiket çağrısını (`POST /api/shipments/:id/cargo-label`) gerçek
-API'ye bağlarım.
+**Bana ne söylemeniz yeterli:** "Aras Kargo'yu kullanıyoruz" + firmanın API dokümantasyonu. Erişim bilgisini
+sohbete yazmayın — kargo bağlayıcıları ekranından kendiniz girin. Ben o firmanın adaptörünü yazar,
+`CARGO_PROVIDERS`'a eklerim; canlı yol (`labelLive`, `cargo-track`, etiket indirme) hazır.
 
 ---
 
