@@ -228,9 +228,43 @@ export function CustomerInvoicePage() {
           </form>
         ) : null}
       </section>
+      {i.status === "issued" ? <CollectionReminderPanel invoice={i} id={id!} manage={manage} onChanged={() => { qc.invalidateQueries({ queryKey: ["cinvoice", id] }); qc.invalidateQueries({ queryKey: ["history"] }); }} /> : null}
       <Discussion entityType="customer_invoice" entityId={i.id} />
       <History entityType="customer_invoice" id={i.id} />
     </>
+  );
+}
+
+/** R21: bir faturanın hatırlatma durumu ve elle duraklat/devam ettir. */
+function CollectionReminderPanel({ invoice: i, id, manage, onChanged }: { invoice: any; id: string; manage: boolean; onChanged: () => void }) {
+  const [reason, setReason] = useState("");
+  const pause = useMutation({
+    mutationFn: (paused: boolean) => post(`/api/customer-invoices/${id}/reminders/pause`, { paused, reason: reason || (paused ? "Duraklatıldı" : "Devam ettirildi") }),
+    onSuccess: () => { setReason(""); onChanged(); },
+  });
+  return (
+    <section className="card">
+      <h2>Tahsilat hatırlatması</h2>
+      {i.remindersPaused ? (
+        <div className="notice warn">Hatırlatmalar duraklatıldı: {i.remindersPausedReason ?? "—"}</div>
+      ) : (
+        <p className="muted" style={{ margin: 0 }}>
+          {i.reminderCount > 0 ? <>Şimdiye kadar {i.reminderCount} hatırlatma gönderildi, sonuncusu {fmtDate(i.lastReminderAt)}.</> : "Henüz hatırlatma gönderilmedi."}
+          {" "}Şirket genelindeki kural <Link to="/receivables/aging">yaşlandırma sayfasından</Link> ayarlanır.
+        </p>
+      )}
+      {manage ? (
+        <div className="row">
+          <input aria-label="Duraklatma/devam gerekçesi" placeholder="Gerekçe (ör. müşteri itiraz etti)" value={reason} onChange={(e) => setReason(e.target.value)} style={{ flex: 1 }} />
+          {i.remindersPaused ? (
+            <button disabled={pause.isPending} onClick={() => pause.mutate(false)}>Hatırlatmaları devam ettir</button>
+          ) : (
+            <button disabled={pause.isPending} onClick={() => pause.mutate(true)}>Hatırlatmaları duraklat</button>
+          )}
+        </div>
+      ) : null}
+      <ErrorNotice error={pause.error} />
+    </section>
   );
 }
 
@@ -239,11 +273,22 @@ export function ReceivablesAgingPage() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["arAging"], queryFn: () => get<any>("/api/receivables/aging") });
   const customers = useQuery({ queryKey: ["customers"], queryFn: () => get<any[]>("/api/customers") });
-  const [f, setF] = useState({ customerId: "", creditLimit: "", paymentTermsDays: "30", overdueBlockDays: "", reason: "" });
+  const [f, setF] = useState({ customerId: "", creditLimit: "", paymentTermsDays: "30", overdueBlockDays: "", billingEmail: "", reason: "" });
   const save = useMutation({
-    mutationFn: () => post(`/api/customers/${f.customerId}/credit`, { creditLimit: f.creditLimit ? f.creditLimit.replace(",", ".") : null, paymentTermsDays: Number(f.paymentTermsDays) || 0, overdueBlockDays: f.overdueBlockDays ? Number(f.overdueBlockDays) : null, reason: f.reason }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["arAging"] }); setF({ ...f, reason: "" }); },
+    mutationFn: async () => {
+      await post(`/api/customers/${f.customerId}/credit`, { creditLimit: f.creditLimit ? f.creditLimit.replace(",", ".") : null, paymentTermsDays: Number(f.paymentTermsDays) || 0, overdueBlockDays: f.overdueBlockDays ? Number(f.overdueBlockDays) : null, reason: f.reason });
+      await post(`/api/customers/${f.customerId}/billing-email`, { billingEmail: f.billingEmail.trim() || null });
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["arAging"] }); qc.invalidateQueries({ queryKey: ["customers"] }); setF({ ...f, reason: "" }); },
   });
+  const rule = useQuery({ queryKey: ["reminderRule"], queryFn: () => get<any>("/api/receivables/reminder-rule") });
+  const [rf, setRf] = useState<any | null>(null);
+  const saveRule = useMutation({
+    mutationFn: () => post("/api/receivables/reminder-rule", { ...rf, minOverdueDays: Number(rf.minOverdueDays), frequencyDays: Number(rf.frequencyDays), maxReminders: rf.maxReminders === "" || rf.maxReminders === null ? null : Number(rf.maxReminders) }),
+    onSuccess: (r) => { setRf(null); qc.setQueryData(["reminderRule"], r); },
+  });
+  const runNow = useMutation({ mutationFn: () => post<{ sent: number }>("/api/receivables/reminders/run", {}) });
+  const rv = rf ?? rule.data;
   const d = q.data;
   return (
     <>
@@ -277,15 +322,55 @@ export function ReceivablesAgingPage() {
         ) : <Empty>Kredi tanımlı veya açık alacağı olan müşteri yok.</Empty>}
         {can("receivable.manage") ? (
           <form className="row" style={{ flexWrap: "wrap" }} onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
-            <label className="field">Müşteri<select aria-label="Kredi müşterisi" required value={f.customerId} onChange={(e) => setF({ ...f, customerId: e.target.value })}><option value="">Seçin</option>{customers.data?.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}</select></label>
+            <label className="field">Müşteri
+              <select aria-label="Kredi müşterisi" required value={f.customerId} onChange={(e) => {
+                const cust = customers.data?.find((c) => c.id === e.target.value);
+                setF({ ...f, customerId: e.target.value, billingEmail: cust?.billingEmail ?? "" });
+              }}><option value="">Seçin</option>{customers.data?.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}</select>
+            </label>
             <label className="field" style={{ width: 130 }}>Kredi limiti (TRY)<input aria-label="Kredi limiti" inputMode="decimal" placeholder="boş = limitsiz" value={f.creditLimit} onChange={(e) => setF({ ...f, creditLimit: e.target.value })} /></label>
             <label className="field" style={{ width: 100 }}>Vade (gün)<input aria-label="Müşteri vadesi" inputMode="numeric" value={f.paymentTermsDays} onChange={(e) => setF({ ...f, paymentTermsDays: e.target.value })} /></label>
             <label className="field" style={{ width: 150 }}>Gecikme sınırı (gün)<input aria-label="Gecikme sınırı" inputMode="numeric" placeholder="boş = yok" value={f.overdueBlockDays} onChange={(e) => setF({ ...f, overdueBlockDays: e.target.value })} /></label>
+            <label className="field" style={{ width: 200 }}>Fatura e-postası<input aria-label="Fatura e-postası" type="email" placeholder="boş = yok" value={f.billingEmail} onChange={(e) => setF({ ...f, billingEmail: e.target.value })} /></label>
             <label className="field" style={{ flex: 1 }}>Gerekçe<input aria-label="Kredi gerekçesi" required minLength={3} value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} /></label>
             <button className="primary" style={{ alignSelf: "flex-end" }}>Kaydet</button>
           </form>
         ) : null}
         <ErrorNotice error={save.error} />
+      </section>
+      <section className="card">
+        <h2>Tahsilat hatırlatma kuralı</h2>
+        <p className="muted" style={{ margin: 0 }}>Vadesi geçmiş açık bakiyeli faturalar için otomatik tarama (dakikada bir) veya elle çalıştırma. Gönderimden hemen önce açık bakiye yeniden doğrulanır; ödenmiş faturaya gitmez. Gerçek e-posta gönderimi yok — alıcı "müşteri" ise çıkış kutusuna (test), "muhasebe" ise iç göreve yazılır.</p>
+        {rule.isLoading ? <Loading /> : <ErrorNotice error={rule.error} />}
+        {rv ? (
+          <div className="stack">
+            <div className="row" style={{ flexWrap: "wrap" }}>
+              <label className="row" style={{ gap: 6 }}><input type="checkbox" style={{ minHeight: 0 }} disabled={!can("receivable.manage")} checked={!!rv.enabled} onChange={(e) => setRf({ ...rv, enabled: e.target.checked })} /> Etkin</label>
+              <label className="field" style={{ width: 150 }}>En az gecikme (gün)<input aria-label="En az gecikme günü" disabled={!can("receivable.manage")} inputMode="numeric" value={rv.minOverdueDays} onChange={(e) => setRf({ ...rv, minOverdueDays: e.target.value })} /></label>
+              <label className="field" style={{ width: 150 }}>Sıklık (gün)<input aria-label="Hatırlatma sıklığı" disabled={!can("receivable.manage")} inputMode="numeric" value={rv.frequencyDays} onChange={(e) => setRf({ ...rv, frequencyDays: e.target.value })} /></label>
+              <label className="field" style={{ width: 150 }}>Azami hatırlatma<input aria-label="Azami hatırlatma sayısı" disabled={!can("receivable.manage")} inputMode="numeric" placeholder="boş = sınırsız" value={rv.maxReminders ?? ""} onChange={(e) => setRf({ ...rv, maxReminders: e.target.value })} /></label>
+              <label className="field">Alıcı
+                <select aria-label="Hatırlatma alıcısı" disabled={!can("receivable.manage")} value={rv.recipient} onChange={(e) => setRf({ ...rv, recipient: e.target.value })}>
+                  <option value="accounting">Muhasebe (iç görev)</option>
+                  <option value="customer">Müşteri (e-posta, test)</option>
+                  <option value="both">İkisi de</option>
+                </select>
+              </label>
+            </div>
+            <label className="field">Şablon ({"{musteri} {fatura} {gecikme} {tutar} {para_birimi} {vade}"})
+              <textarea disabled={!can("receivable.manage")} rows={2} value={rv.template} onChange={(e) => setRf({ ...rv, template: e.target.value })} />
+            </label>
+            {can("receivable.manage") ? (
+              <div className="row">
+                <button className="primary" disabled={saveRule.isPending} onClick={() => saveRule.mutate()}>Kuralı kaydet</button>
+                <button disabled={runNow.isPending} onClick={() => runNow.mutate()}>Şimdi çalıştır</button>
+                {runNow.data ? <span className="muted">{runNow.data.sent} hatırlatma gönderildi.</span> : null}
+              </div>
+            ) : null}
+            <ErrorNotice error={saveRule.error} />
+            <ErrorNotice error={runNow.error} />
+          </div>
+        ) : null}
       </section>
     </>
   );

@@ -76,7 +76,7 @@ afterAll(async () => {
 });
 
 const avail = async (itemId: string) => expectOk(await call(w.app, W, A, "GET", `/api/stock/availability/${itemId}`));
-const deviceStatus = async (serial: string) => expectOk(await call(w.app, Q, A, "GET", `/api/devices/${serial}`)).status;
+const deviceStatus = async (serial: string | undefined) => expectOk(await call(w.app, Q, A, "GET", `/api/devices/${serial}`)).status;
 
 describe("Saha arızası (field_failure) — fiziksel hareket üretmeyen akış (R44)", () => {
   it("saha arızası açılınca teslim alma görevi değil, doğrudan kaliteye inceleme görevi düşer", async () => {

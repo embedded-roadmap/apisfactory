@@ -201,7 +201,7 @@ async function lockItems(db: Db, lines: LineRow[]) {
 
 export async function salesRoutes(app: FastifyInstance) {
   app.get("/api/customers", async (req) =>
-    tenant(req, "sales.view", async (db) => (await db.query(`select id, code, name from customers order by name`)).rows),
+    tenant(req, "sales.view", async (db) => (await db.query(`select id, code, name, billing_email as "billingEmail" from customers order by name`)).rows),
   );
 
   app.post("/api/customers", async (req) => {

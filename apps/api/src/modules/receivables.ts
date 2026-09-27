@@ -76,7 +76,8 @@ async function loadInvoice(db: Db, id: string) {
             ci.einvoice_kind as "einvoiceKind", ci.einvoice_ettn as "einvoiceEttn", ci.einvoice_sent_at as "einvoiceSentAt", ec.name as "einvoiceConnector",
             ci.migrated, c.id as "customerId", c.code as "customerCode", c.name as "customerName", so.id as "salesOrderId", so.code as "salesOrderCode", sh.id as "shipmentId", sh.code as "shipmentCode",
             coalesce((select sum(r.amount) from customer_receipts r where r.invoice_id = ci.id), 0) as received,
-            (ci.status = 'issued' and ci.due_date < current_date) as overdue
+            (ci.status = 'issued' and ci.due_date < current_date) as overdue,
+            ci.last_reminder_at as "lastReminderAt", ci.reminder_count as "reminderCount", ci.reminders_paused as "remindersPaused", ci.reminders_paused_reason as "remindersPausedReason"
        from customer_invoices ci join customers c on c.id = ci.customer_id left join sales_orders so on so.id = ci.sales_order_id
        left join shipments sh on sh.id = ci.shipment_id left join users cu on cu.id = ci.created_by left join users iu on iu.id = ci.issued_by
        left join einvoice_connectors ec on ec.id = ci.einvoice_connector_id
