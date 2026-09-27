@@ -10,8 +10,9 @@ export async function workRoutes(app: FastifyInstance) {
         `select pr.id, pr.code, pr.status, pr.qty, pr.need_date as "needDate", pr.source_type as "sourceType", pr.source_id as "sourceId",
                 i.id as "itemId", i.code as "itemCode", i.name as "itemName", i.manufacturer, i.mpn, pr.created_at as "createdAt",
                 pr.note, ru.name as "requestedBy", pr.requested_by as "requestedById", pr.estimated_amount as "estimatedAmount", pr.currency, pr.amount_source as "amountSource",
-                du.name as "decidedBy", pr.decided_at as "decidedAt"
+                du.name as "decidedBy", pr.decided_at as "decidedAt", pr.cost_center as "costCenter", pr.project_id as "projectId", rp.code as "projectCode"
            from purchase_requests pr join items i on i.id = pr.item_id left join users ru on ru.id = pr.requested_by left join users du on du.id = pr.decided_by
+                left join rd_projects rp on rp.id = pr.project_id
           order by pr.created_at desc limit 300`,
       );
       // Tahmini tutar maliyet bilgisidir: alan izni olmayana gönderilmez.

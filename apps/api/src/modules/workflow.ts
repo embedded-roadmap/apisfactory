@@ -5,6 +5,8 @@ import { badRequest, conflict, forbidden, notFound } from "../lib/errors";
 import { closeTasks, idempotent, nextCode, openTask, recordEvent } from "../lib/records";
 import { can, ctxOf, idempotencyKey, parse, tenant } from "../http/context";
 import { approverFromRequest, assertApproval, currentPolicy, estimatePurchase, evaluateApproval, runEscalations, withApproval, type PolicyKind } from "../lib/workflow";
+import { fromMicro, max, toMicro } from "../lib/decimal";
+import { freeQty } from "./sales";
 
 const KINDS = ["purchase_request", "change_request", "rma_decision", "incoming_inspection", "device_disposition"] as const;
 const ROLE_CODES = ["admin", "manager", "rd", "production", "technician", "quality", "warehouse", "sales", "purchasing", "accounting"];
@@ -275,27 +277,81 @@ export async function workflowRoutes(app: FastifyInstance) {
     });
   });
 
-  // ---- Elle satın alma talebi ve onay kuralı -------------------------------------------
+  /**
+   * Elle satın alma talebi. R04 (Ar-Ge malzeme talebi) buraya `projectId` ile bağlanır:
+   * "MPN veya tanımlı genel ihtiyaç": itemId zaten hem belirli MPN'li kalemleri hem de MPN'siz
+   * genel/dahili kalemleri kapsıyor (POST /api/items ile MPN'siz oluşturulabilir) — ayrı bir alan
+   * gerekmiyor. "Önce mevcut stoktan karşılama değerlendirilsin, kalan satın almaya aktarılsın":
+   * yalnızca bir projeye bağlı taleplerde (`projectId` verildiğinde) talep miktarından serbest
+   * (rezerve edilmemiş) stok düşülür ve yalnızca kalan satın almaya aktarılır — stok tamamını
+   * karşılıyorsa hiçbir talep kaydı açılmaz (gerçekleşmeyen bir satın alma ihtiyacı uydurulmaz),
+   * yalnızca kalemin geçmişine bilgi amaçlı bir olay yazılır. Proje bağlantısı olmayan (purchasing
+   * vb. tarafından açılan) genel manuel taleplerde davranış öncekiyle birebir aynıdır — stok kontrolü
+   * yalnızca "Ar-Ge malzeme talebi" akışının kendi kuralıdır, satın almanın genel talep sürecine
+   * dayatılmaz.
+   * projectId verilirse talep o projeye bağlanır ve maliyet merkezi açıkça verilmemişse projeninkinden
+   * alınır — muhasebe giderin hangi projeye ait olduğunu görebilsin diye.
+   */
   app.post("/api/purchase-requests", async (req) => {
     const input = parse(
-      z.object({ itemId: z.string().uuid(), qty: z.string().regex(/^\d+(\.\d+)?$/), needDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), note: z.string().min(3).max(1000) }),
+      z.object({
+        itemId: z.string().uuid(),
+        qty: z.string().regex(/^\d+(\.\d+)?$/),
+        needDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        note: z.string().min(3).max(1000),
+        projectId: z.string().uuid().optional(),
+        costCenter: z.string().min(1).max(120).optional(),
+      }),
       req.body,
     );
     return tenant(req, "purchase.request.create", (db, actor) =>
       idempotent(db, actor.companyId, "pr_create", idempotencyKey(req), async () => {
         const item = await db.query(`select code from items where id = $1`, [input.itemId]);
         if (!item.rows[0]) throw notFound("Kalem");
-        const est = await estimatePurchase(db, input.itemId, input.qty);
+
+        let costCenter = input.costCenter ?? null;
+        if (input.projectId) {
+          const proj = await db.query(`select code, cost_center, status from rd_projects where id = $1`, [input.projectId]);
+          if (!proj.rows[0]) throw notFound("Ar-Ge projesi");
+          if (proj.rows[0].status !== "open") throw conflict("project_closed", `Proje "${proj.rows[0].code}" kapalı`);
+          costCenter = costCenter ?? proj.rows[0].cost_center;
+        }
+
+        // Yalnızca projeye bağlı (Ar-Ge malzeme) taleplerinde: önce mevcut serbest stoktan karşılama
+        // değerlendirilir, yalnızca kalan satın almaya aktarılır. Proje bağlantısı yoksa eski davranış.
+        let netQty = input.qty;
+        let coveredFromStock = "0";
+        if (input.projectId) {
+          const requested = toMicro(input.qty);
+          const free = max(0n, await freeQty(db, input.itemId));
+          const covered = requested < free ? requested : free;
+          const net = requested - covered;
+          if (net <= 0n) {
+            await recordEvent(db, actor, {
+              entityType: "item", entityId: input.itemId,
+              eventType: "material_request.covered_by_stock",
+              after: { requestedQty: input.qty, note: input.note, projectId: input.projectId, costCenter },
+            });
+            return { id: null, code: null, covered: true, requestedQty: input.qty, coveredQty: input.qty, forwardedQty: "0", estimatedAmount: null, currency: null, amountSource: "stoktan tamamen karşılandı" };
+          }
+          netQty = fromMicro(net);
+          coveredFromStock = fromMicro(covered);
+        }
+
+        const est = await estimatePurchase(db, input.itemId, netQty);
         const code = await nextCode(db, actor.companyId, "purchase_request", "SAT");
         const r = await db.query(
-          `insert into purchase_requests (company_id, code, item_id, qty, need_date, source_type, requested_by, note, estimated_amount, currency, amount_source)
-           values (app_company_id(), $1, $2, $3, $4, 'manual', $5, $6, $7, $8, $9) returning id`,
-          [code, input.itemId, input.qty, input.needDate ?? null, actor.userId, input.note, est.amount, est.currency, est.source],
+          `insert into purchase_requests (company_id, code, item_id, qty, need_date, source_type, requested_by, note, estimated_amount, currency, amount_source, project_id, cost_center)
+           values (app_company_id(), $1, $2, $3, $4, 'manual', $5, $6, $7, $8, $9, $10, $11) returning id`,
+          [code, input.itemId, netQty, input.needDate ?? null, actor.userId, input.note, est.amount, est.currency, est.source, input.projectId ?? null, costCenter],
         );
         const id = r.rows[0].id as string;
-        await openTask(db, actor.companyId, { kind: "purchase_request_review", title: `Satın alma talebi ${code} — ${item.rows[0].code} × ${input.qty}`, entityType: "purchase_request", entityId: id, assigneeRole: "purchasing" });
-        await recordEvent(db, actor, { entityType: "purchase_request", entityId: id, eventType: "created", after: { code, ...input, estimate: est } });
-        return { id, code, estimatedAmount: est.amount, currency: est.currency, amountSource: est.source };
+        await openTask(db, actor.companyId, { kind: "purchase_request_review", title: `Satın alma talebi ${code} — ${item.rows[0].code} × ${netQty}`, entityType: "purchase_request", entityId: id, assigneeRole: "purchasing" });
+        await recordEvent(db, actor, {
+          entityType: "purchase_request", entityId: id, eventType: "created",
+          after: { code, itemId: input.itemId, qty: netQty, needDate: input.needDate, note: input.note, projectId: input.projectId ?? null, costCenter, estimate: est, requestedQty: input.qty, coveredFromStock },
+        });
+        return { id, code, covered: false, requestedQty: input.qty, coveredQty: coveredFromStock, forwardedQty: netQty, estimatedAmount: est.amount, currency: est.currency, amountSource: est.source };
       }),
     );
   });

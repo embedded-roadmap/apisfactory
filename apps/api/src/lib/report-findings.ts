@@ -376,13 +376,59 @@ export async function computeRevisionImpact(db: Db, from: string, to: string, sc
 }
 
 // ---- 7. Proje bütçesi -----------------------------------------------------------------------
-export async function computeProjectBudget(): Promise<FindingDraft> {
-  // Onaylı proje/bütçe kaydı tutan bir modül henüz yok (bkz. costing.ts METRICS.budget_variance notu).
-  return insufficientData(
-    "project_budget",
-    "Onaylı proje/bütçe kaydı tutan bir modül yok; bu alan hesaplanamaz.",
-    null, ["packages/shared (proje/bütçe tablosu planlandı, henüz yok)"], "accounting",
-  );
+// R04 (oturum devamı) — rd_projects eklendiğinden bu alan artık gerçek verilerden hesaplanır.
+// Harcama yalnızca bu projeye bağlı satın alma taleplerinden doğan PO satırları (sipariş edilen ×
+// birim fiyat, proje para biriminde) + muhasebenin elle bölüştürdüğü ortak giderlerden oluşur;
+// henüz faturalanmamış tutarlar veya mühendislik zamanı gibi tanımlı olmayan kalemler DAHİL DEĞİLDİR
+// (bu, causeText/uncertainty alanında açıkça belirtilir — eksik veri uydurulmaz).
+export async function computeProjectBudget(db: Db, to: string): Promise<FindingDraft> {
+  const sourceRefs = ["GET /api/rd-projects", "rd_projects", "purchase_order_lines", "project_cost_allocations"];
+  const projects = (await db.query(
+    `select id, code, name, cost_center as "costCenter", budget_amount as "budgetAmount", currency
+       from rd_projects where status = 'open' and budget_amount is not null`,
+  )).rows;
+  if (projects.length === 0) {
+    return insufficientData("project_budget", "Bütçesi tanımlı, açık bir Ar-Ge projesi yok.", null, sourceRefs, "accounting");
+  }
+
+  const rows: { id: string; code: string; name: string; currency: string; budgetAmount: string; spent: string; ratio: number }[] = [];
+  for (const p of projects) {
+    const ordered = (await db.query(
+      `select coalesce(sum(pol.qty_ordered * pol.unit_price), 0) as amt
+         from purchase_order_lines pol join purchase_requests pr on pr.id = pol.purchase_request_id
+        where pr.project_id = $1 and pol.currency = $2 and pol.unit_price is not null`,
+      [p.id, p.currency],
+    )).rows[0];
+    const allocated = (await db.query(
+      `select coalesce(sum(amount), 0) as amt from project_cost_allocations where project_id = $1 and currency = $2`,
+      [p.id, p.currency],
+    )).rows[0];
+    const spent = Number(ordered.amt) + Number(allocated.amt);
+    const budget = Number(p.budgetAmount);
+    rows.push({ id: p.id, code: p.code, name: p.name, currency: p.currency, budgetAmount: p.budgetAmount, spent: spent.toFixed(2), ratio: budget > 0 ? spent / budget : 0 });
+  }
+  const worst = [...rows].sort((a, b) => b.ratio - a.ratio)[0]!;
+  const overBudget = rows.filter((r) => r.ratio >= 1);
+  const evidence = { projects: rows };
+  const pct = Math.round(worst.ratio * 100);
+
+  return {
+    area: "project_budget",
+    finding:
+      overBudget.length > 0
+        ? `${overBudget.length} projede harcama bütçeyi aştı. En yüksek: "${worst.name}" (${worst.code}) — bütçenin %${pct}'i (${worst.spent} ${worst.currency} / ${worst.budgetAmount} ${worst.currency}).`
+        : `Bütçesi tanımlı ${rows.length} açık projeden en yüksek harcama oranı "${worst.name}" (${worst.code}) — bütçenin %${pct}'i.`,
+    evidence, sourceRefs,
+    causeType: "hypothesis",
+    causeText: "Olası neden: kapsam genişlemesi veya başlangıç maliyet tahmininin düşük yapılmış olması. Alternatif açıklama: bir gider bu projeye yanlışlıkla bağlanmış olabilir (elle giriş/proje seçim hatası).",
+    actionOptions: [{ option: "Proje sahibi ve muhasebeyle bütçe gözden geçirme görevi aç", note: overBudget.length > 0 ? "Bütçe aşımı var — inceleme öncelikli" : undefined }],
+    expectedImpact: null,
+    uncertainty: "Yalnızca bu projeye bağlı satın alma siparişi tutarları (sipariş edilen × birim fiyat) ve elle bölüştürülen ortak giderler hesaba katılıyor; henüz faturalanmamış tutarlar, mühendislik zamanı ve diğer tanımlı olmayan giderler dahil değil (bkz. R05).",
+    responsibleRole: "accounting",
+    requiresApproval: overBudget.length > 0,
+    successMetric: "spent / budgetAmount oranı",
+    measurementDueAt: addDays(to, 30),
+  };
 }
 
 // ---- 8. Tahsilat ------------------------------------------------------------------------------
@@ -425,7 +471,7 @@ export async function computeArea(db: Db, area: ReportArea, from: string, to: st
     case "stock_shortage": return computeStockShortage(db, from, to, scope);
     case "capacity_leadtime": return computeCapacityLeadtime(db, from, to);
     case "revision_impact": return computeRevisionImpact(db, from, to, scope);
-    case "project_budget": return computeProjectBudget();
+    case "project_budget": return computeProjectBudget(db, to);
     case "collections": return computeCollections(db, from, to);
   }
 }

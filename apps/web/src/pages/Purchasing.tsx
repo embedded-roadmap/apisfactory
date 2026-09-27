@@ -31,7 +31,7 @@ export function PurchasingPage() {
         {prs.data?.length === 0 ? <Empty /> : null}
         {prs.data && prs.data.length > 0 ? (
           <table>
-            <thead><tr><th>Talep</th><th>Kalem</th><th className="num">Miktar</th><th>İhtiyaç tarihi</th><th>Kaynak / talep eden</th><th className="num">Tahmini tutar</th><th>Durum</th><th /></tr></thead>
+            <thead><tr><th>Talep</th><th>Kalem</th><th className="num">Miktar</th><th>İhtiyaç tarihi</th><th>Kaynak / talep eden</th><th>Proje / maliyet merkezi</th><th className="num">Tahmini tutar</th><th>Durum</th><th /></tr></thead>
             <tbody>
               {prs.data.map((p) => (
                 <tr key={p.id}>
@@ -39,6 +39,7 @@ export function PurchasingPage() {
                   <td><span className="mono">{p.itemCode}</span><div className="muted">{p.manufacturer} {p.mpn}</div></td>
                   <td className="num">{fmt(p.qty)}</td><td>{p.needDate ?? "—"}</td>
                   <td className="muted">{p.sourceType === "production_need" ? "Üretim ihtiyacı" : p.sourceType === "manual" ? "Elle talep" : p.sourceType}{p.requestedBy ? ` · ${p.requestedBy}` : ""}{p.note ? <div>{p.note}</div> : null}</td>
+                  <td className="muted">{p.projectCode ? <span className="mono">{p.projectCode}</span> : "—"}{p.costCenter ? <div>{p.costCenter}</div> : null}</td>
                   <td className="num">{p.estimatedAmount ? `${fmt(p.estimatedAmount)} ${p.currency}` : p.amountSource ? <span className="muted" title={p.amountSource}>bilinmiyor</span> : "—"}</td>
                   <td><StateBadge value={p.status} /></td>
                   <td>
@@ -62,13 +63,15 @@ export function PurchasingPage() {
 }
 
 function NewRequest() {
+  const can = useCan();
   const qc = useQueryClient();
   const items = useQuery({ queryKey: ["items", "all"], queryFn: () => get<any[]>("/api/items") });
-  const [f, setF] = useState({ itemId: "", qty: "", needDate: "", note: "" });
+  const projects = useQuery({ queryKey: ["rd-projects", "open"], queryFn: () => get<any[]>("/api/rd-projects?status=open"), enabled: can("rd.project.view") });
+  const [f, setF] = useState({ itemId: "", qty: "", needDate: "", note: "", projectId: "", costCenter: "" });
   const [key, setKey] = useState(newKey());
   const create = useMutation({
-    mutationFn: () => post<any>("/api/purchase-requests", { ...f, needDate: f.needDate || undefined }, { "Idempotency-Key": key }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["prs"] }); setF({ itemId: "", qty: "", needDate: "", note: "" }); setKey(newKey()); },
+    mutationFn: () => post<any>("/api/purchase-requests", { ...f, needDate: f.needDate || undefined, projectId: f.projectId || undefined, costCenter: f.costCenter || undefined }, { "Idempotency-Key": key }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["prs"] }); setF({ itemId: "", qty: "", needDate: "", note: "", projectId: "", costCenter: "" }); setKey(newKey()); },
   });
   return (
     <section className="card">
@@ -77,11 +80,23 @@ function NewRequest() {
         <label className="field">Kalem<select aria-label="Talep kalemi" required value={f.itemId} onChange={(e) => setF({ ...f, itemId: e.target.value })}><option value="">Seçin</option>{items.data?.map((i) => <option key={i.id} value={i.id}>{i.code} — {i.name}</option>)}</select></label>
         <label className="field" style={{ width: 110 }}>Miktar<input aria-label="Talep miktarı" required inputMode="decimal" value={f.qty} onChange={(e) => setF({ ...f, qty: e.target.value })} /></label>
         <label className="field">İhtiyaç tarihi<input type="date" value={f.needDate} onChange={(e) => setF({ ...f, needDate: e.target.value })} /></label>
+        {can("rd.project.view") ? (
+          <label className="field">Ar-Ge projesi (opsiyonel)<select aria-label="Proje" value={f.projectId} onChange={(e) => setF({ ...f, projectId: e.target.value })}><option value="">Yok</option>{projects.data?.map((p) => <option key={p.id} value={p.id}>{p.code} — {p.name}</option>)}</select></label>
+        ) : null}
+        <label className="field">Maliyet merkezi<input aria-label="Maliyet merkezi" placeholder={f.projectId ? "projeden alınır" : ""} value={f.costCenter} onChange={(e) => setF({ ...f, costCenter: e.target.value })} /></label>
         <label className="field" style={{ flex: 1 }}>Gerekçe<input aria-label="Talep gerekçesi" required minLength={3} value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></label>
         <button className="primary" style={{ alignSelf: "flex-end" }} disabled={create.isPending}>Talep aç</button>
       </form>
+      {f.projectId ? <div className="muted">Proje bağlıyken önce mevcut serbest stoktan karşılama değerlendirilir; yalnızca kalan miktar satın almaya aktarılır.</div> : null}
       <ErrorNotice error={create.error} />
-      {create.data ? <div className="notice">{create.data.code} açıldı · tahmini tutar: {create.data.estimatedAmount ? `${fmt(create.data.estimatedAmount)} ${create.data.currency}` : "bilinmiyor"} ({create.data.amountSource}). Kendi talebinizi onaylayamazsınız.</div> : null}
+      {create.data && create.data.covered ? (
+        <div className="notice">Talep edilen {fmt(create.data.requestedQty)} adedin tamamı mevcut stoktan karşılandı — satın alma talebi açılmadı.</div>
+      ) : create.data ? (
+        <div className="notice">
+          {create.data.code} açıldı{create.data.coveredQty && Number(create.data.coveredQty) > 0 ? ` (${fmt(create.data.coveredQty)} adet stoktan karşılandı, ${fmt(create.data.forwardedQty)} adet satın almaya yönlendirildi)` : ""}
+          · tahmini tutar: {create.data.estimatedAmount ? `${fmt(create.data.estimatedAmount)} ${create.data.currency}` : "bilinmiyor"} ({create.data.amountSource}). Kendi talebinizi onaylayamazsınız.
+        </div>
+      ) : null}
     </section>
   );
 }

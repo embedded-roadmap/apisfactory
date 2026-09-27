@@ -12,6 +12,9 @@ export const PERMISSIONS = [
   "bom.view",
   "bom.import",
   "bom.publish",
+  // Ar-Ge projeleri (R04) — malzeme talebi/muhasebe bağlantısı
+  "rd.project.manage",
+  "rd.project.view",
   // Depo ve kalite
   "inventory.view",
   "inventory.receive",
@@ -116,7 +119,7 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
       "product.view", "bom.view", "inventory.view", "sales.view", "purchase.view", "production.view", "shipment.view",
       "task.view", "audit.view", "export.run", "field.cost.view", "field.price.view", "change.view", "rma.view", "cost.manage", "report.view",
       "task.manage", "org.manage", "team.report.view", "workflow.manage", "delegation.manage", "purchase.request.approve", "purchase.order.manage", "invoice.view", "invoice.approve", "receivable.view", "credit.override",
-      "report.suggestion.decide", "subscription.view", "subscription.manage",
+      "report.suggestion.decide", "subscription.view", "subscription.manage", "rd.project.manage", "rd.project.view",
     ],
   },
   rd: {
@@ -125,6 +128,7 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
       "product.view", "product.create", "product.approve.rd", "bom.view", "bom.import", "bom.publish",
       "inventory.view", "purchase.view", "task.view", "field.cost.view",
       "quality.plan.manage", "change.view", "change.create", "change.decide", "rma.view", "task.manage", "purchase.request.create",
+      "rd.project.manage", "rd.project.view",
     ],
   },
   production: {
@@ -154,7 +158,7 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
   },
   accounting: {
     name: { tr: "Muhasebe", en: "Accounting" },
-    permissions: ["product.view", "sales.view", "purchase.view", "task.view", "export.run", "field.cost.view", "field.price.view", "rma.view", "cost.manage", "lot.cost.record", "report.view", "invoice.view", "invoice.manage", "invoice.approve", "payment.record", "receivable.view", "receivable.manage", "credit.override", "subscription.view", "subscription.manage"],
+    permissions: ["product.view", "sales.view", "purchase.view", "task.view", "export.run", "field.cost.view", "field.price.view", "rma.view", "cost.manage", "lot.cost.record", "report.view", "invoice.view", "invoice.manage", "invoice.approve", "payment.record", "receivable.view", "receivable.manage", "credit.override", "subscription.view", "subscription.manage", "rd.project.view"],
   },
   // Fason üretici / dış kullanıcı: yalnız kendisine atanmış işi görür; izin listesi kasten boştur —
   // erişim genel izinlerle değil, subcontract_jobs.subcontractor_user_id eşleşmesiyle denetlenir (prompt §19).

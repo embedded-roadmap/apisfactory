@@ -46,7 +46,7 @@ async function orderLines(db: Db, orderId: string): Promise<LineRow[]> {
 }
 
 /** Kalemin kullanılabilir (ayrılmamış) miktarı: kullanılabilir konum bakiyesi − aktif rezervasyon. */
-async function freeQty(db: Db, itemId: string): Promise<bigint> {
+export async function freeQty(db: Db, itemId: string): Promise<bigint> {
   const r = await db.query(
     `select coalesce((select sum(b.qty) from stock_balances b join locations loc on loc.id = b.location_id
                        where b.item_id = $1 and loc.type = any($2)), 0) as usable,
