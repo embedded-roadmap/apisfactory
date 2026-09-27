@@ -5,6 +5,7 @@ import { runEscalations } from "../lib/workflow";
 import { runPoFollowups } from "../modules/procurement";
 import { runCollectionReminders } from "../modules/collections";
 import { runSupplyRiskScan } from "../modules/supply-risk";
+import { pushMeeting, runCalendarPull } from "../modules/calendar";
 
 /**
  * Çıkış kutusu işleyicisi (test bağlayıcısı). Bu fazda dış sisteme hiçbir şey gönderilmez;
@@ -19,7 +20,13 @@ async function tick(client: pg.Client) {
   );
   for (const job of r.rows) {
     try {
-      console.log(`[outbox:test] ${job.topic}`, job.payload);
+      if (job.topic === "calendar.push") {
+        // Gerçek dış çağrı (takvim sağlayıcısı): bağlantı yoksa atlanır; hata olursa aşağıdaki geri çekilmeyle yeniden denenir.
+        const res = await pushMeeting(job.company_id, job.payload.meetingId);
+        console.log(`[calendar] ${job.payload.meetingId}: ${res.status}${res.reason ? ` (${res.reason})` : ""}`);
+      } else {
+        console.log(`[outbox:test] ${job.topic}`, job.payload);
+      }
       await client.query(`update outbox set status = 'done', attempts = attempts + 1 where id = $1`, [job.id]);
     } catch (e) {
       await client.query(
@@ -59,6 +66,17 @@ async function escalate(c: pg.Client) {
     } catch (e) {
       await c.query("rollback");
       console.error("[workflow] yükseltme hatası", (e as Error).message);
+    }
+    // Takvim → uygulama artımlı senkronu (dış çağrılar şirket işleminin dışında, kendi işlemleriyle).
+    await c.query("begin");
+    try {
+      await c.query(`select set_config('app.company_id', $1, true)`, [co.id]);
+      const cal = await runCalendarPull(c as unknown as Db, co.id);
+      await c.query("commit");
+      if (cal) console.log(`[calendar] ${co.id}: ${cal} toplantı takvimden güncellendi`);
+    } catch (e) {
+      await c.query("rollback");
+      console.error("[calendar] senkron hatası", (e as Error).message);
     }
   }
 }

@@ -505,6 +505,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
           if (u !== actor.userId) await enqueue(db, actor.companyId, "notification.meeting_invite", { meetingId: id, userId: u, code, title: input.title, startsAt: input.startsAt });
         }
         await recordEvent(db, actor, { entityType: "meeting", entityId: id, eventType: "created", after: { code, ...input } });
+        await enqueue(db, actor.companyId, "calendar.push", { meetingId: id });
         return loadMeeting(db, id);
       }),
     );
@@ -559,6 +560,9 @@ export async function collaborationRoutes(app: FastifyInstance) {
         [id, input.title ?? null, input.startsAt ?? null, input.durationMinutes ?? null, input.location !== undefined, input.location ?? null, input.agenda !== undefined, input.agenda ?? null, input.notes !== undefined, input.notes ?? null],
       );
       if (input.startsAt) await recordEvent(db, actor, { entityType: "meeting", entityId: id, eventType: "rescheduled", after: { startsAt: input.startsAt } });
+      if (input.title || input.startsAt || input.durationMinutes || input.location !== undefined || input.agenda !== undefined) {
+        await enqueue(db, actor.companyId, "calendar.push", { meetingId: id });
+      }
       return loadMeeting(db, id);
     });
   });
@@ -581,6 +585,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
         );
         if (r.rows[0].inserted) await enqueue(db, actor.companyId, "notification.meeting_invite", { meetingId: id, userId: input.userId });
       }
+      if (input.action === "remove" || !input.attendance) await enqueue(db, actor.companyId, "calendar.push", { meetingId: id });
       return loadMeeting(db, id);
     });
   });
@@ -658,6 +663,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
       await db.query(`update meetings set status = 'cancelled', cancel_reason = $2 where id = $1`, [id, input.reason]);
       const parts = (await db.query(`select user_id from meeting_participants where meeting_id = $1 and user_id <> $2`, [id, actor.userId])).rows;
       for (const p of parts) await enqueue(db, actor.companyId, "notification.meeting_cancelled", { meetingId: id, userId: p.user_id });
+      await enqueue(db, actor.companyId, "calendar.push", { meetingId: id });
       await recordEvent(db, actor, { entityType: "meeting", entityId: id, eventType: "cancelled", reason: input.reason });
       return loadMeeting(db, id);
     });

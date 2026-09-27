@@ -178,7 +178,16 @@ DigiKey + Mouser) başlamak, gerçek veri akışını doğruladıktan sonra diğ
 
 **Şu an kod tarafında hazır olan:** Toplantı akışı (gündem, katılım, tutanak, karar/aksiyon→görev,
 değişmez kapanış) ve statik `.ics` daveti (RFC 5545, katılımcı kendi takvimine elle içe aktarır) tamamen
-çalışıyor. Gerçek görüşme/kayıt/transkript ve **canlı** (iki yönlü, otomatik) takvim senkronu yok.
+çalışıyor. Gerçek görüşme/kayıt/transkript yok.
+
+**Oturum 41'de eklenen — iki yönlü canlı senkron (kod tamam, OAuth uygulama kaydı bekliyor):**
+`lib/calendar-providers.ts` (Google Calendar API v3 + Microsoft Graph v1.0: yetkilendirme adresi, kod→token,
+yenileme, etkinlik oluştur/güncelle/iptal, artımlı çekme — Google `syncToken` (410'da tam senkron), Graph
+`calendarView/delta` (sayfalı, `@removed`, UTC)), `modules/calendar.ts` (imzalı `state` ile OAuth geri çağrısı,
+kullanıcı başına şifreli token, düzenleyenin takvimine yazma, bağlı etkinlik değişikliklerini planlı toplantıya
+uygulama), migration 052 (`calendar_connections`, `calendar_event_links`), outbox işçisi (`calendar.push` gerçek iş +
+dakikalık çekme), web'de "Takvim bağlantım" kartı ve toplantıda "Takvime gönder". `calendar.test.ts` 15/15 sahte
+HTTP ile. **Gerçek hesapla doğrulama OAuth uygulama kaydını bekliyor.**
 
 **Sizden/platform işletmecisinden (siz) karar gerekenler:**
 1. Google Cloud Console'da bir OAuth uygulaması kaydı (Calendar API kapsamıyla) — bu platform işletmecisi
@@ -189,9 +198,12 @@ değişmez kapanış) ve statik `.ics` daveti (RFC 5545, katılımcı kendi takv
 3. Onay ekranı (consent screen) metni/logosu — Google/Microsoft kullanıcılara "bu uygulama takviminize
    erişmek istiyor" onay ekranını gösterir, marka/metin sizin belirlemeniz gereken bir detay.
 
-**Bağlanacağı yer:** `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI`
-(Google için); `MS_OAUTH_CLIENT_ID`, `MS_OAUTH_CLIENT_SECRET`, `MS_OAUTH_TENANT` (Microsoft için) — önerilen adlar, henüz
-tanımlı değil.
+**Bağlanacağı yer (tanımlı):** `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` (Google);
+`MS_OAUTH_CLIENT_ID`, `MS_OAUTH_CLIENT_SECRET`, isteğe bağlı `MS_OAUTH_TENANT` (Microsoft, boşsa `common`);
+`OAUTH_REDIRECT_BASE` (API'nin dışarıdan erişilen adresi). Sağlayıcıya kaydedilecek yönlendirme adresi:
+`{OAUTH_REDIRECT_BASE}/api/calendar/oauth/callback/google` ve `.../microsoft`. Google kapsamı: `openid email
+https://www.googleapis.com/auth/calendar.events`; Microsoft izinleri: `offline_access openid email User.Read
+Calendars.ReadWrite` (delegated). Kullanıcı token'ları platform değişkeni değil, kullanıcı başına şifreli DB kaydıdır.
 
 **Kabul kriteri:** bir kullanıcının kendi Google/Microsoft hesabına OAuth ile bağlanıp gerçek bir
 toplantının iki yönlü (uygulama→takvim ve takvim→uygulama) senkronize olması; artımlı (delta) senkron —

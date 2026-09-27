@@ -29,8 +29,9 @@ export function MeetingsPage() {
   });
   return (
     <>
-      <PageHeader title="Görev & Plan" sub="Toplantı kararları kayıt altında kalır; aksiyonlar tutanak kapanınca sorumlusuna bitiş tarihli görev olarak açılır. Dış takvim/toplantı bağlantısı yok; davetler test modunda bildirim kuyruğuna yazılır." />
+      <PageHeader title="Görev & Plan" sub="Toplantı kararları kayıt altında kalır; aksiyonlar tutanak kapanınca sorumlusuna bitiş tarihli görev olarak açılır. Google veya Microsoft takviminizi bağlarsanız düzenlediğiniz toplantılar takviminize yazılır ve takvimdeki saat değişiklikleri buraya yansır." />
       <Tabs />
+      <CalendarConnections />
       <section className="card">
         <div className="row between">
           <div className="row">
@@ -83,7 +84,64 @@ export function MeetingsPage() {
   );
 }
 
-/** Takvim daveti indir (.ics) — gerçek dış takvim bağlayıcısı yok; standart dosya, katılımcı kendi takvimine elle içe aktarır. */
+const PROVIDER_LABEL: Record<string, string> = { google: "Google Takvim", microsoft: "Microsoft 365 / Outlook" };
+const CAL_RESULT: Record<string, [string, string]> = {
+  connected: ["ok", "Takvim bağlandı."],
+  denied: ["warn", "Takvim erişimine izin verilmedi; bağlantı açılmadı."],
+  error: ["bad", "Takvim bağlanamadı (süre doldu veya sağlayıcı hata verdi). Tekrar deneyin."],
+};
+
+/**
+ * Madde 5 — kişisel takvim bağlantısı (OAuth). "Bağla" sağlayıcının onay ekranına gider; dönüşte ?calendar=... ile
+ * sonuç gösterilir. Token sunucuda şifreli saklanır; bu ekran yalnız durumu gösterir.
+ */
+function CalendarConnections() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["calendarStatus"], queryFn: () => get<any>("/api/calendar/status") });
+  const result = new URLSearchParams(window.location.search).get("calendar");
+  const connect = useMutation({ mutationFn: (p: string) => post<{ authorizeUrl: string }>(`/api/calendar/connect/${p}`), onSuccess: (r) => { window.location.href = r.authorizeUrl; } });
+  const disconnect = useMutation({ mutationFn: (p: string) => post(`/api/calendar/disconnect/${p}`), onSuccess: () => qc.invalidateQueries({ queryKey: ["calendarStatus"] }) });
+  const sync = useMutation({ mutationFn: () => post<{ applied: number; seen: number }>("/api/calendar/sync"), onSuccess: () => { qc.invalidateQueries({ queryKey: ["calendarStatus"] }); qc.invalidateQueries({ queryKey: ["meetings"] }); } });
+  const d = q.data;
+  if (!d) return q.isLoading ? null : <ErrorNotice error={q.error} />;
+  const anyConfigured = Object.values(d.providers).some((p: any) => p.configured);
+  const active = d.connections.filter((c: any) => c.status === "active");
+  return (
+    <section className="card">
+      <div className="row between">
+        <h2 style={{ margin: 0 }}>Takvim bağlantım</h2>
+        {active.length ? <button disabled={sync.isPending} onClick={() => sync.mutate()}>{sync.isPending ? "Senkronlanıyor…" : "Şimdi senkronla"}</button> : null}
+      </div>
+      {result && CAL_RESULT[result] ? <div className={`notice ${CAL_RESULT[result]![0]}`}>{CAL_RESULT[result]![1]}</div> : null}
+      {!anyConfigured ? <p className="muted" style={{ margin: 0 }}>Takvim senkronu henüz etkin değil: platform işletmecisi Google/Microsoft OAuth uygulamasını yapılandırmadı. O zamana kadar toplantı sayfasından .ics daveti indirilebilir.</p> : null}
+      <table>
+        <tbody>{(["google", "microsoft"] as const).map((p) => {
+          const c = d.connections.find((x: any) => x.provider === p);
+          const on = c?.status === "active";
+          return (
+            <tr key={p}>
+              <td><b>{PROVIDER_LABEL[p]}</b>{c?.accountEmail ? <div className="muted" style={{ fontSize: 13 }}>{c.accountEmail}</div> : null}</td>
+              <td>
+                {on ? <span className="badge ok">bağlı</span> : c?.status === "error" ? <span className="badge bad">yeniden bağlanın</span> : <span className="muted">bağlı değil</span>}
+                {c?.lastSyncedAt ? <div className="muted" style={{ fontSize: 13 }}>son senkron {fmtDate(c.lastSyncedAt)}</div> : null}
+                {c?.lastError ? <div className="muted" style={{ fontSize: 13 }}>{c.lastError}</div> : null}
+              </td>
+              <td>
+                {!d.providers[p].configured ? <span className="muted">yapılandırılmadı</span>
+                  : on ? <button disabled={disconnect.isPending} onClick={() => disconnect.mutate(p)}>Bağlantıyı kes</button>
+                  : <button className="primary" disabled={connect.isPending} onClick={() => connect.mutate(p)}>{c ? "Yeniden bağla" : "Bağla"}</button>}
+              </td>
+            </tr>
+          );
+        })}</tbody>
+      </table>
+      {sync.data ? <p className="muted" style={{ margin: 0 }}>{sync.data.seen} takvim değişikliği incelendi, {sync.data.applied} toplantı güncellendi.</p> : null}
+      <ErrorNotice error={connect.error ?? disconnect.error ?? sync.error} />
+    </section>
+  );
+}
+
+/** Takvim daveti indir (.ics) — bağlı takvimi olmayan katılımcılar için standart dosya; kendi takvimine elle içe aktarır. */
 async function downloadIcs(id: string, code: string) {
   const { session, companyId } = auth.get();
   const res = await fetch(`/api/meetings/${id}/ics`, { headers: { authorization: `Bearer ${session?.token}`, "x-company-id": companyId ?? "" } });
@@ -107,6 +165,7 @@ export function MeetingPage() {
   const [item, setItem] = useState({ kind: "decision", text: "", ownerUserId: "", dueDate: "" });
   const [addUser, setAddUser] = useState("");
   const [cancel, setCancel] = useState("");
+  const [pushResult, setPushResult] = useState<{ status: string; reason?: string } | null>(null);
   const m = q.data;
   useEffect(() => { if (m && notes === null) setNotes(m.notes ?? ""); }, [m, notes]);
   if (!m) return q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />;
@@ -117,9 +176,19 @@ export function MeetingPage() {
       <PageHeader
         title={`${m.code} — ${m.title}`}
         sub={<>{fmtDate(m.startsAt)} · {m.durationMinutes} dk{m.location ? ` · ${m.location}` : ""} · düzenleyen {m.organizerName}{m.entityLink ? <> · bağlı kayıt <Link to={m.entityLink}>{m.entityLabel}</Link></> : null} · <Link to="/planning/meetings">← Toplantılar</Link></>}
-        actions={<><button className="ghost" onClick={() => downloadIcs(id!, m.code)}>Takvime ekle (.ics)</button> <span className={`badge ${STATUS[m.status]![1]}`}>{STATUS[m.status]![0]}</span></>}
+        actions={<>
+          {m.organizerId === me?.user.id || can("task.manage") ? <button className="ghost" disabled={act.isPending} onClick={() => act.mutate(() => post(`/api/meetings/${id}/calendar-push`).then((r: any) => setPushResult(r)))}>Takvime gönder</button> : null}
+          <button className="ghost" onClick={() => downloadIcs(id!, m.code)}>Takvime ekle (.ics)</button> <span className={`badge ${STATUS[m.status]![1]}`}>{STATUS[m.status]![0]}</span>
+        </>}
       />
       <ErrorNotice error={act.error} />
+      {pushResult ? (
+        <div className={`notice ${pushResult.status === "skipped" ? "warn" : "ok"}`}>
+          {pushResult.status === "skipped"
+            ? pushResult.reason === "no_connection" ? "Düzenleyenin bağlı takvimi yok — Toplantılar sayfasından takvim bağlayın." : "Bu toplantı takvime gönderilmedi (kapanmış/iptal)."
+            : `Takvim güncellendi (${pushResult.status === "created" ? "etkinlik oluşturuldu" : pushResult.status === "updated" ? "etkinlik güncellendi" : "etkinlik iptal edildi"}); davetleri takvim sağlayıcısı gönderir.`}
+        </div>
+      ) : null}
       {m.status === "cancelled" ? <div className="notice">İptal edildi: {m.cancelReason}</div> : null}
       {m.status === "closed" ? <div className="notice">Tutanak {m.closedBy} tarafından {fmtDate(m.closedAt)} kapatıldı; değiştirilemez.</div> : null}
       <div className="grid2" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 16 }}>

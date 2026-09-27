@@ -14,7 +14,7 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | §20 Görev/Gantt/organizasyon | **otomatik testleri geçti** | `planning.ts`, baz plan, sürükle-bırak Gantt; kaynak kapasitesi/vardiya **geliştirilmedi**. |
 | §20 Mesaj/kanal/dosya (foto/PDF/video) | **otomatik testleri geçti** | `collaboration.ts`; küçük dosyalar hâlâ bytea (`content`), video artık nesne depolamada (`object_key`). Gerçek MP4/WebM ile uçtan uca doğrulandı (bkz. aşağıda). |
 | §20 Toplantı sesli/görüntülü/kayıt/transkript | **geliştirilmedi** | Yalnızca statik .ics daveti var (oturum 31); gerçek görüşme/kayıt/transkript dış sağlayıcı gerektirir. |
-| §20/W28 Takvim canlı senkron | **dış bağımlılık bekliyor** | OAuth uygulaması (Google/Microsoft) platform işletmecisi tarafından kaydedilmeli — bkz. dışarıdan beklenenler tablosu. |
+| §20/W28 Takvim canlı senkron | **uygulandı, otomatik testleri geçti (sahte HTTP); OAuth uygulama kaydı bekliyor** | Oturum 41: Google Calendar + Microsoft Graph, kullanıcı başına şifreli OAuth bağlantısı, uygulama→takvim (outbox) ve takvim→uygulama artımlı senkron (syncToken / delta). Gerçek hesapla doğrulama için platform işletmecisi OAuth uygulamasını kaydetmeli — bkz. "Oturum 41 devamı — madde 5". |
 | §23/W30 Yönetici raporu + stratejik AI | **otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | `report-findings.ts` + `reports.ts`: 8 alan (fire/rework, kârlılık, tedarikçi, stok, kapasite/termin, revizyon etkisi, proje bütçesi, tahsilat) kural tabanlı hesaplanır; `report_findings.cause_type` CHECK kısıtı 'confirmed' değerini asla kabul etmez. `reports.test.ts` 13 test; web'de `/reports/executive` gerçek tarayıcı + yerel Postgres dev veritabanında uçtan uca çalıştırıldı (bkz. oturum 38). **AI (LLM) yorum katmanı oturum 41'de uygulandı (Anthropic Claude, otomatik testleri geçti — sahte istemciyle); gerçek anahtarla canlı doğrulama bekliyor**; anahtar yokken `ai_status='unavailable'` dürüstçe işaretleniyor. |
 | W31 Öneri→görev→etki | **otomatik testleri geçti** | Öneri→inceleme→onay/red/erteleme→görev→ölçüm→bağımsız doğrulama→kapatma/yeniden açma akışının tamamı `reports.test.ts` içinde uçtan uca test edildi (aynı bulgudan ikinci öneri açılmaması, ölçen kişinin kendi ölçümünü doğrulayamaması dahil). Canlı pilot verisiyle henüz denenmedi. |
 | W33 MSL/kurutma altyapısı | **otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | Oturum 22: MSL, kullanım süresi, raf ömrü, lot SKT, paket açılışı (`storage.ts`, 5 test). Oturum 39: sürümlü kurutma (bake-out) reçetesi + gerçek çevrim kaydı eklendi (bkz. aşağıda) — JEDEC J-STD-033 tablosu hâlâ **sabit kodlanmadı** (bilinçli tasarım kararı, aşağıda gerekçesi var), şirketin kendi tanımladığı kaynağa dayalı reçete var. |
@@ -38,8 +38,8 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 |---|---|---|---|
 | E-fatura özel entegratörü (Uyumsoft/Foriba/Logo/Paraşüt/Nesbilgi/GİB Portalı) | API kullanıcı/parola veya sertifika (sağlayıcıya göre değişir) — **her şirketin kendi sözleşmesi** | Şirket başına: e-belge bağlayıcıları ekranında şifreli kayıt (`einvoice_connectors.credentials_enc`). Platform düzeyinde yalnız şifreleme anahtarı: `CONNECTOR_SECRET_KEY` (sunucu tarafı secret store) | Sağlayıcı seçimi → adaptör geliştirme → sağlayıcı test ortamında gerçek e-fatura gönderimi ve gerçek ETTN |
 | Kargo firması (her şirketin kendi anlaşmalısı) | API anahtarı/müşteri kodu (firmaya göre değişir — adaptör tanımlar) | Şirket başına: kargo bağlayıcıları ekranında şifreli kayıt (`cargo_connectors.credentials_enc`); platform düzeyinde yalnız `CONNECTOR_SECRET_KEY` | Firma seçimi → adaptör → firmanın test ortamında gerçek etiket/takip |
-| Google Calendar OAuth | Google Cloud Console'da uygulama kaydı (client id/secret) — platform işletmecisi (Zahid) tarafından oluşturulur | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI` | OAuth akışı ve artımlı senkron |
-| Microsoft 365/Outlook OAuth | Azure AD uygulama kaydı | `MS_OAUTH_CLIENT_ID`, `MS_OAUTH_CLIENT_SECRET`, `MS_OAUTH_TENANT` | OAuth akışı ve delta sorgu |
+| Google Calendar OAuth | Google Cloud Console'da uygulama kaydı (client id/secret) — platform işletmecisi tarafından; kod hazır (oturum 41) | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `OAUTH_REDIRECT_BASE` | Gerçek hesapla OAuth akışı ve artımlı senkron |
+| Microsoft 365/Outlook OAuth | Microsoft Entra ID uygulama kaydı; kod hazır (oturum 41) | `MS_OAUTH_CLIENT_ID`, `MS_OAUTH_CLIENT_SECRET`, `MS_OAUTH_TENANT`, `OAUTH_REDIRECT_BASE` | Gerçek hesapla OAuth akışı ve delta sorgu |
 | Distribütör API'leri (DigiKey/Mouser/Farnell/Nexar/LCSC) | Her şirketin kendi geliştirici hesabı + ticari kullanım şartı onayı | Şirket başına: Distribütörler ekranında şifreli kayıt (`distributor_connectors.credentials_enc`); platform düzeyinde yalnız `CONNECTOR_SECRET_KEY` | İlk distribütör seçimi → adaptör → gerçek MPN sorgusu (stok/fiyat/temin) |
 | Ödeme sağlayıcısı (W42, ileride — abonelik ücreti tahsilatı) | Henüz seçilmedi | — | Seçim sonrası; şu an ödeme kaydı yalnızca dışarıda yapılan bir ödemenin elle girilen notudur (`POST /api/subscription/payments`), gerçek tahsilat/fatura yok |
 | AI/LLM sağlayıcısı (W30 yorum katmanı) | **Anthropic Claude seçildi** (oturum 41); kod hazır — yalnız API anahtarı bekleniyor | `ANTHROPIC_API_KEY` (+ isteğe bağlı `AI_MODEL`, varsayılan `claude-opus-5`) — yerelde `apps/api/.env`, sunucuda secret store | Gerçek anahtarla canlı yorum üretimi ve `ai_status='generated'` doğrulaması |
@@ -167,6 +167,41 @@ erişim bilgisi formu doğrulandı. Gerçek distribütöre karşı doğrulama DE
 
 **Kalan (dış bağımlılık):** ilk distribütör seçimi + geliştirici hesabı → adaptör → gerçek MPN sorgusu. Not: hata
 veren çağrılar yerel kotadan düşülmüyor (distribütör tarafında yine de sayılabilir).
+
+## Oturum 41 devamı — madde 5: takvim canlı senkronu (Google Calendar / Microsoft 365)
+
+**Mimari:** OAuth istemcisi platform düzeyinde (ortam değişkenleri); her kullanıcı kendi hesabını yetkilendirir,
+token'ı `calendar_connections.token_enc`'te şifreli (şirket çıkış paketi `*_enc`'i zaten dışlar). Toplantı,
+DÜZENLEYENİN bağlı takvimine etkinlik olarak yazılır ve katılımcılar etkinliğe davetli eklenir — davet e-postalarını
+sağlayıcı gönderir (her katılımcının ayrıca bağlanması gerekmez). Eşleme `calendar_event_links` (toplantı ↔ etkinlik).
+
+**Akışlar:**
+- Bağlanma: `POST /api/calendar/connect/:provider` → imzalı (10 dk, HS256, sağlayıcıya bağlı) `state` ile yetkilendirme
+  adresi; `GET /api/calendar/oauth/callback/:provider` (herkese açık; kimlik state'ten) kodu token'a çevirir, hesap
+  e-postasını alır (Google id_token / Graph `/me`), web'e `?calendar=connected|denied|error` ile döner. Bozuk/başka
+  sağlayıcıya ait state reddedilir.
+- Uygulama → takvim: toplantı oluşturma/güncelleme/katılımcı/iptal `calendar.push` outbox işi bırakır; işçi
+  `pushMeeting` ile oluşturur (POST), günceller (PATCH), iptal eder (Google DELETE `sendUpdates=all`, Graph
+  `/cancel` yorumlu). Bağlantı yoksa atlanır. Elle: `POST /api/meetings/:id/calendar-push`.
+- Takvim → uygulama: işçinin dakikalık döngüsü ve `POST /api/calendar/sync`; Google `syncToken` (410 → tam senkron),
+  Graph `calendarView/delta` (sayfalı, `@removed`, `Prefer: outlook.timezone="UTC"`). Yalnız bağlı etkinlikler; planlı
+  toplantıda saat/süre/başlık değişikliği uygulanır (olay kaydı `source: calendar`), silinen etkinlik toplantıyı
+  "Takvimden iptal edildi (sağlayıcı)" gerekçesiyle iptal eder. Kapanmış toplantı değişmez. Kendi yaptığımız
+  değişiklik geri geldiğinde değerler aynı olduğu için no-op (döngü yok).
+- Token: süresi dolmadan 60 sn önce yenilenir, yenisi şifreli saklanır; `invalid_grant`/401 → bağlantı `error`,
+  kullanıcıya "yeniden bağlayın". Sağlayıcı hata gövdesi (token/e-posta içerebilir) hata mesajına konmaz.
+
+**Doğrulama:** `calendar.test.ts` 15/15 — sahte HTTP ile giden isteklerin uç nokta/yöntem/gövde/yetki başlığı ve
+yanıt işlenişi (yapılandırılmamış → 503, yetkilendirme adresi, state güvenliği, token değişimi ve şifreli saklama,
+kişisel görünürlük, oluştur/PATCH/atla, artımlı senkron + 410, token yenileme, takvimden iptal, invalid_grant, Graph
+delta sayfalama/`@removed`/UTC, iptal bildirimi, bağlantı kesme, RLS). Mevcut `collaboration.test.ts` değişmeden geçti.
+Gerçek tarayıcıda (yerel): "Takvim bağlantım" kartı, yapılandırılmamış durum ve dönüş bildirimi doğrulandı.
+**Gerçek Google/Microsoft hesabıyla doğrulanmadı** — OAuth uygulama kaydı gerekiyor. Uç noktalar belgelenmiş API'lere
+göre yazıldı; ilk gerçek bağlantıda küçük uyarlamalar gerekebilir.
+
+**Bilinen sınırlar:** yalnız düzenleyenin takvimine yazılır (katılımcının kendi bağlantısına ayrı etkinlik açılmaz —
+sağlayıcı daveti yeterli); takvimden eklenen katılımcılar uygulamaya yansımaz; toplantı süresi 5–600 dk dışına
+çıkan takvim değişikliği uygulanmaz. Gerçek görüşme/kayıt/transkript hâlâ yok (ayrı dış bağımlılık).
 
 ## Oturum 40 — R46: yedek, geri yükleme ve kesintide talimat erişimi
 
