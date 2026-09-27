@@ -55,6 +55,12 @@ export function ErrorNotice({ error }: { error: unknown }) {
           {(e.details as any).escalateToRoles.length ? `Onay yetkisi olan rol: ${(e.details as any).escalateToRoles.join(", ")} — onları bekleyen görev açıldı.` : ""}
         </div>
       ) : null}
+      {e.details && typeof e.details === "object" && (e.details as any).fieldErrors ? (
+        <ul>
+          {Object.entries((e.details as any).fieldErrors as Record<string, string[]>).flatMap(([f, msgs]) => msgs.map((m) => <li key={f + m}><span className="mono">{f}</span>: {m}</li>))}
+          {(((e.details as any).formErrors as string[] | undefined) ?? []).map((m) => <li key={m}>{m}</li>)}
+        </ul>
+      ) : null}
     </div>
   );
 }

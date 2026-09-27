@@ -29,6 +29,9 @@ import { tenant } from "../http/context";
  *   taşınması gerekir; bu GELİŞTİRİLMEDİ (bilinçli kapsam sınırlaması, bkz. devam-notu.md).
  */
 
+/** Şifreli erişim bilgisi sütunları (ör. einvoice_connectors.credentials_enc) — anahtar pakette olmasa da dışarı çıkarılmaz. */
+const SECRET_COL = /_enc$/;
+
 const FILE_TABLES: Record<string, { nameCol: string; contentCol: string; objectKeyCol: string }> = {
   message_attachments: { nameCol: "file_name", contentCol: "content", objectKeyCol: "object_key" },
   subcontract_job_files: { nameCol: "file_name", contentCol: "content", objectKeyCol: "object_key" },
@@ -75,14 +78,16 @@ export async function companyExportRoutes(app: FastifyInstance) {
         );
         const cols = colsRes.rows as { column_name: string; data_type: string; is_nullable: string }[];
         const byteaCols = new Set(cols.filter((c) => c.data_type === "bytea").map((c) => c.column_name));
-        const selectCols = cols.filter((c) => !byteaCols.has(c.column_name)).map((c) => `"${c.column_name}"`);
+        const selectCols = cols.filter((c) => !byteaCols.has(c.column_name) && !SECRET_COL.test(c.column_name)).map((c) => `"${c.column_name}"`);
         dictionary.push({
           table,
           columns: cols.map((c) => ({
             name: c.column_name,
             type: c.data_type,
             nullable: c.is_nullable === "YES",
-            not: byteaCols.has(c.column_name) ? "ikili içerik — bkz. dosyalar/ klasörü" : undefined,
+            not: SECRET_COL.test(c.column_name)
+              ? "şifreli bağlayıcı erişim bilgisi — güvenlik nedeniyle DIŞLANDI"
+              : byteaCols.has(c.column_name) ? "ikili içerik — bkz. dosyalar/ klasörü" : undefined,
           })),
         });
 
@@ -141,7 +146,7 @@ export async function companyExportRoutes(app: FastifyInstance) {
         totalRows,
         totalFiles,
         excludedNote:
-          "Parola özeti (users.password_hash) ve istasyon belirteç özeti (test_station_tokens.token_hash) güvenlik nedeniyle bu pakete DAHİL EDİLMEDİ. Erişilemeyen tablolar 'tables' listesinde 'hata' alanıyla işaretlidir.",
+          "Parola özeti (users.password_hash), istasyon belirteç özeti (test_station_tokens.token_hash) ve şifreli bağlayıcı erişim bilgileri (*_enc sütunları) güvenlik nedeniyle bu pakete DAHİL EDİLMEDİ. Erişilemeyen tablolar 'tables' listesinde 'hata' alanıyla işaretlidir.",
       };
       archive.append(JSON.stringify(manifest, null, 2), { name: "manifest.json" });
       archive.append(JSON.stringify(dictionary, null, 2), { name: "veri-sozlugu.json" });

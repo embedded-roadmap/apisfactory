@@ -1,6 +1,6 @@
 # Devam notu
 
-Son güncelleme: 27.09.2026 — oturum 40 devamı (kullanıcının "Hangi paketler kaldı" sorusuna verilen yanıt üzerine "tamam mantıklı olandan devam et" talimatı; kullanıcının 2026-09-26 "devam talimatları" belgesi, bkz. proje dokümanı `claude/devam-talimatlari-2026-09.md`; en son: **R46 — yedek, geri yükleme ve kesintide talimat erişimi** uygulandı, otomatik testleri geçti (backup-restore.test.ts dahil) ve gerçek dev sunucusunda doğrulandı (bkz. aşağıda); öncesinde R39 — hazır akışlarla hızlı şirket kurulumu uygulandı, otomatik testleri geçti ve gerçek dev sunucusunda doğrulandı; öncesinde R37 — tedarik riskinin sipariş ve termine etkisi uygulandı, otomatik testleri geçti ve gerçek dev sunucusunda doğrulandı; öncesinde R04 — Ar-Ge alımının proje ve muhasebeyle bağlantısı uygulandı, otomatik testleri geçti ve gerçek dev sunucusunda doğrulandı; öncesinde R21 — vadeli tahsilat/hatırlatma kuralı uygulandı, otomatik testleri geçti ve gerçek dev sunucusunda doğrulandı; öncesinde R44 — saha arızasının fiziksel iade akışından ayrılması uygulandı ve doğrulandı; öncesinde W42 — SaaS abonelik ve şirket yaşam döngüsü, kapsamı kullanıcı kararıyla daraltılmış olarak uygulandı; öncesinde W39 devamı — tarihsel üretim (iş emri) geçişi — **W39'un tüm sub-kalemleri tamamlanmıştı**. R47 (şirketin tam veri/dosya çıkış paketi) de bu oturumda beklemeden çıkarılıp commit edildi, otomatik testleri geçti ve tam paket 279/279 — bkz. aşağıda. Bu ikisiyle birlikte kalan tüm "planlandı" maddeler dış bağımlılık (sağlayıcı/entegratör seçimi ve erişimi) bekliyor; kullanıcı bunları sırayla ilerletmeyi istedi.)
+Son güncelleme: 27.09.2026 — oturum 41: dış bağımlılık maddelerinin sırayla ilerletilmesi başladı; **madde 1 (e-fatura) sağlayıcıdan bağımsız kısmı** uygulandı, otomatik testleri geçti ve yerel dev sunucusunda tarayıcıyla doğrulandı — gerçek entegratör adaptörü sağlayıcı seçimi bekliyor (bkz. "Oturum 41"). Önceki durum: oturum 40 devamı (kullanıcının "Hangi paketler kaldı" sorusuna verilen yanıt üzerine "tamam mantıklı olandan devam et" talimatı; kullanıcının 2026-09-26 "devam talimatları" belgesi, bkz. proje dokümanı `claude/devam-talimatlari-2026-09.md`; en son: **R46 — yedek, geri yükleme ve kesintide talimat erişimi** uygulandı, otomatik testleri geçti (backup-restore.test.ts dahil) ve gerçek dev sunucusunda doğrulandı (bkz. aşağıda); öncesinde R39 — hazır akışlarla hızlı şirket kurulumu uygulandı, otomatik testleri geçti ve gerçek dev sunucusunda doğrulandı; öncesinde R37 — tedarik riskinin sipariş ve termine etkisi uygulandı, otomatik testleri geçti ve gerçek dev sunucusunda doğrulandı; öncesinde R04 — Ar-Ge alımının proje ve muhasebeyle bağlantısı uygulandı, otomatik testleri geçti ve gerçek dev sunucusunda doğrulandı; öncesinde R21 — vadeli tahsilat/hatırlatma kuralı uygulandı, otomatik testleri geçti ve gerçek dev sunucusunda doğrulandı; öncesinde R44 — saha arızasının fiziksel iade akışından ayrılması uygulandı ve doğrulandı; öncesinde W42 — SaaS abonelik ve şirket yaşam döngüsü, kapsamı kullanıcı kararıyla daraltılmış olarak uygulandı; öncesinde W39 devamı — tarihsel üretim (iş emri) geçişi — **W39'un tüm sub-kalemleri tamamlanmıştı**. R47 (şirketin tam veri/dosya çıkış paketi) de bu oturumda beklemeden çıkarılıp commit edildi, otomatik testleri geçti ve tam paket 279/279 — bkz. aşağıda. Bu ikisiyle birlikte kalan tüm "planlandı" maddeler dış bağımlılık (sağlayıcı/entegratör seçimi ve erişimi) bekliyor; kullanıcı bunları sırayla ilerletmeyi istedi.)
 
 ## Kapsam eşleştirme ve durum matrisi (talimat §0/§12 — 2026-09-26)
 
@@ -18,7 +18,7 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | §23/W30 Yönetici raporu + stratejik AI | **otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | `report-findings.ts` + `reports.ts`: 8 alan (fire/rework, kârlılık, tedarikçi, stok, kapasite/termin, revizyon etkisi, proje bütçesi, tahsilat) kural tabanlı hesaplanır; `report_findings.cause_type` CHECK kısıtı 'confirmed' değerini asla kabul etmez. `reports.test.ts` 13 test; web'de `/reports/executive` gerçek tarayıcı + yerel Postgres dev veritabanında uçtan uca çalıştırıldı (bkz. oturum 38). **AI (LLM) yorum katmanı hâlâ geliştirilmedi** — sağlayıcı seçilip bağlanmadı (dış bağımlılık); `ai_status='unavailable'` dürüstçe işaretleniyor. |
 | W31 Öneri→görev→etki | **otomatik testleri geçti** | Öneri→inceleme→onay/red/erteleme→görev→ölçüm→bağımsız doğrulama→kapatma/yeniden açma akışının tamamı `reports.test.ts` içinde uçtan uca test edildi (aynı bulgudan ikinci öneri açılmaması, ölçen kişinin kendi ölçümünü doğrulayamaması dahil). Canlı pilot verisiyle henüz denenmedi. |
 | W33 MSL/kurutma altyapısı | **otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | Oturum 22: MSL, kullanım süresi, raf ömrü, lot SKT, paket açılışı (`storage.ts`, 5 test). Oturum 39: sürümlü kurutma (bake-out) reçetesi + gerçek çevrim kaydı eklendi (bkz. aşağıda) — JEDEC J-STD-033 tablosu hâlâ **sabit kodlanmadı** (bilinçli tasarım kararı, aşağıda gerekçesi var), şirketin kendi tanımladığı kaynağa dayalı reçete var. |
-| W36 E-belge/kargo bağlayıcı | **uygulandı (TEST modu), otomatik testleri geçti** | `receivables.ts`/`shipping.ts`, sağlayıcı seçilebilir tasarım var ama yalnız TEST modu; gerçek entegratör/kargo API'si **dış bağımlılık bekliyor**. |
+| W36 E-belge/kargo bağlayıcı | **uygulandı (TEST modu), otomatik testleri geçti; e-belge canlı altyapısı hazır, gerçek entegratör adaptörü dış bağımlılık bekliyor** | TEST çağrıları `dispatch.ts`'te. Oturum 41: sağlayıcıdan bağımsız e-belge ön koşulları eklendi — şirket/müşteri vergi kimliği (VKN/TCKN kontrol hanesi), şirket başına şifreli entegratör erişim bilgisi, hazırlık denetimi, adaptör kayıt defteri ve 'live' mod kapısı (adaptörü olmayan sağlayıcı canlıya alınamaz). **Hiçbir gerçek entegratör adaptörü yok** — sağlayıcı seçimi bekleniyor (bkz. aşağıda "Oturum 41"). Kargo tarafı değişmedi (madde 2). |
 | W03 API erişim matrisi | **geliştirilmedi** (matris dokümanı yok) | `distributors.ts` TEST/fiyat dosyası modlarını destekliyor (`distributors.test.ts` 5 test) ama resmî "her sağlayıcı için erişim matrisi" dokümanı hâlâ yok. |
 | W39 Tarihsel veri geçişi | **uygulandı, otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | BOM ve stok import sihirbazı vardı; oturum 39 devamında aynı desenle müşteri/tedarikçi ana veri içe aktarımı (upsert), tüm import türleri için kaynak-hedef uzlaşma göstergesi, açık satış siparişi tarihsel geçişi, açık tedarikçi borcu (AP) tarihsel geçişi, açık satın alma siparişi tarihsel geçişi, açık alacak (AR) tarihsel geçişi ve tarihsel üretim (iş emri) geçişi eklendi (bkz. aşağıda). **W39'un tüm sub-kalemleri artık tamamlandı.** |
 | W40 Uçtan uca/yük/dayanıklılık | **kısmen uygulandı, otomatik testleri geçti** | 26 test dosyasında iş kuralı/yetki/RLS testleri var (204/204) — bunlar fonksiyonel kabul testidir. Oturum 39 devamında `apps/api/scripts/loadtest.mjs` (autocannon, `pnpm --filter @apisfactory/api loadtest`) eklendi ve gerçek yerel API + Postgres'e karşı çalıştırıldı: 20 eşzamanlı bağlantı × 20 sn ile `GET /api/items` (ort. 427 istek/sn, ort. gecikme 46 ms, p99 89 ms), `GET /api/stock/balances` (ort. 388 istek/sn, ort. 51 ms, p99 80 ms), `GET /api/imports` (ort. 456 istek/sn, ort. 43 ms, p99 71 ms) — üçünde de 0 hata/0 zaman aşımı. **Bu, prompt'taki 100.000 komponent/1M kayıt/100 eşzamanlı kullanıcı hedefinin tam ölçekli bir testi değildir** (sandbox disk/süre bütçesi elvermiyor; demo veri seti küçük) — yalnızca gerçek ölçülmüş, düşük ölçekli bir taban çizgisi. Gerçek ölçekli yük testi ve dayanıklılık (uzun süreli/kesinti senaryoları) hâlâ **geliştirilmedi**. |
@@ -36,13 +36,61 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 
 | Sağlayıcı/konu | Gerekli erişim | Güvenli yapılandırma yeri | Bekleyen doğrulama |
 |---|---|---|---|
-| E-fatura özel entegratörü (Uyumsoft/Foriba/Logo/Paraşüt/Nesbilgi/GİB Portalı) | API kullanıcı/parola veya sertifika (sağlayıcıya göre değişir) | `EINVOICE_PROVIDER`, `EINVOICE_API_KEY`, `EINVOICE_API_SECRET` ortam değişkenleri (sunucu tarafı secret store) | Sağlayıcı test ortamında gerçek e-fatura gönderimi |
+| E-fatura özel entegratörü (Uyumsoft/Foriba/Logo/Paraşüt/Nesbilgi/GİB Portalı) | API kullanıcı/parola veya sertifika (sağlayıcıya göre değişir) — **her şirketin kendi sözleşmesi** | Şirket başına: e-belge bağlayıcıları ekranında şifreli kayıt (`einvoice_connectors.credentials_enc`). Platform düzeyinde yalnız şifreleme anahtarı: `CONNECTOR_SECRET_KEY` (sunucu tarafı secret store) | Sağlayıcı seçimi → adaptör geliştirme → sağlayıcı test ortamında gerçek e-fatura gönderimi ve gerçek ETTN |
 | Kargo firması (pilot şirketin mevcut anlaşmalısı) | API anahtarı/müşteri kodu | `CARGO_PROVIDER`, `CARGO_API_KEY` | Test ortamında gerçek etiket/takip |
 | Google Calendar OAuth | Google Cloud Console'da uygulama kaydı (client id/secret) — platform işletmecisi (Zahid) tarafından oluşturulur | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI` | OAuth akışı ve artımlı senkron |
 | Microsoft 365/Outlook OAuth | Azure AD uygulama kaydı | `MS_OAUTH_CLIENT_ID`, `MS_OAUTH_CLIENT_SECRET`, `MS_OAUTH_TENANT` | OAuth akışı ve delta sorgu |
 | Distribütör API'leri (DigiKey/Mouser/Farnell/Nexar) | Her birinin kendi geliştirici hesabı + ticari kullanım lisansı | `DIGIKEY_CLIENT_ID` vb. (sağlayıcı başına) | Gerçek kimlik doğrulama + ticari yeniden gösterim izni |
 | Ödeme sağlayıcısı (W42, ileride — abonelik ücreti tahsilatı) | Henüz seçilmedi | — | Seçim sonrası; şu an ödeme kaydı yalnızca dışarıda yapılan bir ödemenin elle girilen notudur (`POST /api/subscription/payments`), gerçek tahsilat/fatura yok |
 | AI/LLM sağlayıcısı (W30 yorum katmanı) | Henüz seçilmedi (sağlayıcı ve model şirkete ait karar) | `AI_PROVIDER`, `AI_API_KEY` (sunucu tarafı secret store) | Sağlayıcı seçilip bağlanınca: gerçek yorum üretimi ve `ai_status='generated'` doğrulaması |
+
+## Oturum 41 — dış bağımlılık maddesi 1: e-fatura için sağlayıcıdan bağımsız hazırlık
+
+**Bağlam:** kullanıcı `docs/dis-bagimlilik-promptu.md`'deki 6 maddenin sırayla ilerletilmesini istedi. Madde 1'de
+sağlayıcı kararı henüz yok ("ne seçmem gerektiğine dair fikrim yok"). Kod incelemesinde, hangi entegratör seçilirse
+seçilsin e-belgenin **zorunlu** girdilerinin sistemde hiç olmadığı görüldü: şirketin ve müşterinin VKN/TCKN'si, vergi
+dairesi ve resmi unvanı tutulmuyordu. Bu yüzden önce sağlayıcıdan bağımsız kısım yapıldı.
+
+**Mimari karar — erişim bilgisi şirket başına, ortam değişkeninde değil:** bağlayıcılar zaten şirket başına
+(`company_id`, RLS). Her şirket kendi entegratörüyle sözleşme yapar; tek bir platform `EINVOICE_API_KEY`'i çok
+kiracılı yapıyla çelişirdi. Erişim bilgisi bağlayıcı satırında AES-256-GCM ile şifreli tutulur; platformun tek sırrı
+şifreleme anahtarıdır (`CONNECTOR_SECRET_KEY`). `dis-bagimlilik-promptu.md`'deki ortam değişkeni önerisi buna göre
+güncellendi.
+
+**Yapılanlar:**
+1. Migration 048: `companies` (resmi unvan, VKN/TCKN, vergi dairesi, adres, ilçe, il, posta kodu, ülke), `customers`
+   (resmi unvan, VKN/TCKN, vergi dairesi); `einvoice_connectors` 'live' modu + ortam (sandbox/production) + şifreli
+   erişim bilgisi; `einvoice_connectors_live_ready` CHECK kısıtı (erişim bilgisi + ortam olmadan canlı mod DB'de de
+   imkânsız); `customer_invoices.document_mode` 'live'.
+2. `lib/tax-id.ts`: VKN ve TCKN kontrol hanesi doğrulaması. `lib/secrets.ts`: AES-256-GCM (anahtar yoksa sunucu açılır,
+   yalnız erişim bilgisi işlemleri 503 ile reddedilir).
+3. `lib/einvoice-providers.ts`: adaptör arayüzü + **bilerek boş** kayıt defteri + `einvoiceReadiness()` (satıcı/alıcı
+   vergi kimliği, adres, satır; e-Fatura'da alıcı VKN/TCKN zorunlu, e-Arşiv'de değil).
+4. Uçlar: `GET/POST /api/company/tax-profile` (yazma `org.manage`), `GET/POST /api/customers/:id/tax-identity`
+   (yazma `receivable.manage`), `POST /api/einvoice-connectors/:id/credentials` (yanıt ve olay kaydı yalnız alan
+   ADLARINI içerir), `GET /api/customer-invoices/:id/einvoice-readiness`. Mod değişikliği 'live' için adaptör ve erişim
+   bilgisi ister (`adapter_not_available` / `credentials_missing`). `send-einvoice` canlı modda hazırlık denetimini
+   zorunlu kılar, adaptörün döndürdüğü ETTN'yi kaydeder.
+5. Şirket çıkış paketi (R47) `*_enc` sütunlarını dışlar; manifest notu güncellendi.
+6. Web: e-belge bağlayıcıları sayfasına şirket vergi kimliği, müşteri vergi kimliği kartları, gerçek bağlantı/erişim
+   bilgisi sütunları ve yalnız-yazılır erişim bilgisi formu; fatura sayfasında hazırlık eksikleri ve CANLI belge
+   durumu. `ErrorNotice` artık sunucunun alan bazlı doğrulama hatalarını (`fieldErrors`) listeliyor — uygulama genelinde
+   "Girdi doğrulanamadı" mesajının hangi alan için olduğu artık görünüyor.
+
+**Doğrulama durumu (dürüst):**
+- `einvoice-live.test.ts` 11/11 (vergi kimliği birim testleri, şifreleme gidiş-dönüş + bozulma tespiti, yetki, RLS,
+  hazırlık, canlı mod kapısı, DB kısıtı, çıkış paketinde sır olmaması). Canlı gönderim akışı yalnız testte kayıt
+  defterine eklenen **SAHTE** bir adaptörle sınandı — bu gerçek bir entegratöre karşı doğrulama DEĞİLDİR.
+- Gerçek tarayıcıda (yerel dev sunucusu + Docker Postgres): geçersiz VKN'nin alan hatasıyla reddi, geçerli profilin
+  kaydı ve yenilemede kalıcılığı, muhasebe rolüyle erişim bilgisi kaydı ve değerin sayfada/API yanıtında hiç
+  görünmemesi doğrulandı. Demo veride fatura olmadığı için fatura sayfasındaki hazırlık uyarısı tarayıcıda
+  görülmedi (otomatik testle doğrulandı).
+- Windows geliştirme ortamında `backup-restore.test.ts` Linux'a özgü `sudo -u postgres` çağrısı nedeniyle çalışmıyor
+  (bu oturumdan önce de böyleydi; kod hatası değil).
+
+**Kalan (dış bağımlılık):** entegratör seçimi → o sağlayıcının adaptörü (`EINVOICE_PROVIDERS[key]`) → sağlayıcı test
+ortamında gerçek gönderim ve gerçek ETTN. Yüksek hacimde canlı çağrının outbox'a taşınması (şu an fatura satırı
+kilitliyken senkron çağrılıyor — çift gönderimi engeller ama bağlantıyı meşgul eder).
 
 ## Oturum 40 — R46: yedek, geri yükleme ve kesintide talimat erişimi
 

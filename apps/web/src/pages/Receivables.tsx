@@ -21,7 +21,13 @@ function Tabs() {
   );
 }
 
-/** W36 — e-fatura/e-arşiv bağlayıcıları: sağlayıcı seçimi şirket kararı, varsayılan BAĞLANMADI; TEST modu sentetik ETTN üretir. */
+const MODE_LABEL: Record<string, [string, string]> = { not_connected: ["BAĞLANMADI", ""], test: ["TEST", "warn"], live: ["CANLI", "ok"] };
+const ENV_LABEL: Record<string, string> = { sandbox: "test ortamı", production: "üretim" };
+
+/**
+ * W36 + oturum 41 — e-fatura/e-arşiv ayarları: şirket ve müşteri vergi kimliği (sağlayıcıdan bağımsız ön koşul),
+ * bağlayıcılar ve şifreli erişim bilgisi. CANLI mod yalnız gerçek adaptörü geliştirilmiş sağlayıcıda seçilebilir.
+ */
 export function EinvoiceConnectorsPage() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["einvoiceConnectors"], queryFn: () => get<any[]>("/api/einvoice-connectors") });
@@ -33,15 +39,19 @@ export function EinvoiceConnectorsPage() {
   return (
     <>
       <Header />
+      <CompanyTaxProfileCard />
+      <CustomerTaxIdentityCard />
       <section className="card">
         <h2>E-belge bağlayıcıları</h2>
-        <p className="muted" style={{ margin: 0 }}>Gerçek entegrasyon yok: resmi e-fatura/e-arşiv gönderimi bir GİB özel entegratör sözleşmesi gerektirir — sağlayıcı seçimi şirket kararıdır. TEST modu sentetik ETTN üretir, GİB'e hiçbir şey gönderilmez.</p>
+        <p className="muted" style={{ margin: 0 }}>Resmi e-fatura/e-arşiv gönderimi bir GİB özel entegratör sözleşmesi gerektirir — sağlayıcı seçimi şirket kararıdır. TEST modu sentetik ETTN üretir, GİB'e hiçbir şey gönderilmez. CANLI mod, yalnız gerçek bağlantısı geliştirilip sağlayıcının test ortamında doğrulanmış sağlayıcılarda açılır.</p>
         <table>
-          <thead><tr><th>Sağlayıcı</th><th>Mod</th><th>Not</th><th /></tr></thead>
+          <thead><tr><th>Sağlayıcı</th><th>Mod</th><th>Gerçek bağlantı</th><th>Erişim bilgisi</th><th>Not</th><th /></tr></thead>
           <tbody>{q.data?.map((c: any) => (
             <tr key={c.id}>
               <td>{c.name}</td>
-              <td><span className={`badge ${c.mode === "test" ? "warn" : ""}`}>{c.mode === "test" ? "TEST" : "BAĞLANMADI"}</span></td>
+              <td><span className={`badge ${MODE_LABEL[c.mode]![1]}`}>{MODE_LABEL[c.mode]![0]}</span></td>
+              <td>{c.adapterAvailable ? <span className="badge ok">var</span> : <span className="muted">geliştirilmedi</span>}</td>
+              <td>{c.hasCredentials ? <>kayıtlı · {ENV_LABEL[c.environment] ?? c.environment}<div className="muted" style={{ fontSize: 13 }}>{fmtDate(c.credentialsUpdatedAt)}</div></> : <span className="muted">yok</span>}</td>
               <td className="muted">{c.note ?? "—"}</td>
               <td><button onClick={() => setEdit({ ...c, reason: "" })}>Ayarla</button></td>
             </tr>
@@ -58,6 +68,7 @@ export function EinvoiceConnectorsPage() {
               <select aria-label="Bağlayıcı modu" value={edit.mode} onChange={(e) => setEdit({ ...edit, mode: e.target.value })}>
                 <option value="not_connected">BAĞLANMADI</option>
                 <option value="test">TEST</option>
+                <option value="live" disabled={!edit.adapterAvailable || !edit.hasCredentials}>CANLI{!edit.adapterAvailable ? " (gerçek bağlantı geliştirilmedi)" : !edit.hasCredentials ? " (önce erişim bilgisi)" : ""}</option>
               </select>
             </label>
             <label className="field" style={{ flex: 1 }}>Not<input value={edit.note ?? ""} onChange={(e) => setEdit({ ...edit, note: e.target.value })} /></label>
@@ -65,9 +76,129 @@ export function EinvoiceConnectorsPage() {
             <button className="primary" disabled={edit.reason.trim().length < 3 || save.isPending} onClick={() => save.mutate()}>Kaydet</button>
             <button onClick={() => setEdit(null)}>Vazgeç</button>
           </div>
+          <ConnectorCredentialsForm connector={edit} onSaved={() => { setEdit(null); qc.invalidateQueries({ queryKey: ["einvoiceConnectors"] }); }} />
         </section>
       ) : null}
     </>
+  );
+}
+
+/** Entegratör erişim bilgisi: yalnız yazılır, sunucu şifreli saklar ve hiçbir zaman geri göstermez. */
+function ConnectorCredentialsForm({ connector: c, onSaved }: { connector: any; onSaved: () => void }) {
+  const known: string[] | null = c.credentialFields;
+  const [environment, setEnvironment] = useState<string>(c.environment ?? "sandbox");
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [extra, setExtra] = useState([{ k: "", v: "" }]);
+  const [reason, setReason] = useState("");
+  const credentials = known
+    ? Object.fromEntries(known.map((f) => [f, values[f] ?? ""]))
+    : Object.fromEntries(extra.filter((x) => x.k.trim() && x.v).map((x) => [x.k.trim(), x.v]));
+  const complete = Object.keys(credentials).length > 0 && Object.values(credentials).every(Boolean);
+  const save = useMutation({ mutationFn: () => post(`/api/einvoice-connectors/${c.id}/credentials`, { environment, credentials, reason }), onSuccess: onSaved });
+  return (
+    <div className="stack" style={{ marginTop: 12 }}>
+      <h4 style={{ margin: 0 }}>Erişim bilgisi {c.hasCredentials ? <span className="badge ok">kayıtlı</span> : null}</h4>
+      <p className="muted" style={{ margin: 0 }}>Entegratörün verdiği kullanıcı/parola veya API anahtarı. Şifreli saklanır; kaydedildikten sonra hiçbir ekranda gösterilmez — değiştirmek için yeniden girin.</p>
+      <ErrorNotice error={save.error} />
+      <div className="row" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
+        <label className="field">Ortam
+          <select aria-label="Entegratör ortamı" value={environment} onChange={(e) => setEnvironment(e.target.value)}>
+            <option value="sandbox">Test ortamı (sandbox)</option>
+            <option value="production">Üretim</option>
+          </select>
+        </label>
+        {known
+          ? known.map((f) => (
+              <label key={f} className="field">{f}<input aria-label={`Erişim bilgisi ${f}`} type="password" autoComplete="off" value={values[f] ?? ""} onChange={(e) => setValues({ ...values, [f]: e.target.value })} /></label>
+            ))
+          : extra.map((x, i) => (
+              <div key={i} className="row" style={{ gap: 6 }}>
+                <input aria-label="Alan adı" placeholder="alan (ör. username)" value={x.k} onChange={(e) => setExtra(extra.map((y, j) => (j === i ? { ...y, k: e.target.value } : y)))} />
+                <input aria-label="Alan değeri" type="password" autoComplete="off" placeholder="değer" value={x.v} onChange={(e) => setExtra(extra.map((y, j) => (j === i ? { ...y, v: e.target.value } : y)))} />
+              </div>
+            ))}
+        {!known && extra.length < 10 ? <button type="button" onClick={() => setExtra([...extra, { k: "", v: "" }])}>+ alan</button> : null}
+        <label className="field" style={{ flex: 1 }}>Gerekçe<input aria-label="Erişim bilgisi gerekçesi" value={reason} onChange={(e) => setReason(e.target.value)} /></label>
+        <button className="primary" disabled={!complete || reason.trim().length < 3 || save.isPending} onClick={() => save.mutate()}>Erişim bilgisini kaydet</button>
+      </div>
+    </div>
+  );
+}
+
+const emptyProfile = { legalName: "", taxNo: "", taxOffice: "", addressLine: "", district: "", city: "", postalCode: "" };
+
+/** Satıcı (şirket) vergi kimliği — hangi entegratör seçilirse seçilsin e-belgenin ön koşulu. */
+function CompanyTaxProfileCard() {
+  const can = useCan();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["companyTaxProfile"], queryFn: () => get<any>("/api/company/tax-profile") });
+  const [f, setF] = useState<typeof emptyProfile | null>(null);
+  const v = f ?? { ...emptyProfile, ...Object.fromEntries(Object.entries(q.data ?? {}).map(([k, x]) => [k, x ?? ""])) };
+  const save = useMutation({
+    mutationFn: () => post("/api/company/tax-profile", { ...v, district: v.district || null, postalCode: v.postalCode || null }),
+    onSuccess: (r) => { setF(null); qc.setQueryData(["companyTaxProfile"], r); },
+  });
+  const edit = can("org.manage");
+  const field = (k: keyof typeof emptyProfile, label: string, w?: number) => (
+    <label className="field" style={w ? { width: w } : { flex: 1 }}>{label}<input aria-label={`Şirket ${label}`} disabled={!edit} value={v[k]} onChange={(e) => setF({ ...v, [k]: e.target.value })} /></label>
+  );
+  return (
+    <section className="card">
+      <h2>Şirket vergi kimliği</h2>
+      <p className="muted" style={{ margin: 0 }}>E-fatura/e-arşivde satıcı bilgisi olarak kullanılır. VKN (10 hane) veya TCKN (11 hane) kontrol hanesiyle doğrulanır.{edit ? "" : " Değiştirmek için organizasyon yönetimi yetkisi gerekir."}</p>
+      {q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />}
+      <div className="row" style={{ flexWrap: "wrap" }}>
+        {field("legalName", "Resmi unvan")}
+        {field("taxNo", "VKN/TCKN", 160)}
+        {field("taxOffice", "Vergi dairesi", 180)}
+      </div>
+      <div className="row" style={{ flexWrap: "wrap" }}>
+        {field("addressLine", "Adres")}
+        {field("district", "İlçe", 150)}
+        {field("city", "İl", 150)}
+        {field("postalCode", "Posta kodu", 110)}
+      </div>
+      {edit ? <div className="row"><button className="primary" disabled={!f || save.isPending} onClick={() => save.mutate()}>Kaydet</button></div> : null}
+      <ErrorNotice error={save.error} />
+    </section>
+  );
+}
+
+/** Alıcı (müşteri) vergi kimliği — e-Fatura için VKN/TCKN ve resmi unvan zorunlu. */
+function CustomerTaxIdentityCard() {
+  const can = useCan();
+  const customers = useQuery({ queryKey: ["customers"], queryFn: () => get<any[]>("/api/customers") });
+  const [customerId, setCustomerId] = useState("");
+  const cur = useQuery({ queryKey: ["customerTax", customerId], queryFn: () => get<any>(`/api/customers/${customerId}/tax-identity`), enabled: !!customerId });
+  const [f, setF] = useState<{ legalName: string; taxNo: string; taxOffice: string } | null>(null);
+  const v = f ?? { legalName: cur.data?.legalName ?? "", taxNo: cur.data?.taxNo ?? "", taxOffice: cur.data?.taxOffice ?? "" };
+  const save = useMutation({
+    mutationFn: () => post(`/api/customers/${customerId}/tax-identity`, { ...v, taxOffice: v.taxOffice || null }),
+    onSuccess: () => { setF(null); cur.refetch(); },
+  });
+  const edit = can("receivable.manage");
+  return (
+    <section className="card">
+      <h2>Müşteri vergi kimliği</h2>
+      <p className="muted" style={{ margin: 0 }}>e-Fatura alıcısı için VKN/TCKN ve resmi unvan zorunludur; fatura adresi müşterinin varsayılan teslim adresinden alınır.</p>
+      <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
+        <label className="field">Müşteri
+          <select aria-label="Vergi kimliği müşterisi" value={customerId} onChange={(e) => { setCustomerId(e.target.value); setF(null); }}>
+            <option value="">Seçin</option>{customers.data?.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
+          </select>
+        </label>
+        {customerId ? (
+          <>
+            <label className="field" style={{ flex: 1 }}>Resmi unvan<input aria-label="Müşteri resmi unvanı" disabled={!edit} value={v.legalName} onChange={(e) => setF({ ...v, legalName: e.target.value })} /></label>
+            <label className="field" style={{ width: 160 }}>VKN/TCKN<input aria-label="Müşteri VKN/TCKN" disabled={!edit} inputMode="numeric" value={v.taxNo} onChange={(e) => setF({ ...v, taxNo: e.target.value })} /></label>
+            <label className="field" style={{ width: 180 }}>Vergi dairesi<input aria-label="Müşteri vergi dairesi" disabled={!edit} value={v.taxOffice} onChange={(e) => setF({ ...v, taxOffice: e.target.value })} /></label>
+            {edit ? <button className="primary" disabled={!f || save.isPending} onClick={() => save.mutate()}>Kaydet</button> : null}
+          </>
+        ) : null}
+      </div>
+      <ErrorNotice error={cur.error} />
+      <ErrorNotice error={save.error} />
+    </section>
   );
 }
 const Header = () => (
@@ -146,7 +277,10 @@ export function CustomerInvoicePage() {
   const [kind, setKind] = useState<"e_fatura" | "e_arsiv">("e_arsiv");
   const i = q.data;
   const manage = can("receivable.manage");
-  const einvoiceQ = useQuery({ queryKey: ["einvoiceConnectors"], queryFn: () => get<any[]>("/api/einvoice-connectors"), enabled: manage && i?.status === "issued" && !i?.einvoiceSentAt });
+  const canSend = manage && i?.status === "issued" && !i?.einvoiceSentAt;
+  const einvoiceQ = useQuery({ queryKey: ["einvoiceConnectors"], queryFn: () => get<any[]>("/api/einvoice-connectors"), enabled: canSend });
+  const readyQ = useQuery({ queryKey: ["einvoiceReadiness", id, kind], queryFn: () => get<any>(`/api/customer-invoices/${id}/einvoice-readiness?kind=${kind}`), enabled: canSend });
+  const selected = einvoiceQ.data?.find((c: any) => c.id === connectorId);
   if (!i) return q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />;
   return (
     <>
@@ -157,20 +291,28 @@ export function CustomerInvoicePage() {
           Bu fatura tarihsel geçişle (W39 devamı) eklendi — sipariş/sevkiyat bağlantısı olmadığından bir sipariş/sevkiyat kaydına bağlanmadı; fatura doğrudan {i.status === "paid" ? "tahsil edildi" : "kesildi"} olarak kaydedildi.
         </div>
       ) : null}
-      {i.documentMode === "test" ? (
+      {i.documentMode === "live" ? (
+        <div className="notice info">Belge modu <span className="badge mode ok">CANLI</span>: {i.einvoiceKind === "e_fatura" ? "e-Fatura" : "e-Arşiv"} olarak {i.einvoiceConnector} üzerinden gönderildi (ETTN {i.einvoiceEttn}).</div>
+      ) : i.documentMode === "test" ? (
         <div className="notice warn">Belge modu <span className="badge mode warn">TEST</span>: {i.einvoiceKind === "e_fatura" ? "e-Fatura" : "e-Arşiv"} olarak {i.einvoiceConnector} üzerinden sentetik gönderildi (ETTN {i.einvoiceEttn}) — resmi değildir, GİB'e iletilmedi.</div>
       ) : (
         <div className="notice info">Belge modu <span className="badge mode warn">TASLAK</span>: resmi e-fatura/e-arşiv oluşturulmadı ve GİB'e gönderilmedi.</div>
       )}
-      {manage && i.status === "issued" && !i.einvoiceSentAt ? (
+      {canSend ? (
         <section className="card">
-          <h3>E-belge gönder (test)</h3>
-          <p className="muted" style={{ margin: 0 }}>Gerçek gönderim yok; sağlayıcı seçimi şirket kararıdır (<Link to="/receivables/einvoice-connectors">bağlayıcılar</Link>). TEST modundaki bir bağlayıcı seçilince sentetik ETTN üretilir.</p>
+          <h3>E-belge gönder</h3>
+          <p className="muted" style={{ margin: 0 }}>Sağlayıcı seçimi şirket kararıdır (<Link to="/receivables/einvoice-connectors">bağlayıcılar ve vergi kimliği</Link>). TEST modundaki bağlayıcı sentetik ETTN üretir; CANLI bağlayıcı belgeyi entegratöre gönderir.</p>
+          {readyQ.data && !readyQ.data.ready ? (
+            <div className="notice warn">
+              {kind === "e_fatura" ? "e-Fatura" : "e-Arşiv"} için eksik bilgi{selected?.mode === "live" ? " — CANLI gönderim bunlar tamamlanmadan yapılamaz" : " (TEST gönderimi etkilemez)"}:
+              <ul style={{ margin: "4px 0 0" }}>{readyQ.data.issues.map((x: any) => <li key={x.field}>{x.message}</li>)}</ul>
+            </div>
+          ) : null}
           <div className="row" style={{ alignItems: "flex-end" }}>
             <label className="field">Sağlayıcı
               <select aria-label="E-belge bağlayıcısı" value={connectorId} onChange={(e) => setConnectorId(e.target.value)}>
                 <option value="">Seçin…</option>
-                {einvoiceQ.data?.map((c: any) => <option key={c.id} value={c.id}>{c.name}{c.mode !== "test" ? " (BAĞLANMADI)" : ""}</option>)}
+                {einvoiceQ.data?.map((c: any) => <option key={c.id} value={c.id}>{c.name} ({MODE_LABEL[c.mode]![0]})</option>)}
               </select>
             </label>
             <label className="field">Tür

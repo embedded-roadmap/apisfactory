@@ -25,30 +25,37 @@ Sağlayıcı seçilip gerçek erişim sağlanana kadar ilgili özellik TEST modu
 üretir, "TEST — resmiyeti yok" etiketiyle). Kesilmiş faturadan gönderim akışı, `document_dispatches`
 değişmez denetim kaydı, bağlayıcı operasyon panosu (W38) — hepsi hazır ve TEST modunda çalışıyor.
 
+**Oturum 41'de eklenen (sağlayıcıdan bağımsız):** migration 048 ile şirket/müşteri vergi kimliği (VKN/TCKN
+kontrol hanesiyle), `'live'` modu, ortam (sandbox/production) ve şifreli erişim bilgisi; `einvoiceReadiness()`
+hazırlık denetimi; `EINVOICE_PROVIDERS` adaptör kayıt defteri (bilerek boş — adaptörü olmayan sağlayıcı canlıya
+alınamaz); web'de vergi kimliği kartları ve yalnız-yazılır erişim bilgisi formu. Ayrıntı: `devam-notu.md` →
+"Oturum 41".
+
 **Sizden/şirketten karar gerekenler:**
 1. Hangi sağlayıcı? (GİB Portalı ücretsiz ama manuel/sınırlı; Uyumsoft/Foriba/Logo/Paraşüt/Nesbilgi
    ticari özel entegratörler — hacim, fiyat, mevcut muhasebe yazılımıyla uyum kriterine göre şirketin
-   seçmesi gerekiyor.)
+   seçmesi gerekiyor. Pratik öneri: şirketin mali müşavirinin/muhasebe yazılımının zaten çalıştığı entegratör
+   ilk adaptör için en az sürtünmeli seçimdir.)
 2. Sağlayıcıyla sözleşme + test ortamı erişimi (özel entegratörlerin çoğu önce bir "test/sandbox" hesabı,
-   sonra canlıya geçiş süreci ister).
+   sonra canlıya geçiş süreci ister) ve sağlayıcının API dokümantasyonu.
 3. Kimlik bilgileri: sağlayıcıya göre değişir — API kullanıcı adı/parola, veya sertifika (özel entegratör
    API'lerinin çoğu mali mühür/e-imza sertifikası veya API anahtarı ister).
 
-**Bağlanacağı yer:** `EINVOICE_PROVIDER`, `EINVOICE_API_KEY`, `EINVOICE_API_SECRET` ortam değişkenleri
-(önerilen adlar, henüz tanımlı değil; sunucu tarafı secret store — Vercel/hosting ortamının env değişkeni
-yönetimi, asla kod içine yazılmaz).
+**Bağlanacağı yer:** erişim bilgisi **şirket başına**, uygulamanın e-belge bağlayıcıları ekranından girilir ve
+`einvoice_connectors.credentials_enc` sütununda AES-256-GCM ile şifreli saklanır (bağlayıcılar çok kiracılı —
+her şirketin kendi entegratör sözleşmesi var; tek bir platform ortam değişkeni bu yapıya uymaz). Platform
+düzeyinde tek sır şifreleme anahtarıdır: `CONNECTOR_SECRET_KEY` (sunucu tarafı secret store, asla koda yazılmaz).
 
-**Gerekli şema değişikliği:** `einvoice_connectors.mode` CHECK kısıtı şu an yalnızca `'not_connected'` ve
-`'test'`e izin veriyor (migration 024, satır 13); `customer_invoices.document_mode` da yalnızca `'draft'` ve
-`'test'`. Gerçek gönderim için yeni bir migration ile her iki kısıta canlı mod (ör. `'live'`) eklenmeli —
-yalnızca kod değişikliği yetmez.
+**Şema:** oturum 41'de tamamlandı (migration 048 — `'live'` modu, `einvoice_connectors_live_ready` kısıtı,
+`customer_invoices.document_mode` `'live'`).
 
 **Kabul kriteri:** sağlayıcının kendi test ortamında gerçek bir e-fatura/e-arşiv gönderiminin başarıyla
 iletilmesi ve dönen gerçek ETTN'nin kaydedilmesi (sentetik değil).
 
-**Bana ne söylemeniz yeterli:** "Uyumsoft'u seçtik, test ortamı API kullanıcı/parolası şu" (veya sertifika
-dosyasını güvenli bir şekilde paylaşma yöntemi) dediğinizde, `apps/api/src/modules/dispatch.ts`'teki TEST
-bağlayıcı çağrısını (`POST /api/customer-invoices/:id/send-einvoice`) gerçek API çağrısına bağlarım, otomatik test + sağlayıcı test ortamında gerçek gönderim ile doğrularım.
+**Bana ne söylemeniz yeterli:** "Uyumsoft'u seçtik" + sağlayıcının API dokümantasyonu. Erişim bilgisini sohbete
+yazmayın — uygulamanın e-belge bağlayıcıları ekranından kendiniz girin. Ben o sağlayıcı için
+`apps/api/src/lib/einvoice-providers.ts`'e bir adaptör yazar, `EINVOICE_PROVIDERS`'a eklerim; `dispatch.ts`'teki
+canlı gönderim yolu (`sendLive`) hazır. Otomatik test + sağlayıcı test ortamında gerçek gönderim ile doğrularım.
 
 ---
 
