@@ -12,7 +12,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { call, clearTokens, expectOk, login, setupWorld, type World } from "./helpers";
 import { closePool } from "../src/db/pool";
@@ -97,7 +98,7 @@ describe("Gerçek dosya türü/süre tespiti (lib/media.ts)", () => {
     expect(probe!.codec).toBe("h264");
 
     const junkPath = join(workDir, "junk.mp4");
-    await execFileAsync("bash", ["-c", `head -c 200 /dev/urandom > ${junkPath}`]);
+    await writeFile(junkPath, randomBytes(200));
     expect(await probeVideo(junkPath)).toBeNull();
   });
 });

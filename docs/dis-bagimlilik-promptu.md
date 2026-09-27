@@ -106,15 +106,21 @@ tamamen **kural tabanlı, deterministik** olarak hesaplayıp `report_findings` t
 AI'ın asla `'confirmed'` (doğrulanmış neden) iddia edemeyeceğini zaten dayatıyor — izin verilen değerler
 yalnızca `'hypothesis'` (varsayım/yorum) ve `'insufficient_data'` (yetersiz veri) — bu tasarım kararı sağlayıcı bağlanınca değişmeyecek.
 
-**Sizden karar gerekenler:**
-1. Hangi sağlayıcı/model? (Anthropic Claude, OpenAI, başka bir sağlayıcı — model kalitesi/maliyet/veri
-   gizliliği tercihine göre şirket kararı.)
-2. API anahtarı.
-3. Veri gizliliği notu: rapor bulguları (kâr marjı, tedarikçi performansı gibi ticari hassas veriler)
-   seçilen sağlayıcıya gönderilecek — sağlayıcının veri saklama/eğitim politikasını (ör. "API verisi model
-   eğitiminde kullanılmaz" garantisi) gözden geçirmeniz önerilir.
+**Karar (oturum 41):** sağlayıcı **Anthropic Claude** (kullanıcı seçimi). Kod tamamlandı: `lib/ai-narrative.ts`
+(resmi `@anthropic-ai/sdk`, model `claude-opus-5` — `AI_MODEL` ile değiştirilebilir; JSON şemalı yapılandırılmış çıktı;
+güvenlik sınıflandırıcısı reddederse `fallbacks: "default"` ile sunucu tarafında önerilen modele yönlendirme),
+`POST /api/reports/findings/narrate` (sağlayıcı çağrısı DB işlemi dışında; yalnız yorumsuz bulgulara yazar; bulgunun
+sayısal alanları/`cause_type` değişmez; hangi model/ne zaman/kim izlenir — migration 050), `GET /api/reports/ai-status`,
+web'de "AI yorumu üret" düğmesi ve "AI yorumu — varsayım" etiketli gösterim. Yetki: `report.suggestion.decide`
+(maliyet doğurur). `ai-narrative.test.ts` 6/6 sahte istemciyle. **Bekleyen:** gerçek anahtarla canlı doğrulama.
 
-**Bağlanacağı yer:** `AI_PROVIDER`, `AI_API_KEY` (önerilen adlar, henüz tanımlı değil; sunucu tarafı secret store).
+**Sizden gereken:**
+1. API anahtarı — console.anthropic.com → Billing (bakiye; isteğe bağlı aylık harcama limiti) → API Keys.
+2. Veri gizliliği notu: rapor bulguları (kâr marjı, tedarikçi performansı gibi ticari hassas veriler)
+   Anthropic'e gönderilir; Anthropic API verisini varsayılan olarak model eğitiminde kullanmaz.
+
+**Bağlanacağı yer:** `ANTHROPIC_API_KEY` (platform düzeyi — yerelde `apps/api/.env`, sunucuda hosting secret store);
+isteğe bağlı `AI_MODEL`.
 
 **Kabul kriteri:** gerçek bir yorum üretimi + `ai_status='generated'` olarak işaretlenmesi; kural tabanlı
 sayısal bulgular değişmeden kalır (AI yalnızca yorum/özet katmanı ekler, hesaplamayı değiştirmez).
@@ -123,8 +129,9 @@ sayısal bulgular değişmeden kalır (AI yalnızca yorum/özet katmanı ekler, 
 gerçek zamanlı görüşme/transkript (W28'in konusu, madde 5'e bakın), bu maddeyle (rapor yorum AI'ı) doğrudan
 ilgisi yok, farklı bir dış bağımlılık kategorisi.
 
-**Bana ne söylemeniz yeterli:** "Anthropic API anahtarımız şu" (veya OpenAI vb.) dediğinizde `reports.ts`'e
-gerçek bir LLM çağrısı ekleyip `ai_status='generated'` akışını uçtan uca doğrularım.
+**Bana ne söylemeniz yeterli:** anahtarı `apps/api/.env`'e `ANTHROPIC_API_KEY=...` olarak ekleyip "anahtarı ekledim"
+deyin (anahtarı sohbete yazmayın). Karar bekleyen (yeterli veriye sahip) bir bulgu üzerinde gerçek yorum üretip
+`ai_status='generated'` akışını uçtan uca doğrularım.
 
 ---
 

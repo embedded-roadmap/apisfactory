@@ -267,13 +267,37 @@ export function ExecutiveReportPage() {
   );
 }
 
+/** AI yorumu (madde 3): kural tabanlı bulgunun altında, açıkça "AI yorumu — varsayım" olarak işaretli. */
+function AiNarrative({ f }: { f: any }) {
+  if (f.ai_status !== "generated") return null;
+  return (
+    <div className="notice info" style={{ margin: 0 }}>
+      <b>AI yorumu</b> <span className="muted">({f.ai_model} · {fmtDate(f.ai_generated_at)}) — varsayım içerir, doğrulama insan kararıdır</span>
+      <p style={{ margin: "4px 0 0", whiteSpace: "pre-wrap" }}>{f.ai_narrative}</p>
+    </div>
+  );
+}
+
 function PendingFindings() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["reportFindings", "pending"], queryFn: () => get<any[]>("/api/reports/findings?status=pending") });
+  const ai = useQuery({ queryKey: ["aiStatus"], queryFn: () => get<{ available: boolean; model: string }>("/api/reports/ai-status") });
   const [open, setOpen] = useState<string | null>(null);
+  const without = (q.data ?? []).filter((f: any) => f.ai_status !== "generated").slice(0, 20);
+  const narrate = useMutation({
+    mutationFn: () => post<any>("/api/reports/findings/narrate", { findingIds: without.map((f: any) => f.id) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["reportFindings"] }),
+  });
   return (
     <section className="card">
-      <h2>Bekleyen inceleme kararları</h2>
+      <div className="row between">
+        <h2>Bekleyen inceleme kararları</h2>
+        {ai.data?.available && without.length ? (
+          <button disabled={narrate.isPending} onClick={() => narrate.mutate()}>{narrate.isPending ? "AI yorumu hazırlanıyor…" : `${without.length} bulgu için AI yorumu üret`}</button>
+        ) : null}
+      </div>
+      {ai.data && !ai.data.available ? <p className="muted" style={{ margin: 0 }}>AI yorumu kapalı: sunucuda ANTHROPIC_API_KEY tanımlı değil.</p> : null}
+      <ErrorNotice error={narrate.error} />
       {q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />}
       {q.data?.length === 0 ? <Empty>Bekleyen karar yok.</Empty> : null}
       {q.data?.map((f: any) => (
@@ -283,6 +307,7 @@ function PendingFindings() {
             <button onClick={() => setOpen(open === f.id ? null : f.id)}>{open === f.id ? "Kapat" : "Karar ver"}</button>
           </div>
           <p className="muted" style={{ margin: 0 }}>{f.finding}</p>
+          <AiNarrative f={f} />
           {open === f.id ? <DecisionForm findingId={f.id} onDone={() => { setOpen(null); qc.invalidateQueries({ queryKey: ["reportFindings"] }); }} /> : null}
         </div>
       ))}

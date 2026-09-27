@@ -14,6 +14,7 @@ import { badRequest, conflict, forbidden, notFound } from "../lib/errors";
 import { closeTasks, openTask, recordEvent, type Actor } from "../lib/records";
 import { parse, tenant } from "../http/context";
 import { computeArea, REPORT_AREAS, type ReportArea, type ReportScope } from "../lib/report-findings";
+import { aiConfig, generateNarratives } from "../lib/ai-narrative";
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const Period = z.object({
@@ -31,18 +32,59 @@ async function computeAllAreas(db: Db, from: string, to: string, scope: ReportSc
 }
 
 export async function reportsRoutes(app: FastifyInstance) {
-  /** Canlı yönetici raporu: 8 alanı hesaplar, kaydetmez. AI servisi (LLM) bu oturumda yapılandırılmadı —
-   * aşağıdaki bulgular kural tabanlı (deterministik) üretildi; serbest metin bir AI yorumu değildir. */
+  /** Canlı yönetici raporu: 8 alanı kural tabanlı (deterministik) hesaplar, kaydetmez. AI yorumu yalnız kaydedilmiş
+   * bulgular için üretilir (POST /api/reports/findings/narrate) — canlı hesapta serbest metin AI yorumu yoktur. */
   app.get("/api/reports/executive", async (req) => {
     const q = parse(Period, req.query);
     return tenant(req, "report.view", async (db) => {
       const areas = await computeAllAreas(db, q.from, q.to, { productId: q.productId ?? null, supplierId: q.supplierId ?? null });
+      const ai = aiConfig();
       return {
         periodKind: q.periodKind, from: q.from, to: q.to, scope: { productId: q.productId ?? null, supplierId: q.supplierId ?? null },
         aiStatus: "unavailable",
-        aiNote: "AI servisi (LLM) bu oturumda yapılandırılmadı: bulgular gerçek verilerden kural tabanlı üretildi; serbest metin yorum beklemededir.",
+        aiConfigured: ai.available,
+        aiNote: ai.available
+          ? `Bulgular gerçek verilerden kural tabanlı üretildi. AI yorumu (${ai.model}) raporu kaydettikten sonra kayıtlı bulgular için istenebilir.`
+          : "AI servisi (LLM) yapılandırılmadı: bulgular gerçek verilerden kural tabanlı üretildi; serbest metin yorum beklemededir.",
         areas,
       };
+    });
+  });
+
+  app.get("/api/reports/ai-status", async (req) => tenant(req, "report.view", async () => aiConfig()));
+
+  /**
+   * Kayıtlı bulgulara AI yorumu (madde 3). Sağlayıcı çağrısı veri tabanı işlemi DIŞINDA yapılır (uzun sürebilir):
+   * 1) bulgular okunur, 2) Claude çağrılır, 3) yalnız hâlâ yorumsuz olanlara yazılır (yarış koruması).
+   * Bulgunun sayısal alanları ve cause_type değişmez; yorum bir kez üretilir. Maliyet doğurduğu için karar yetkisi ister.
+   */
+  app.post("/api/reports/findings/narrate", async (req) => {
+    const input = parse(z.object({ findingIds: z.array(z.string().uuid()).min(1).max(20) }), req.body);
+    const pending = await tenant(req, "report.suggestion.decide", async (db) =>
+      (
+        await db.query(
+          `select id, area, period_from::text as "periodFrom", period_to::text as "periodTo", finding, evidence, cause_type as "causeType",
+                  cause_text as "causeText", action_options as "actionOptions", uncertainty, success_metric as "successMetric"
+             from report_findings where id = any($1::uuid[]) and ai_status = 'unavailable' order by area`,
+          [input.findingIds],
+        )
+      ).rows,
+    );
+    if (!pending.length) return { generated: [], skipped: input.findingIds, model: null };
+    const out = await generateNarratives(pending);
+    return tenant(req, "report.suggestion.decide", async (db, actor) => {
+      const generated: string[] = [];
+      for (const [id, narrative] of out.narratives) {
+        const r = await db.query(
+          `update report_findings set ai_status = 'generated', ai_narrative = $2, ai_model = $3, ai_generated_at = now(), ai_generated_by = $4
+            where id = $1 and ai_status = 'unavailable'`,
+          [id, narrative, out.model, actor.userId],
+        );
+        if (!r.rowCount) continue;
+        generated.push(id);
+        await recordEvent(db, actor, { entityType: "report_finding", entityId: id, eventType: "ai_narrative.generated", after: { model: out.model, chars: narrative.length } });
+      }
+      return { generated, skipped: input.findingIds.filter((x) => !generated.includes(x)), model: out.model };
     });
   });
 

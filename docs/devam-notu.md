@@ -15,7 +15,7 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | §20 Mesaj/kanal/dosya (foto/PDF/video) | **otomatik testleri geçti** | `collaboration.ts`; küçük dosyalar hâlâ bytea (`content`), video artık nesne depolamada (`object_key`). Gerçek MP4/WebM ile uçtan uca doğrulandı (bkz. aşağıda). |
 | §20 Toplantı sesli/görüntülü/kayıt/transkript | **geliştirilmedi** | Yalnızca statik .ics daveti var (oturum 31); gerçek görüşme/kayıt/transkript dış sağlayıcı gerektirir. |
 | §20/W28 Takvim canlı senkron | **dış bağımlılık bekliyor** | OAuth uygulaması (Google/Microsoft) platform işletmecisi tarafından kaydedilmeli — bkz. dışarıdan beklenenler tablosu. |
-| §23/W30 Yönetici raporu + stratejik AI | **otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | `report-findings.ts` + `reports.ts`: 8 alan (fire/rework, kârlılık, tedarikçi, stok, kapasite/termin, revizyon etkisi, proje bütçesi, tahsilat) kural tabanlı hesaplanır; `report_findings.cause_type` CHECK kısıtı 'confirmed' değerini asla kabul etmez. `reports.test.ts` 13 test; web'de `/reports/executive` gerçek tarayıcı + yerel Postgres dev veritabanında uçtan uca çalıştırıldı (bkz. oturum 38). **AI (LLM) yorum katmanı hâlâ geliştirilmedi** — sağlayıcı seçilip bağlanmadı (dış bağımlılık); `ai_status='unavailable'` dürüstçe işaretleniyor. |
+| §23/W30 Yönetici raporu + stratejik AI | **otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | `report-findings.ts` + `reports.ts`: 8 alan (fire/rework, kârlılık, tedarikçi, stok, kapasite/termin, revizyon etkisi, proje bütçesi, tahsilat) kural tabanlı hesaplanır; `report_findings.cause_type` CHECK kısıtı 'confirmed' değerini asla kabul etmez. `reports.test.ts` 13 test; web'de `/reports/executive` gerçek tarayıcı + yerel Postgres dev veritabanında uçtan uca çalıştırıldı (bkz. oturum 38). **AI (LLM) yorum katmanı oturum 41'de uygulandı (Anthropic Claude, otomatik testleri geçti — sahte istemciyle); gerçek anahtarla canlı doğrulama bekliyor**; anahtar yokken `ai_status='unavailable'` dürüstçe işaretleniyor. |
 | W31 Öneri→görev→etki | **otomatik testleri geçti** | Öneri→inceleme→onay/red/erteleme→görev→ölçüm→bağımsız doğrulama→kapatma/yeniden açma akışının tamamı `reports.test.ts` içinde uçtan uca test edildi (aynı bulgudan ikinci öneri açılmaması, ölçen kişinin kendi ölçümünü doğrulayamaması dahil). Canlı pilot verisiyle henüz denenmedi. |
 | W33 MSL/kurutma altyapısı | **otomatik testleri geçti, gerçek tarayıcıda doğrulandı (yerel)** | Oturum 22: MSL, kullanım süresi, raf ömrü, lot SKT, paket açılışı (`storage.ts`, 5 test). Oturum 39: sürümlü kurutma (bake-out) reçetesi + gerçek çevrim kaydı eklendi (bkz. aşağıda) — JEDEC J-STD-033 tablosu hâlâ **sabit kodlanmadı** (bilinçli tasarım kararı, aşağıda gerekçesi var), şirketin kendi tanımladığı kaynağa dayalı reçete var. |
 | W36 E-belge/kargo bağlayıcı | **uygulandı (TEST modu), otomatik testleri geçti; e-belge canlı altyapısı hazır, gerçek entegratör adaptörü dış bağımlılık bekliyor** | TEST çağrıları `dispatch.ts`'te. Oturum 41: sağlayıcıdan bağımsız e-belge ön koşulları eklendi — şirket/müşteri vergi kimliği (VKN/TCKN kontrol hanesi), şirket başına şifreli entegratör erişim bilgisi, hazırlık denetimi, adaptör kayıt defteri ve 'live' mod kapısı (adaptörü olmayan sağlayıcı canlıya alınamaz). **Hiçbir gerçek entegratör adaptörü yok** — sağlayıcı seçimi bekleniyor (bkz. aşağıda "Oturum 41"). Oturum 41 devamı: kargo için firmalara uyarlanabilir adaptör yapısı eklendi (madde 2) — gerçek firma adaptörü yok. |
@@ -42,7 +42,7 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | Microsoft 365/Outlook OAuth | Azure AD uygulama kaydı | `MS_OAUTH_CLIENT_ID`, `MS_OAUTH_CLIENT_SECRET`, `MS_OAUTH_TENANT` | OAuth akışı ve delta sorgu |
 | Distribütör API'leri (DigiKey/Mouser/Farnell/Nexar) | Her birinin kendi geliştirici hesabı + ticari kullanım lisansı | `DIGIKEY_CLIENT_ID` vb. (sağlayıcı başına) | Gerçek kimlik doğrulama + ticari yeniden gösterim izni |
 | Ödeme sağlayıcısı (W42, ileride — abonelik ücreti tahsilatı) | Henüz seçilmedi | — | Seçim sonrası; şu an ödeme kaydı yalnızca dışarıda yapılan bir ödemenin elle girilen notudur (`POST /api/subscription/payments`), gerçek tahsilat/fatura yok |
-| AI/LLM sağlayıcısı (W30 yorum katmanı) | Henüz seçilmedi (sağlayıcı ve model şirkete ait karar) | `AI_PROVIDER`, `AI_API_KEY` (sunucu tarafı secret store) | Sağlayıcı seçilip bağlanınca: gerçek yorum üretimi ve `ai_status='generated'` doğrulaması |
+| AI/LLM sağlayıcısı (W30 yorum katmanı) | **Anthropic Claude seçildi** (oturum 41); kod hazır — yalnız API anahtarı bekleniyor | `ANTHROPIC_API_KEY` (+ isteğe bağlı `AI_MODEL`, varsayılan `claude-opus-5`) — yerelde `apps/api/.env`, sunucuda secret store | Gerçek anahtarla canlı yorum üretimi ve `ai_status='generated'` doğrulaması |
 
 ## Oturum 41 — dış bağımlılık maddesi 1: e-fatura için sağlayıcıdan bağımsız hazırlık
 
@@ -121,6 +121,29 @@ doğrulama DEĞİLDİR. Gerçek tarayıcıda (yerel): kargo bağlayıcıları sa
 değişkeni verilmeden — yalnız `.env`'den okunan anahtarla — kaydedilmesi doğrulandı.
 
 **Kalan (dış bağımlılık):** kargo firması seçimi → o firmanın adaptörü → firmanın test ortamında gerçek etiket/takip.
+
+## Oturum 41 devamı — dış bağımlılık maddesi 3: AI yorum katmanı (Anthropic Claude)
+
+**Karar:** kullanıcı sağlayıcı olarak Anthropic Claude'u seçti; anahtar kullanıcı tarafından `apps/api/.env`'e eklenecek.
+
+**Yapılanlar:** `@anthropic-ai/sdk` bağımlılığı; `lib/ai-narrative.ts` — `claude-opus-5` (`AI_MODEL` ile değişir),
+JSON şemalı yapılandırılmış çıktı + uygulama tarafında Zod doğrulaması, `fallbacks: "default"` (beta
+`server-side-fallback-2026-07-01`: güvenlik sınıflandırıcısı reddederse sunucu tarafında önerilen modele geçer; yanıtı
+gerçekte üreten model `ai_model`'e yazılır), ret/kesik/bozuk yanıt ve SDK hata sınıfları için açık hata kodları.
+Sistem istemi: yalnız verilen kanıta dayan, sayı uydurma, nedenleri doğrulanmış gibi sunma, eylem seçeneklerinin dışına
+çıkma. Migration 050: `ai_model`, `ai_generated_at`, `ai_generated_by` + `generated` için tamlık kısıtı.
+`POST /api/reports/findings/narrate` (en fazla 20 bulgu; sağlayıcı çağrısı DB işlemi dışında — uzun sürebilir; yazma
+yalnız hâlâ `unavailable` olanlara, yarış korumalı; yorum bir kez üretilir; olay kaydı), `GET /api/reports/ai-status`;
+yetki `report.suggestion.decide` (maliyet doğurur). Web: bekleyen karar listesinde "N bulgu için AI yorumu üret" ve
+"AI yorumu — varsayım içerir" etiketli gösterim; anahtar yoksa "AI yorumu kapalı" notu.
+
+**Doğrulama:** `ai-narrative.test.ts` 6/6 — gerçek API ÇAĞRILMADAN (`aiDeps.create` sahte): yapılandırılmamış durumda 503,
+yetki, giden istek (model, fallbacks, betas, şema, sistem istemi kuralları), sayısal alanların değişmemesi, uydurma id'nin
+yok sayılması, yedek model adının kaydı, tekrar çağrıda sağlayıcının hiç çağrılmaması, ret/kesik/bozuk yanıt, DB kısıtı.
+Test ortamında `ANTHROPIC_API_KEY` açıkça boş (makinede anahtar olsa bile testler gerçek API'ye gitmez). Gerçek
+tarayıcıda (yerel): anahtarsız durumda "AI yorumu kapalı" notu doğrulandı. **Gerçek anahtarla canlı doğrulama
+bekliyor** — not: demo veride tüm alanlar "yeterli veri yok" olduğundan karar bekleyen bulgu çıkmıyor; canlı deneme
+için gerçekçi veri (ör. fire/kalite kaydı olan bir dönem) gerekir.
 
 ## Oturum 40 — R46: yedek, geri yükleme ve kesintide talimat erişimi
 

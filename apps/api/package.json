@@ -16,6 +16,7 @@
     "restore": "node scripts/restore.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
     "@apisfactory/shared": "workspace:*",
     "@fastify/cors": "^10.0.1",
     "archiver": "^8.0.0",
