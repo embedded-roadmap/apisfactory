@@ -7,11 +7,16 @@ import { badRequest, conflict, notFound } from "../lib/errors";
 import { recordEvent, type Actor } from "../lib/records";
 import { normalizeDecimal, parseCsv, sha256 } from "../lib/csv";
 import { can, parse, tenant } from "../http/context";
+import { decryptSecret } from "../lib/secrets";
+import { assertLiveAllowed, credentialsSchema, saveConnectorCredentials } from "../lib/connector-credentials";
+import { DISTRIBUTOR_PROVIDERS, type DistributorEnvironment, type DistributorOffer } from "../lib/distributor-providers";
 
 /**
- * W17 — Distribütör fiyat/stok. Gerçek distribütör API'si bağlı DEĞİL.
+ * W17 — Distribütör fiyat/stok.
  *  - test: MPN'den deterministik sentetik teklif (TEST VERİSİ — gerçek fiyat/stok değildir; ekranda işaretli).
  *  - price_file: şirketin indirdiği fiyat listesi (CSV) — gerçek veri, dosya ve yükleme zamanıyla.
+ *  - live (oturum 41): distribütörün gerçek API'si, o distribütörün adaptörüyle (lib/distributor-providers.ts) ve şirketin
+ *    kendi şifreli erişim bilgisiyle. Adaptörü olmayan distribütör canlıya alınamaz; şu an hiçbir adaptör yok.
  * Her teklif kaynak, alınma zamanı ve son geçerlilikle önbellekte tutulur; süresi geçen teklif "eski" işaretlenir,
  * yenileme günlük çağrı kotasına tabidir. Fiyatlar yalnız maliyet görme yetkisiyle görünür.
  */
@@ -20,7 +25,10 @@ const KEYS = [
   ["digikey", "DigiKey", "USD"], ["mouser", "Mouser", "USD"], ["farnell", "Farnell", "EUR"], ["nexar", "Nexar / Octopart", "USD"], ["lcsc", "LCSC", "USD"],
 ] as const;
 
-type Connector = { id: string; key: string; name: string; mode: string; supplier_id: string | null; cache_ttl_minutes: number; daily_call_limit: number; currency: string };
+type Connector = {
+  id: string; key: string; name: string; mode: string; supplier_id: string | null; cache_ttl_minutes: number; daily_call_limit: number; currency: string;
+  environment: DistributorEnvironment | null; credentials_enc: string | null;
+};
 type Break = { qty: number; price: number };
 
 export async function ensureConnectors(db: Db) {
@@ -72,10 +80,14 @@ async function offersFor(db: Db, actor: Actor, item: { id: string | null; mpn: s
     )).rows[0];
     let row = cached;
     const fresh = cached && new Date(cached.expires_at) > new Date();
-    if (c.mode === "test" && (!fresh || opts.refresh)) {
+    if ((c.mode === "test" || c.mode === "live") && (!fresh || opts.refresh)) {
       if ((await callsToday(db, c.id)) >= c.daily_call_limit) {
         await db.query(`insert into connector_calls (company_id, connector_id, mpn, outcome, called_by) values (app_company_id(), $1, $2, 'quota_exceeded', $3)`, [c.id, item.mpn, actor.userId]);
         warnings.push(`${c.name}: günlük çağrı kotası (${c.daily_call_limit}) doldu; önbellekteki teklif gösteriliyor`);
+      } else if (c.mode === "live") {
+        const live = await lookupLive(db, actor, c, item);
+        if (live.warning) warnings.push(live.warning);
+        row = live.row === undefined ? cached : live.row;
       } else {
         const s = syntheticOffer(c.key, item.mpn, c.currency);
         await db.query(`insert into connector_calls (company_id, connector_id, mpn, outcome, called_by) values (app_company_id(), $1, $2, $3, $4)`, [c.id, item.mpn, s ? "ok" : "not_found", actor.userId]);
@@ -102,6 +114,37 @@ async function offersFor(db: Db, actor: Actor, item: { id: string | null; mpn: s
   return { offers: out, warnings, connectorsActive: conns.length };
 }
 
+/**
+ * Canlı API sorgusu. Sonuç: yeni teklif satırı, katalogda yoksa null, hata olursa undefined (önbellek korunur, uyarı döner).
+ * Hata ayrıntısı (erişim bilgisi içerebilir) kullanıcıya/olay kaydına yazılmaz; yalnız 'error' çağrı kaydı düşülür.
+ */
+async function lookupLive(db: Db, actor: Actor, c: Connector, item: { id: string | null; mpn: string; manufacturer: string | null }) {
+  const provider = DISTRIBUTOR_PROVIDERS[c.key];
+  const log = (outcome: string) =>
+    db.query(`insert into connector_calls (company_id, connector_id, mpn, outcome, called_by) values (app_company_id(), $1, $2, $3, $4)`, [c.id, item.mpn, outcome, actor.userId]);
+  if (!provider || !c.credentials_enc || !c.environment) {
+    await log("error");
+    return { row: undefined, warning: `${c.name}: canlı bağlantı kullanılamıyor (adaptör veya erişim bilgisi yok); önbellekteki teklif gösteriliyor` };
+  }
+  let offer: DistributorOffer | null;
+  try {
+    offer = await provider.lookup(item.mpn, { credentials: decryptSecret<Record<string, string>>(c.credentials_enc), environment: c.environment, currency: c.currency, manufacturer: item.manufacturer });
+  } catch {
+    await log("error");
+    return { row: undefined, warning: `${c.name}: distribütör API'si yanıt vermedi veya hata döndü; önbellekteki teklif gösteriliyor` };
+  }
+  await log(offer ? "ok" : "not_found");
+  if (!offer) return { row: null, warning: null };
+  const row = (
+    await db.query(
+      `insert into part_offers (company_id, connector_id, item_id, mpn, manufacturer, sku, stock, moq, multiple, lead_time_days, lifecycle, currency, price_breaks, source, source_ref, expires_at)
+       values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'api', $13, now() + make_interval(mins => $14)) returning *`,
+      [c.id, item.id, item.mpn, offer.manufacturer ?? item.manufacturer, offer.sku, offer.stock, offer.moq, offer.multiple, offer.leadTimeDays, offer.lifecycle, offer.currency, JSON.stringify(offer.breaks), offer.sourceRef, c.cache_ttl_minutes],
+    )
+  ).rows[0];
+  return { row, warning: null };
+}
+
 function hidePrices<T extends { breaks: Break[] }>(offers: T[], show: boolean) {
   return show ? offers : offers.map((o) => ({ ...o, breaks: [] }));
 }
@@ -112,26 +155,42 @@ export async function distributorRoutes(app: FastifyInstance) {
       await ensureConnectors(db);
       const r = await db.query(
         `select c.id, c.key, c.name, c.mode, c.supplier_id as "supplierId", s.name as "supplierName", c.cache_ttl_minutes as "cacheTtlMinutes", c.daily_call_limit as "dailyCallLimit",
-                c.currency, c.note, c.updated_at as "updatedAt",
+                c.currency, c.note, c.updated_at as "updatedAt", c.environment,
+                c.credentials_enc is not null as "hasCredentials", c.credentials_updated_at as "credentialsUpdatedAt",
                 (select count(*) from connector_calls k where k.connector_id = c.id and k.outcome in ('ok', 'not_found') and k.created_at >= date_trunc('day', now()))::int as "callsToday",
                 (select count(*) from connector_calls k where k.connector_id = c.id and k.outcome = 'cache_hit' and k.created_at >= date_trunc('day', now()))::int as "cacheHitsToday",
                 (select count(*) from part_offers o where o.connector_id = c.id)::int as offers,
                 (select max(o.fetched_at) from part_offers o where o.connector_id = c.id) as "lastFetchedAt"
            from distributor_connectors c left join suppliers s on s.id = c.supplier_id order by c.key`,
       );
-      return r.rows;
+      return r.rows.map((x) => ({ ...x, adapterAvailable: Boolean(DISTRIBUTOR_PROVIDERS[x.key]), credentialFields: DISTRIBUTOR_PROVIDERS[x.key]?.credentialFields ?? null }));
     }),
   );
+
+  /** Distribütör geliştirici hesabı erişim bilgisi (şirket başına, şifreli). Değerler hiçbir yanıtta dönmez. */
+  app.post("/api/distributors/:id/credentials", async (req) => {
+    const { id } = req.params as { id: string };
+    const input = parse(credentialsSchema, req.body);
+    return tenant(req, "supplier.manage", (db, actor) => saveConnectorCredentials(db, actor, "distributor", id, input, (k) => DISTRIBUTOR_PROVIDERS[k]?.credentialFields));
+  });
 
   app.post("/api/distributors/:id", async (req) => {
     const { id } = req.params as { id: string };
     const input = parse(
-      z.object({ mode: z.enum(["not_connected", "test", "price_file"]), supplierId: z.string().uuid().nullable().optional(), cacheTtlMinutes: z.number().int().min(5).max(43200).optional(), dailyCallLimit: z.number().int().min(0).max(100000).optional(), currency: z.string().regex(/^[A-Z]{3}$/).optional(), reason: z.string().min(3).max(500) }),
+      z.object({ mode: z.enum(["not_connected", "test", "price_file", "live"]), supplierId: z.string().uuid().nullable().optional(), cacheTtlMinutes: z.number().int().min(5).max(43200).optional(), dailyCallLimit: z.number().int().min(0).max(100000).optional(), currency: z.string().regex(/^[A-Z]{3}$/).optional(), reason: z.string().min(3).max(500) }),
       req.body,
     );
     return tenant(req, "supplier.manage", async (db, actor) => {
-      const before = (await db.query(`select mode, supplier_id, cache_ttl_minutes, daily_call_limit, currency from distributor_connectors where id = $1 for update`, [id])).rows[0];
-      if (!before) throw notFound("Bağlayıcı");
+      const cur = (
+        await db.query(
+          `select key, name, mode, supplier_id, cache_ttl_minutes, daily_call_limit, currency, environment, credentials_enc is not null as "hasCredentials"
+             from distributor_connectors where id = $1 for update`,
+          [id],
+        )
+      ).rows[0];
+      if (!cur) throw notFound("Bağlayıcı");
+      if (input.mode === "live") assertLiveAllowed(cur, Boolean(DISTRIBUTOR_PROVIDERS[cur.key]));
+      const before = { mode: cur.mode, supplier_id: cur.supplier_id, cache_ttl_minutes: cur.cache_ttl_minutes, daily_call_limit: cur.daily_call_limit, currency: cur.currency };
       await db.query(
         `update distributor_connectors set mode = $2, supplier_id = case when $3 then $4 else supplier_id end, cache_ttl_minutes = coalesce($5, cache_ttl_minutes),
                 daily_call_limit = coalesce($6, daily_call_limit), currency = coalesce($7, currency), updated_by = $8, updated_at = now() where id = $1`,

@@ -144,8 +144,18 @@ elle yüklenmesi — R37'de tedarik riski taramasını canlı doğrulamak için 
 API değil ama gerçek veri). Önbellek (TTL), günlük çağrı kotası, çağrı kaydı, RFQ otomatik teklif
 karşılaştırması — hepsi hazır.
 
+**Oturum 41'de eklenen (kullanıcı kararı: "istediği distribütörü seçebilsinler"):** her şirket distribütörünü ve
+modunu kendi seçer (zaten şirket başınaydı); buna **CANLI API** modu eklendi. Distribütörler arasında değişen şey
+(OAuth istemci kimliği / API anahtarı, istek/yanıt biçimi) adaptörde (`lib/distributor-providers.ts` →
+`DistributorProvider.lookup`, ortak `DistributorOffer` biçimine çevirir); önbellek, günlük kota, çağrı kaydı, fiyat
+görünürlüğü, BOM tedarik görünümü, RFQ otomatik teklif ve tedarik riski taraması canlı teklifleri de aynen kullanır
+(teklif kaynağı `api`, `source_ref` ürün bağlantısı). Migration 051 (`live` modu, şifreli erişim bilgisi,
+`distributor_connectors_live_ready` kısıtı). Hata olursa önbellek korunur, uyarı gösterilir, hata ayrıntısı
+(sır içerebilir) sızdırılmaz. `distributor-live.test.ts` 7/7 (iki farklı sahte adaptör). **Gerçek distribütör
+adaptörü yok.**
+
 **Sizden karar gerekenler (her distribütör ayrı bir hesap/sözleşme):**
-1. Hangi distribütör(ler)? Genelde birden fazlası paralel kullanılır (DigiKey + Mouser en yaygın).
+1. İlk hangi distribütörün adaptörü yazılsın? Genelde birden fazlası paralel kullanılır (DigiKey + Mouser en yaygın).
 2. Her biri için geliştirici hesabı: DigiKey ve Mouser'ın kendi geliştirici portalından ücretsiz API
    anahtarı alınabilir (ticari kullanım için bazı ek onaylar gerekebilir); Nexar (Octopart) API'si ayrı bir
    ticari lisans gerektirebilir; Farnell (element14) API erişimi de ayrı başvuru ister.
@@ -153,8 +163,8 @@ karşılaştırması — hepsi hazır.
    ticari kullanım şartı/lisansı ister — yalnızca dahili kullanım (iç ERP) ile müşteri karşı ürünü
    göstermek farklı lisans şartlarına tabi olabilir; sağlayıcıyla netleştirilmesi gerekiyor.
 
-**Bağlanacağı yer:** `DIGIKEY_CLIENT_ID`/`DIGIKEY_CLIENT_SECRET` gibi, sağlayıcı başına ayrı env
-değişkenleri (önerilen adlar, henüz tanımlı değil).
+**Bağlanacağı yer:** erişim bilgisi **şirket başına**, Satın alma → Distribütörler → Ayarla ekranından girilir ve
+şifreli saklanır (`distributor_connectors.credentials_enc`); platform düzeyinde yalnız `CONNECTOR_SECRET_KEY`.
 
 **Kabul kriteri:** gerçek bir MPN sorgusunun gerçek stok/fiyat/lead time döndürmesi (sentetik değil),
 günlük kota sayacının gerçek API kota limitleriyle eşleşmesi.

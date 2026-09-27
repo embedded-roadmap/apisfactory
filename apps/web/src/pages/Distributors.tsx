@@ -3,8 +3,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, fmtDate, useCan } from "../lib/ui";
 import { PurchasingTabs } from "./Procurement";
+import { ConnectorCredentialsForm, ENV_LABEL } from "../components/Connectors";
 
-const MODE: Record<string, [string, string]> = { not_connected: ["BAĞLANMADI", ""], test: ["TEST", "warn"], price_file: ["FİYAT DOSYASI", "ok"] };
+const MODE: Record<string, [string, string]> = { not_connected: ["BAĞLANMADI", ""], test: ["TEST", "warn"], price_file: ["FİYAT DOSYASI", "ok"], live: ["CANLI API", "ok"] };
 const num = (n: number | null | undefined, d = 4) => (n === null || n === undefined ? "—" : n.toLocaleString("tr-TR", { maximumFractionDigits: d }));
 
 /** W17 — distribütör bağlayıcıları: mod, tedarikçi eşlemesi, önbellek süresi, kota, fiyat listesi yükleme. */
@@ -22,17 +23,21 @@ export function DistributorsPage() {
   const up = useMutation({ mutationFn: () => post<any>(`/api/distributors/${upload!.id}/price-file`, { fileName: upload!.file!.name, content: upload!.file!.content, decimal: upload!.decimal }), onSuccess: () => qc.invalidateQueries({ queryKey: ["distributors"] }) });
   return (
     <>
-      <PageHeader title="Satın alma" sub="Distribütör fiyat/stok bağlantısı. Gerçek distribütör API'si bağlı değil (lisans/erişim doğrulaması bekliyor): TEST modu sentetik katalog üretir ve her yerde işaretlenir; FİYAT DOSYASI modu distribütörden indirilen listeyi yükler." />
+      <PageHeader title="Satın alma" sub="Distribütör fiyat/stok bağlantısı. Her şirket kullanmak istediği distribütörü kendi seçer: TEST modu sentetik katalog üretir ve her yerde işaretlenir; FİYAT DOSYASI modu distribütörden indirilen listeyi yükler; CANLI API modu şirketin kendi geliştirici hesabıyla gerçek API'yi sorgular (yalnız gerçek bağlantısı geliştirilmiş distribütörlerde)." />
       <PurchasingTabs />
       <section className="card">
         <h2>Bağlayıcılar</h2>
         {q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />}
         <table>
-          <thead><tr><th>Distribütör</th><th>Mod</th><th>Tedarikçi</th><th className="num">Önbellek</th><th className="num">Bugün çağrı / kota</th><th className="num">Önbellekten</th><th className="num">Teklif</th><th>Son veri</th><th /></tr></thead>
+          <thead><tr><th>Distribütör</th><th>Mod</th><th>Gerçek API</th><th>Tedarikçi</th><th className="num">Önbellek</th><th className="num">Bugün çağrı / kota</th><th className="num">Önbellekten</th><th className="num">Teklif</th><th>Son veri</th><th /></tr></thead>
           <tbody>{q.data?.map((c) => (
             <tr key={c.id}>
               <td>{c.name} <span className="muted">({c.currency})</span></td>
               <td><span className={`badge mode ${MODE[c.mode]![1]}`}>{MODE[c.mode]![0]}</span></td>
+              <td>
+                {c.adapterAvailable ? <span className="badge ok">var</span> : <span className="muted">geliştirilmedi</span>}
+                <div className="muted" style={{ fontSize: 13 }}>{c.hasCredentials ? `erişim bilgisi kayıtlı · ${ENV_LABEL[c.environment] ?? c.environment}` : "erişim bilgisi yok"}</div>
+              </td>
               <td>{c.supplierName ?? <span className="muted">bağlı değil</span>}</td>
               <td className="num">{c.cacheTtlMinutes >= 60 ? `${Math.round(c.cacheTtlMinutes / 60)} sa` : `${c.cacheTtlMinutes} dk`}</td>
               <td className="num">{c.callsToday} / {c.dailyCallLimit}</td><td className="num">{c.cacheHitsToday}</td><td className="num">{c.offers}</td>
@@ -50,7 +55,7 @@ export function DistributorsPage() {
         <section className="card">
           <h2>{edit.name}</h2>
           <form className="row" style={{ flexWrap: "wrap" }} onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
-            <label className="field">Mod<select aria-label="Bağlayıcı modu" value={edit.mode} onChange={(e) => setEdit({ ...edit, mode: e.target.value })}><option value="not_connected">Bağlı değil</option><option value="test">TEST (sentetik katalog)</option><option value="price_file">Fiyat dosyası</option></select></label>
+            <label className="field">Mod<select aria-label="Bağlayıcı modu" value={edit.mode} onChange={(e) => setEdit({ ...edit, mode: e.target.value })}><option value="not_connected">Bağlı değil</option><option value="test">TEST (sentetik katalog)</option><option value="price_file">Fiyat dosyası</option><option value="live" disabled={!edit.adapterAvailable || !edit.hasCredentials}>CANLI API{!edit.adapterAvailable ? " (gerçek bağlantı geliştirilmedi)" : !edit.hasCredentials ? " (önce erişim bilgisi)" : ""}</option></select></label>
             <label className="field">Tedarikçi<select aria-label="Bağlı tedarikçi" value={edit.supplierId} onChange={(e) => setEdit({ ...edit, supplierId: e.target.value })}><option value="">—</option>{sup.data?.map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}</select></label>
             <label className="field" style={{ width: 130 }}>Önbellek (dk)<input inputMode="numeric" value={edit.cacheTtlMinutes} onChange={(e) => setEdit({ ...edit, cacheTtlMinutes: e.target.value })} /></label>
             <label className="field" style={{ width: 130 }}>Günlük kota<input aria-label="Günlük kota" inputMode="numeric" value={edit.dailyCallLimit} onChange={(e) => setEdit({ ...edit, dailyCallLimit: e.target.value })} /></label>
@@ -59,6 +64,8 @@ export function DistributorsPage() {
             <button className="primary" style={{ alignSelf: "flex-end" }}>Kaydet</button><button type="button" style={{ alignSelf: "flex-end" }} onClick={() => setEdit(null)}>Vazgeç</button>
           </form>
           <ErrorNotice error={save.error} />
+          <ConnectorCredentialsForm basePath="/api/distributors" connector={edit} onSaved={() => { setEdit(null); qc.invalidateQueries({ queryKey: ["distributors"] }); }} />
+          <p className="muted" style={{ margin: 0 }}>Distribütörün geliştirici portalından alınan istemci kimliği/sırrı veya API anahtarı. Çoğu distribütör, sonuçların başka bir üründe gösterilmesi için ayrı ticari kullanım şartı koyar — şartları şirketiniz adına onaylayın.</p>
         </section>
       ) : null}
       {upload ? (

@@ -40,7 +40,7 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | Kargo firması (her şirketin kendi anlaşmalısı) | API anahtarı/müşteri kodu (firmaya göre değişir — adaptör tanımlar) | Şirket başına: kargo bağlayıcıları ekranında şifreli kayıt (`cargo_connectors.credentials_enc`); platform düzeyinde yalnız `CONNECTOR_SECRET_KEY` | Firma seçimi → adaptör → firmanın test ortamında gerçek etiket/takip |
 | Google Calendar OAuth | Google Cloud Console'da uygulama kaydı (client id/secret) — platform işletmecisi (Zahid) tarafından oluşturulur | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI` | OAuth akışı ve artımlı senkron |
 | Microsoft 365/Outlook OAuth | Azure AD uygulama kaydı | `MS_OAUTH_CLIENT_ID`, `MS_OAUTH_CLIENT_SECRET`, `MS_OAUTH_TENANT` | OAuth akışı ve delta sorgu |
-| Distribütör API'leri (DigiKey/Mouser/Farnell/Nexar) | Her birinin kendi geliştirici hesabı + ticari kullanım lisansı | `DIGIKEY_CLIENT_ID` vb. (sağlayıcı başına) | Gerçek kimlik doğrulama + ticari yeniden gösterim izni |
+| Distribütör API'leri (DigiKey/Mouser/Farnell/Nexar/LCSC) | Her şirketin kendi geliştirici hesabı + ticari kullanım şartı onayı | Şirket başına: Distribütörler ekranında şifreli kayıt (`distributor_connectors.credentials_enc`); platform düzeyinde yalnız `CONNECTOR_SECRET_KEY` | İlk distribütör seçimi → adaptör → gerçek MPN sorgusu (stok/fiyat/temin) |
 | Ödeme sağlayıcısı (W42, ileride — abonelik ücreti tahsilatı) | Henüz seçilmedi | — | Seçim sonrası; şu an ödeme kaydı yalnızca dışarıda yapılan bir ödemenin elle girilen notudur (`POST /api/subscription/payments`), gerçek tahsilat/fatura yok |
 | AI/LLM sağlayıcısı (W30 yorum katmanı) | **Anthropic Claude seçildi** (oturum 41); kod hazır — yalnız API anahtarı bekleniyor | `ANTHROPIC_API_KEY` (+ isteğe bağlı `AI_MODEL`, varsayılan `claude-opus-5`) — yerelde `apps/api/.env`, sunucuda secret store | Gerçek anahtarla canlı yorum üretimi ve `ai_status='generated'` doğrulaması |
 
@@ -144,6 +144,29 @@ Test ortamında `ANTHROPIC_API_KEY` açıkça boş (makinede anahtar olsa bile t
 tarayıcıda (yerel): anahtarsız durumda "AI yorumu kapalı" notu doğrulandı. **Gerçek anahtarla canlı doğrulama
 bekliyor** — not: demo veride tüm alanlar "yeterli veri yok" olduğundan karar bekleyen bulgu çıkmıyor; canlı deneme
 için gerçekçi veri (ör. fire/kalite kaydı olan bir dönem) gerekir.
+
+## Oturum 41 devamı — dış bağımlılık maddesi 4: distribütör canlı API altyapısı
+
+**Karar:** kullanıcı "istediği distribütörü seçebilsinler" dedi. Bağlayıcılar zaten şirket başınaydı (her şirket
+modunu kendi seçiyordu); eksik olan gerçek API yoluydu.
+
+**Yapılanlar:** migration 051 (`live` modu, ortam, şifreli erişim bilgisi, `distributor_connectors_live_ready`;
+`part_offers.source` için `api`); `lib/distributor-providers.ts` — `DistributorProvider.lookup(mpn, ctx)` →
+ortak `DistributorOffer`; bilerek boş kayıt defteri. `offersFor` canlı modda adaptörü çağırır — TEST ile aynı
+önbellek/yenileme/kota mantığı; hata olursa `error` çağrı kaydı + önbellekteki teklif + genel uyarı (hata ayrıntısı —
+erişim bilgisi içerebilir — kullanıcıya/kayda yazılmaz). `POST /api/distributors/:id/credentials`; mod değişikliğinde
+canlı kapı. `assertLiveAllowed` üç bağlayıcı türü için `lib/connector-credentials.ts`'te ortak. `/api/integrations`
+canlı modu "CANLI" gösterir (önceden her şeyi "test" sayıyordu). Web: Distribütörler sayfasında "Gerçek API" sütunu,
+CANLI API seçeneği (adaptör/erişim bilgisi yoksa pasif, nedenini yazar), erişim bilgisi formu, ticari kullanım notu.
+
+**Doğrulama:** `distributor-live.test.ts` 7/7 — iki farklı SAHTE adaptör (OAuth istemci kimliği + USD; API anahtarı +
+EUR) ortak biçime çevrildi; birim fiyat kırılımı, taze önbellekte yeniden çağrılmama, yenilemede kota, hata anında
+önbellek koruması ve sır sızmaması, DB kısıtı, entegrasyon özeti, RLS. Mevcut `distributors.test.ts` ve
+`supply-risk.test.ts` değişmeden geçti. Gerçek tarayıcıda (yerel): sayfa, CANLI seçeneğinin gerekçeli pasif durumu ve
+erişim bilgisi formu doğrulandı. Gerçek distribütöre karşı doğrulama DEĞİL.
+
+**Kalan (dış bağımlılık):** ilk distribütör seçimi + geliştirici hesabı → adaptör → gerçek MPN sorgusu. Not: hata
+veren çağrılar yerel kotadan düşülmüyor (distribütör tarafında yine de sayılabilir).
 
 ## Oturum 40 — R46: yedek, geri yükleme ve kesintide talimat erişimi
 

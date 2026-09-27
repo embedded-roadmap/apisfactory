@@ -5,7 +5,7 @@ import type { Db } from "../db/pool";
 import { badRequest, conflict, notFound } from "../lib/errors";
 import { recordEvent, type Actor } from "../lib/records";
 import { decryptSecret } from "../lib/secrets";
-import { credentialsSchema, saveConnectorCredentials } from "../lib/connector-credentials";
+import { assertLiveAllowed, credentialsSchema, saveConnectorCredentials } from "../lib/connector-credentials";
 import { EINVOICE_PROVIDERS, einvoiceReadiness, type EinvoiceEnvironment } from "../lib/einvoice-providers";
 import { CARGO_PROVIDERS, cargoReadiness, type CargoEnvironment } from "../lib/cargo-providers";
 import { newObjectKey, objectStorage } from "../lib/storage";
@@ -48,12 +48,6 @@ function syntheticTrackingNo(key: string, shipmentCode: string) {
 const modeSchema = z.object({ mode: z.enum(["not_connected", "test", "live"]), note: z.string().max(500).nullable().optional(), reason: z.string().min(3).max(500) });
 const kindSchema = z.enum(["e_fatura", "e_arsiv"]);
 type TenantActor = Actor & { userId: string };
-
-/** 'live' moda geçiş kapısı — iki bağlayıcı türü için aynı kural. */
-function assertLiveAllowed(cur: { name: string; hasCredentials: boolean; environment: string | null }, hasAdapter: boolean) {
-  if (!hasAdapter) throw conflict("adapter_not_available", `${cur.name} için gerçek bağlantı henüz geliştirilmedi; canlı moda alınamaz`);
-  if (!cur.hasCredentials || !cur.environment) throw conflict("credentials_missing", "Canlı mod için önce erişim bilgisi ve ortam (sandbox/production) kaydedilmeli");
-}
 
 export async function dispatchRoutes(app: FastifyInstance) {
   // ---- e-fatura/e-arşiv bağlayıcıları ----

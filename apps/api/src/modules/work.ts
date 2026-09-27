@@ -86,8 +86,8 @@ export async function workRoutes(app: FastifyInstance) {
   app.get("/api/integrations", async (req) =>
     tenant(req, null, async (db) => [
       ...(await db.query(`select key, name, mode from distributor_connectors order by key`)).rows.map((c) => ({
-        key: c.key, name: c.name, mode: c.mode === "not_connected" ? "not_connected" : "test",
-        note: c.mode === "test" ? "Sentetik TEST kataloğu — gerçek fiyat/stok değildir" : c.mode === "price_file" ? "Yüklenen fiyat listesi (dosya tarihli)" : "W17 — lisans/erişim doğrulaması bekliyor",
+        key: c.key, name: c.name, mode: c.mode === "not_connected" ? "not_connected" : c.mode === "live" ? "live" : "test",
+        note: c.mode === "test" ? "Sentetik TEST kataloğu — gerçek fiyat/stok değildir" : c.mode === "price_file" ? "Yüklenen fiyat listesi (dosya tarihli)" : c.mode === "live" ? "Gerçek distribütör API'si (şirketin kendi geliştirici hesabı)" : "W17 — lisans/erişim doğrulaması bekliyor",
       })),
       { key: "supplier_orders", name: "Tedarikçi sipariş gönderimi", mode: "test", note: "Sipariş, hatırlatma ve iptal yalnızca çıkış kutusuna yazılır; tedarikçiye gerçek gönderim yok" },
       { key: "einvoice", name: "e-Fatura / e-İrsaliye", mode: "not_connected", note: "W36 — sağlayıcı kararı açık" },

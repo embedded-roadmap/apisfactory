@@ -81,7 +81,7 @@ export function TodayPage() {
             {integrations.data?.map((i) => (
               <tr key={i.key}>
                 <td>{i.name}</td>
-                <td><span className={`badge mode ${i.mode === "test" ? "warn" : ""}`}>{i.mode === "not_connected" ? "BAĞLANMADI" : i.mode.toUpperCase()}</span></td>
+                <td><span className={`badge mode ${i.mode === "test" ? "warn" : i.mode === "live" ? "ok" : ""}`}>{i.mode === "not_connected" ? "BAĞLANMADI" : i.mode === "live" ? "CANLI" : i.mode.toUpperCase()}</span></td>
                 <td className="muted">{i.note}</td>
               </tr>
             ))}

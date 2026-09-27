@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Db } from "../db/pool";
-import { badRequest, notFound } from "./errors";
+import { badRequest, conflict, notFound } from "./errors";
 import { recordEvent, type Actor } from "./records";
 import { encryptSecret } from "./secrets";
 
@@ -9,8 +9,14 @@ import { encryptSecret } from "./secrets";
  * Değerler şifreli saklanır; yanıt ve olay kaydı yalnız alan ADLARINI içerir, değerleri asla.
  */
 
-const TABLES = { einvoice: "einvoice_connectors", cargo: "cargo_connectors" } as const;
+const TABLES = { einvoice: "einvoice_connectors", cargo: "cargo_connectors", distributor: "distributor_connectors" } as const;
 export type ConnectorKind = keyof typeof TABLES;
+
+/** 'live' moda geçiş kapısı — tüm bağlayıcı türleri için aynı kural (DB'de ayrıca *_live_ready kısıtı var). */
+export function assertLiveAllowed(cur: { name: string; hasCredentials: boolean; environment: string | null }, hasAdapter: boolean) {
+  if (!hasAdapter) throw conflict("adapter_not_available", `${cur.name} için gerçek bağlantı henüz geliştirilmedi; canlı moda alınamaz`);
+  if (!cur.hasCredentials || !cur.environment) throw conflict("credentials_missing", "Canlı mod için önce erişim bilgisi ve ortam (sandbox/production) kaydedilmeli");
+}
 
 export const credentialsSchema = z.object({
   environment: z.enum(["sandbox", "production"]),
