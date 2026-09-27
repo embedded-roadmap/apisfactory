@@ -86,6 +86,8 @@ export const PERMISSIONS = [
   // Yönetim (teknik yönetici). İş kararlarını KAPSAMAZ.
   "admin.users",
   "admin.roles",
+  // Şirketin tam veri ve dosya çıkış paketi (R47) — sistemsel, iş kararı değil
+  "company.data.export",
   // Alan izinleri
   "field.cost.view",
   "field.price.view",
@@ -113,7 +115,7 @@ export type RoleCode =
 export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string }; permissions: Permission[] }> = {
   admin: {
     name: { tr: "Sistem yöneticisi", en: "System administrator" },
-    permissions: ["admin.users", "admin.roles", "audit.view", "task.view", "org.manage", "delegation.manage", "subscription.view"],
+    permissions: ["admin.users", "admin.roles", "audit.view", "task.view", "org.manage", "delegation.manage", "subscription.view", "company.data.export"],
   },
   manager: {
     name: { tr: "Yönetici", en: "Manager" },

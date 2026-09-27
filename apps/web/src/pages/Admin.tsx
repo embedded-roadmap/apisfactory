@@ -1,11 +1,13 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { get, post } from "../lib/api";
-import { ErrorNotice, Loading, PageHeader, StateBadge, useMe } from "../lib/ui";
+import { get, openDownload, post } from "../lib/api";
+import { ErrorNotice, Loading, PageHeader, StateBadge, useCan, useMe } from "../lib/ui";
 
 export function AdminPage() {
   const qc = useQueryClient();
   const { me } = useMe();
+  const can = useCan();
+  const [exporting, setExporting] = useState(false);
   const users = useQuery({ queryKey: ["admin-users"], queryFn: () => get<any[]>("/api/admin/users") });
   const roles = useQuery({ queryKey: ["admin-roles"], queryFn: () => get<any[]>("/api/admin/roles") });
   const [f, setF] = useState({ email: "", name: "", role: "technician" });
@@ -51,6 +53,18 @@ export function AdminPage() {
           </tbody>
         </table>
       </section>
+      {can("company.data.export") ? (
+        <section className="card">
+          <h2>Şirketin tam veri ve dosya çıkış paketi</h2>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Şirket kapsamındaki tüm tabloların kayıtları, üye kimlikleri (parola hariç), mesaj/fason dosya ekleri ve bir veri sözlüğü tek bir ZIP'te indirilir.
+            Bu indirme işlem geçmişine (olaylar) kaydedilir.
+          </p>
+          <button disabled={exporting} onClick={async () => { setExporting(true); try { await openDownload("/api/company/export", `sirket-veri-paketi-${new Date().toISOString().slice(0, 10)}.zip`, "application/zip"); } finally { setExporting(false); } }}>
+            {exporting ? "Hazırlanıyor…" : "Veri paketini indir (.zip)"}
+          </button>
+        </section>
+      ) : null}
     </>
   );
 }
