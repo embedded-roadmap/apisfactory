@@ -190,7 +190,7 @@ describe("Teslim alma, inceleme ve karar", () => {
   });
 
   it("müşteri kaynaklı hasarda alacak belgesi talebi açılamaz; olduğu gibi iade edilir", async () => {
-    const r = expectOk(await call(w.app, S, A, "POST", "/api/rmas", { code: serials[2], kind: "field_failure", complaint: "Sahada çalışmıyor" }));
+    const r = expectOk(await call(w.app, S, A, "POST", "/api/rmas", { code: serials[2], kind: "return", complaint: "Kutu içinde hasar var" }));
     expectOk(await call(w.app, W, A, "POST", `/api/rmas/${r.id}/receive`, {}));
     expectOk(await call(w.app, Q, A, "POST", `/api/rmas/${r.id}/inspect`, { finding: "Kutu içinde sıvı teması izi", cause: "customer_damage" }));
     expect((await call(w.app, Q, A, "POST", `/api/rmas/${r.id}/decide`, { disposition: "return_as_is", note: "Müşteri hasarı", creditNote: true })).body.error.code).toBe("customer_damage");

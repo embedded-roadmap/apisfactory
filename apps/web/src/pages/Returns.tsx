@@ -14,7 +14,9 @@ export const CAUSE: Record<string, string> = {
 };
 export const DISPOSITION: Record<string, string> = {
   return_as_is: "Olduğu gibi iade", repair: "Tamir", replace: "Değişim", scrap: "Hurda", restock: "Stoğa al",
+  logged_no_action: "Kayda geçti, işlem yok", escalated_to_rma: "Gerçek iadeye yükselt",
 };
+const FIELD_FAILURE_DISPOSITIONS = ["logged_no_action", "escalated_to_rma"];
 
 /** İade listesi ve yeni iade: seri/lot okutulur, müşteri ve garanti sistemden bulunur. */
 export function ReturnsPage() {
@@ -140,13 +142,13 @@ export function ReturnPage() {
           <div className="stat"><small>Teslim alındı</small><b style={{ fontSize: 15 }}>{fmtDate(r.receivedAt)}</b><small>{r.serial ? `cihaz: ${r.deviceStatus}` : ""}</small></div>
         </div>
         {r.finding ? <p style={{ margin: 0 }}><b>Bulgu ({CAUSE[r.cause]}):</b> {r.finding} <span className="muted">— {r.inspectedBy}</span> {r.changeRequestId ? <Link to={`/changes/${r.changeRequestId}`} className="mono">{r.changeRequestCode}</Link> : null}</p> : null}
-        {r.disposition ? <p style={{ margin: 0 }}><b>Karar: {DISPOSITION[r.disposition]}</b> — {r.dispositionNote} <span className="muted">({r.decidedBy})</span>{r.creditNoteRequested ? <span className="badge warn">Alacak belgesi talebi muhasebede</span> : null}</p> : null}
+        {r.disposition ? <p style={{ margin: 0 }}><b>Karar: {DISPOSITION[r.disposition]}</b> — {r.dispositionNote} <span className="muted">({r.decidedBy})</span>{r.creditNoteRequested ? <span className="badge warn">Alacak belgesi talebi muhasebede</span> : null}{r.escalatedRmaId ? <> · <Link to={`/returns/${r.escalatedRmaId}`} className="mono">{r.escalatedRmaCode}</Link>'a yükseltildi</> : null}</p> : null}
         {r.replacementSerial || r.replacementLotNo ? <p style={{ margin: 0 }}>Değişim ürünü: <span className="mono">{r.replacementSerial ?? r.replacementLotNo}</span></p> : null}
         {r.repairNote ? <p style={{ margin: 0 }}>Tamir: {r.repairNote} — {r.retestPassed ? <span className="badge ok">Tekrar test geçti</span> : <span className="badge bad">Tekrar test kaldı</span>}</p> : null}
         {r.outboundCarrier ? <p style={{ margin: 0 }}>Gönderim: {r.outboundCarrier} <span className="mono">{r.outboundTracking ?? ""}</span> · {addressText(r.outboundAddress)}</p> : null}
       </section>
 
-      {r.status === "open" && can("inventory.receive") ? (
+      {r.status === "open" && r.kind !== "field_failure" && can("inventory.receive") ? (
         <section className="card">
           <div className="row">
             <button className="primary" onClick={() => act.mutate(() => post(`/api/rmas/${id}/receive`, {}))}>Teslim al (iade kabul alanına)</button>
@@ -155,7 +157,13 @@ export function ReturnPage() {
         </section>
       ) : null}
 
-      {r.status === "received" && can("rma.decide") ? (
+      {r.status === "open" && r.kind === "field_failure" ? (
+        <section className="card">
+          <p className="muted" style={{ margin: 0 }}>Saha arızasında cihaz fiziksel olarak geri gelmez; teslim alma adımı yok, doğrudan inceleme yapılır.</p>
+        </section>
+      ) : null}
+
+      {(r.status === "received" || (r.status === "open" && r.kind === "field_failure")) && can("rma.decide") ? (
         <section className="card">
           <h2>İnceleme</h2>
           <form className="stack" onSubmit={(e) => { e.preventDefault(); act.mutate(() => post(`/api/rmas/${id}/inspect`, inspect)); }}>
@@ -176,14 +184,20 @@ export function ReturnPage() {
       {(r.status === "inspected" || canRedecide) && can("rma.decide") ? (
         <section className="card">
           <h2>{canRedecide ? "Tamir başarısız — yeniden karar" : "Karar"}</h2>
+          {(() => {
+            const dispositionKeys = r.kind === "field_failure"
+              ? FIELD_FAILURE_DISPOSITIONS
+              : Object.keys(DISPOSITION).filter((k) => !FIELD_FAILURE_DISPOSITIONS.includes(k) && (r.serial || !["repair", "restock"].includes(k)));
+            const dispositionValue = dispositionKeys.includes(decide.disposition) ? decide.disposition : dispositionKeys[0];
+            return (
           <form className="stack" onSubmit={(e) => {
             e.preventDefault();
-            act.mutate(() => post(`/api/rmas/${id}/decide`, { ...decide, replacementCode: decide.replacementCode || undefined, retestPassed: decide.disposition === "restock" ? decide.retestPassed : undefined }));
+            act.mutate(() => post(`/api/rmas/${id}/decide`, { ...decide, disposition: dispositionValue, replacementCode: decide.replacementCode || undefined, retestPassed: decide.disposition === "restock" ? decide.retestPassed : undefined }));
           }}>
             <div className="row">
               <label className="field">Karar
-                <select aria-label="Karar" value={decide.disposition} onChange={(e) => setDecide({ ...decide, disposition: e.target.value })}>
-                  {Object.entries(DISPOSITION).filter(([k]) => r.serial || !["repair", "restock"].includes(k)).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                <select aria-label="Karar" value={dispositionValue} onChange={(e) => setDecide({ ...decide, disposition: e.target.value })}>
+                  {dispositionKeys.map((k) => <option key={k} value={k}>{DISPOSITION[k]}</option>)}
                 </select>
               </label>
               {decide.disposition === "replace" ? <label className="field">Değişim seri/lot (okut)<input required value={decide.replacementCode} onChange={(e) => setDecide({ ...decide, replacementCode: e.target.value })} /></label> : null}
@@ -196,8 +210,14 @@ export function ReturnPage() {
             </div>
             <label className="field">Gerekçe<input required minLength={3} value={decide.note} onChange={(e) => setDecide({ ...decide, note: e.target.value })} /></label>
             <div className="row"><button className="primary">Kararı kaydet</button></div>
-            <p className="muted" style={{ margin: 0 }}>Stoğa alma yalnızca "arıza bulunamadı" + tekrar test geçti ile. Değişimde iade gelen ürün karantinaya alınır. Hurda ve stoğa alma iadeyi kapatır.</p>
+            <p className="muted" style={{ margin: 0 }}>
+              {r.kind === "field_failure"
+                ? "Saha arızasında cihaz elde olmadığı için stok/cihaz hareketi yapılmaz: \"kayda geçti\" kaydı kapatır, \"gerçek iadeye yükselt\" yeni bir fiziksel iade açar."
+                : "Stoğa alma yalnızca \"arıza bulunamadı\" + tekrar test geçti ile. Değişimde iade gelen ürün karantinaya alınır. Hurda ve stoğa alma iadeyi kapatır."}
+            </p>
           </form>
+            );
+          })()}
         </section>
       ) : null}
 

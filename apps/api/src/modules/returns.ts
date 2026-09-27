@@ -92,6 +92,7 @@ async function loadRma(db: Db, id: string) {
             c.id as "customerId", c.name as "customerName", d.serial, d.status as "deviceStatus", lo.lot_no as "lotNo",
             p.code as "productCode", pr.rev, s.code as "shipmentCode", so.code as "salesOrderCode", so.id as "salesOrderId",
             rd.serial as "replacementSerial", rl.lot_no as "replacementLotNo", cr.code as "changeRequestCode", cr.id as "changeRequestId",
+            r.escalated_rma_id as "escalatedRmaId", er.code as "escalatedRmaCode",
             ou.name as "openedBy", iu.name as "inspectedBy", du.name as "decidedBy"
        from rmas r join customers c on c.id = r.customer_id join lots lo on lo.id = r.lot_id
        join items i on i.id = r.item_id join products p on p.item_id = i.id
@@ -99,6 +100,7 @@ async function loadRma(db: Db, id: string) {
        left join shipments s on s.id = r.shipment_id left join sales_orders so on so.id = r.sales_order_id
        left join devices rd on rd.id = r.replacement_device_id left join lots rl on rl.id = r.replacement_lot_id
        left join change_requests cr on cr.id = r.change_request_id
+       left join rmas er on er.id = r.escalated_rma_id
        left join users ou on ou.id = r.opened_by left join users iu on iu.id = r.inspected_by left join users du on du.id = r.decided_by
       where r.id = $1`,
     [id],
@@ -209,7 +211,13 @@ export async function returnRoutes(app: FastifyInstance) {
         const id = r.rows[0].id as string;
         await recordEvent(db, actor, { entityType: "rma", entityId: id, eventType: "created", after: { code, source: input.code, kind: input.kind, ...w } });
         if (src.deviceId) await recordEvent(db, actor, { entityType: "device", entityId: src.deviceId, eventType: "rma.opened", after: { rma: code, kind: input.kind } });
-        await openTask(db, actor.companyId, { kind: "rma_receive", title: `İade ${code} — ${src.serial ?? src.productCode} teslim al`, entityType: "rma", entityId: id, assigneeRole: "warehouse" });
+        // Saha arızasında (field_failure) cihaz fiziksel olarak geri gelmez — depo teslim alma adımı
+        // yok, doğrudan kaliteye inceleme görevi düşer (bkz. inspect/decide'daki kind ayrımı).
+        if (input.kind === "field_failure") {
+          await openTask(db, actor.companyId, { kind: "rma_inspect", title: `Saha arızası ${code} — ${src.serial ?? src.productCode} incele`, entityType: "rma", entityId: id, assigneeRole: "quality" });
+        } else {
+          await openTask(db, actor.companyId, { kind: "rma_receive", title: `İade ${code} — ${src.serial ?? src.productCode} teslim al`, entityType: "rma", entityId: id, assigneeRole: "warehouse" });
+        }
         return loadRma(db, id);
       }),
     );
@@ -222,6 +230,7 @@ export async function returnRoutes(app: FastifyInstance) {
     return tenant(req, "inventory.receive", async (db, actor) => {
       const rma = await lockRma(db, id);
       if (rma.status !== "open") throw conflict("invalid_transition", `İade "${rma.status}" durumunda`);
+      if (rma.kind === "field_failure") throw conflict("not_applicable", "Saha arızasında fiziksel teslim alma adımı yok — cihaz müşteride kalır; doğrudan inceleme yapılır");
       const loc = await locationOf(db, "returns");
       await db.query(
         `insert into stock_moves (company_id, item_id, lot_id, to_location_id, qty, move_type, ref_type, ref_id, created_by)
@@ -248,7 +257,10 @@ export async function returnRoutes(app: FastifyInstance) {
       const rma = await lockRma(db, id);
       const pol = await evaluateApproval(db, "rma_decision", approverFromRequest(req, "rma.decide"), { requesterId: rma.opened_by, amount: null, currency: null });
       if (!pol.allowed && pol.code === "self_approval") throw conflict("self_approval", "İadeyi açan kişi kararı veremez (onay politikası)");
-      if (rma.status !== "received") throw conflict("invalid_transition", "İnceleme yalnızca teslim alınmış iade için yapılır");
+      const fieldFailureFromOpen = rma.kind === "field_failure" && rma.status === "open";
+      if (rma.status !== "received" && !fieldFailureFromOpen) {
+        throw conflict("invalid_transition", "İnceleme yalnızca teslim alınmış iade veya (saha arızasında) doğrudan açık kayıt için yapılır");
+      }
       let crId: string | null = null;
       if (input.openChangeRequest) {
         if (!["design", "component", "firmware", "manufacturing"].includes(input.cause)) {
@@ -276,7 +288,7 @@ export async function returnRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const input = parse(
       z.object({
-        disposition: z.enum(["return_as_is", "repair", "replace", "scrap", "restock"]),
+        disposition: z.enum(["return_as_is", "repair", "replace", "scrap", "restock", "logged_no_action", "escalated_to_rma"]),
         note: z.string().min(3).max(2000),
         creditNote: z.boolean().default(false),
         replacementCode: z.string().max(120).optional(),
@@ -290,6 +302,17 @@ export async function returnRoutes(app: FastifyInstance) {
       if (!pol.allowed && pol.code === "self_approval") throw conflict("self_approval", "İadeyi açan kişi kararı veremez (onay politikası)");
       const redecide = rma.status === "decided" && rma.disposition === "repair" && rma.retest_passed === false;
       if (rma.status !== "inspected" && !redecide) throw conflict("invalid_transition", "Karar yalnızca incelenmiş iade için (veya tamiri başarısız iade için yeniden) verilir");
+      // Saha arızasında (field_failure) cihaz müşteride kalır — fiziksel stok/cihaz hareketi üreten
+      // 5 klasik sonuç (olduğu gibi iade/tamir/değişim/hurda/stoğa al) burada UYDURMA bir hareket
+      // yaratır. Yalnızca "kayda geçti, işlem yok" veya "gerçek iadeye yükselt" seçilebilir; tersine,
+      // fiziksel olarak elde bulunan return/warranty kayıtlarında bu iki yeni sonuç anlamsızdır.
+      const FIELD_FAILURE_DISPOSITIONS = ["logged_no_action", "escalated_to_rma"];
+      if (rma.kind === "field_failure" && !FIELD_FAILURE_DISPOSITIONS.includes(input.disposition)) {
+        throw conflict("field_failure_disposition", "Saha arızasında yalnızca \"kayda geçti, işlem yok\" veya \"gerçek iadeye yükselt\" seçilebilir — cihaz fiziksel olarak elde yok");
+      }
+      if (rma.kind !== "field_failure" && FIELD_FAILURE_DISPOSITIONS.includes(input.disposition)) {
+        throw conflict("field_failure_disposition", "Bu sonuç yalnızca saha arızası kayıtları içindir");
+      }
       if (input.creditNote && rma.in_warranty === false) throw conflict("out_of_warranty", `Garanti ${rma.warranty_until} tarihinde bitti; alacak belgesi talebi açılamaz`);
       if (input.creditNote && rma.cause === "customer_damage") throw conflict("customer_damage", "Müşteri kaynaklı hasarda alacak belgesi talebi açılamaz");
       if (input.disposition === "restock") {
@@ -303,8 +326,34 @@ export async function returnRoutes(app: FastifyInstance) {
         if (!input.replacementCode) throw conflict("replacement_required", "Değişim için gönderilecek seri veya lot okutulmalı");
         replacement = await pickReplacement(db, rma, input.replacementCode);
       }
-      const returnsLoc = await locationOf(db, "returns");
+      let escalatedRmaId: string | null = null;
+      let escalatedRmaCode: string | null = null;
       let closed = false;
+      if (input.disposition === "logged_no_action") {
+        // Saha arızası uzaktan/yerinde çözüldü veya belgelendi — cihaz elde olmadığı için stok/cihaz
+        // hareketi yok; yalnızca kayıt kapanır.
+        closed = true;
+      } else if (input.disposition === "escalated_to_rma") {
+        // Müşteri cihazı fiziksel olarak göndermeye karar verdi — gerçek bir 'return' kaydı açılır,
+        // orijinal saha arızası kaydı buna bağlanıp kapanır. Kayıp veri yok: müşteri/cihaz/lot/miktar/
+        // sevkiyat/garanti bilgileri kopyalanır. Orijinali önce kapatılmış işaretlenir, yoksa aynı
+        // cihaz için iki "açık" iade birden var olur ve rmas_one_open_per_device kısıtına takılır
+        // (genel karar güncellemesi zaten aşağıda status'u tekrar 'closed' yazacak — sorun değil).
+        await db.query(`update rmas set status = 'closed' where id = $1`, [id]);
+        const newCode = await nextCode(db, actor.companyId, "rma", "IAD");
+        const ins = await db.query(
+          `insert into rmas (company_id, code, customer_id, kind, device_id, lot_id, item_id, qty, shipment_id, sales_order_id, complaint, shipped_at, warranty_until, in_warranty, opened_by)
+           values (app_company_id(), $1, $2, 'return', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) returning id`,
+          [newCode, rma.customer_id, rma.device_id, rma.lot_id, rma.item_id, rma.qty, rma.shipment_id, rma.sales_order_id,
+            `Saha arızası ${rma.code} yükseltildi: ${input.note}`, rma.shipped_at, rma.warranty_until, rma.in_warranty, actor.userId],
+        );
+        escalatedRmaId = ins.rows[0].id as string;
+        escalatedRmaCode = newCode;
+        await recordEvent(db, actor, { entityType: "rma", entityId: escalatedRmaId, eventType: "created", after: { code: newCode, escalatedFrom: rma.code, kind: "return" } });
+        await openTask(db, actor.companyId, { kind: "rma_receive", title: `İade ${newCode} — saha arızasından yükseltildi, teslim al`, entityType: "rma", entityId: escalatedRmaId, assigneeRole: "warehouse" });
+        closed = true;
+      }
+      const returnsLoc = await locationOf(db, "returns");
       if (input.disposition === "scrap") {
         await db.query(
           `insert into stock_moves (company_id, item_id, lot_id, from_location_id, qty, move_type, ref_type, ref_id, created_by)
@@ -337,12 +386,12 @@ export async function returnRoutes(app: FastifyInstance) {
       await db.query(
         `update rmas set disposition = $2, disposition_note = $3, credit_note_requested = $4, decided_by = $5, decided_at = now(),
                 replacement_device_id = $6, replacement_lot_id = $7, retest_passed = $8, repair_note = null,
-                closed_at = case when $9 then now() else null end
+                escalated_rma_id = $9, closed_at = case when $10 then now() else null end
           where id = $1`,
         [id, input.disposition, input.note, input.creditNote, actor.userId, replacement?.deviceId ?? null, replacement?.lotId ?? null,
-          input.disposition === "restock" ? true : null, closed],
+          input.disposition === "restock" ? true : null, escalatedRmaId, closed],
       );
-      await setStatus(db, actor, rma, closed ? "closed" : "decided", { disposition: input.disposition, creditNote: input.creditNote, replacement: input.replacementCode }, input.note);
+      await setStatus(db, actor, rma, closed ? "closed" : "decided", { disposition: input.disposition, creditNote: input.creditNote, replacement: input.replacementCode, escalatedRmaCode: escalatedRmaCode ?? undefined }, input.note);
       if (rma.device_id) await recordEvent(db, actor, { entityType: "device", entityId: rma.device_id, eventType: `rma.${input.disposition}`, after: { rma: rma.code }, reason: input.note });
       await closeTasks(db, actor.companyId, "rma_inspect", id);
       if (input.creditNote) {
