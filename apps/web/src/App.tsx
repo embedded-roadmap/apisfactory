@@ -21,6 +21,7 @@ import { RoutingPage } from "./pages/Routing";
 import { MeetingPage, MeetingsPage } from "./pages/Meetings";
 import { ChannelPage, ChannelsPage } from "./pages/Channels";
 import { DistributorsPage } from "./pages/Distributors";
+import { SupplyRiskPage } from "./pages/SupplyRisk";
 import { AlternatesPage } from "./pages/Alternates";
 import { CustomerInvoicePage, CustomerInvoicesPage, EinvoiceConnectorsPage, ReceivablesAgingPage } from "./pages/Receivables";
 import { AgingPage, ApPolicyPage, InvoicePage, InvoicesPage, NewInvoicePage } from "./pages/Payables";
@@ -209,6 +210,7 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/purchasing/followups" element={<FollowupsPage />} />
               <Route path="/purchasing/suppliers" element={<SuppliersPage />} />
               <Route path="/purchasing/distributors" element={<DistributorsPage />} />
+              <Route path="/purchasing/supply-risk" element={<SupplyRiskPage />} />
               <Route path="/receivables" element={<CustomerInvoicesPage />} />
               <Route path="/receivables/aging" element={<ReceivablesAgingPage />} />
               <Route path="/receivables/einvoice-connectors" element={<EinvoiceConnectorsPage />} />

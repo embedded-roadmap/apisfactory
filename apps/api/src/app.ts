@@ -9,6 +9,7 @@ import { receivablesRoutes } from "./modules/receivables";
 import { collectionsRoutes } from "./modules/collections";
 import { rdProjectsRoutes } from "./modules/rd-projects";
 import { distributorRoutes } from "./modules/distributors";
+import { supplyRiskRoutes } from "./modules/supply-risk";
 import { alternateRoutes } from "./modules/alternates";
 import { dispatchRoutes } from "./modules/dispatch";
 import { opsRoutes } from "./modules/ops";
@@ -95,6 +96,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(collectionsRoutes);
   await app.register(rdProjectsRoutes);
   await app.register(distributorRoutes);
+  await app.register(supplyRiskRoutes);
   await app.register(alternateRoutes);
   await app.register(dispatchRoutes);
   await app.register(opsRoutes);

@@ -63,6 +63,8 @@ export const PERMISSIONS = [
   "purchase.request.approve",
   "purchase.order.manage",
   "supplier.manage",
+  // Tedarik riski ayarları ve tarama tetikleme (R37) — görüntüleme mevcut purchase.view ile
+  "supply.risk.manage",
   // Borçlar (tedarikçi faturası)
   "invoice.view",
   "invoice.manage",
@@ -119,7 +121,7 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
       "product.view", "bom.view", "inventory.view", "sales.view", "purchase.view", "production.view", "shipment.view",
       "task.view", "audit.view", "export.run", "field.cost.view", "field.price.view", "change.view", "rma.view", "cost.manage", "report.view",
       "task.manage", "org.manage", "team.report.view", "workflow.manage", "delegation.manage", "purchase.request.approve", "purchase.order.manage", "invoice.view", "invoice.approve", "receivable.view", "credit.override",
-      "report.suggestion.decide", "subscription.view", "subscription.manage", "rd.project.manage", "rd.project.view",
+      "report.suggestion.decide", "subscription.view", "subscription.manage", "rd.project.manage", "rd.project.view", "supply.risk.manage",
     ],
   },
   rd: {
@@ -154,7 +156,7 @@ export const DEFAULT_ROLES: Record<RoleCode, { name: { tr: string; en: string };
   },
   purchasing: {
     name: { tr: "Satın alma", en: "Purchasing" },
-    permissions: ["product.view", "bom.view", "inventory.view", "purchase.view", "purchase.request.approve", "task.view", "field.cost.view", "lot.cost.record", "purchase.request.create", "purchase.order.manage", "supplier.manage", "invoice.view", "subcontract.manage"],
+    permissions: ["product.view", "bom.view", "inventory.view", "purchase.view", "purchase.request.approve", "task.view", "field.cost.view", "lot.cost.record", "purchase.request.create", "purchase.order.manage", "supplier.manage", "invoice.view", "subcontract.manage", "supply.risk.manage"],
   },
   accounting: {
     name: { tr: "Muhasebe", en: "Accounting" },

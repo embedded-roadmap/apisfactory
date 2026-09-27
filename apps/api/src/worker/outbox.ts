@@ -4,6 +4,7 @@ import type { Db } from "../db/pool";
 import { runEscalations } from "../lib/workflow";
 import { runPoFollowups } from "../modules/procurement";
 import { runCollectionReminders } from "../modules/collections";
+import { runSupplyRiskScan } from "../modules/supply-risk";
 
 /**
  * Çıkış kutusu işleyicisi (test bağlayıcısı). Bu fazda dış sisteme hiçbir şey gönderilmez;
@@ -49,8 +50,10 @@ async function escalate(c: pg.Client) {
       const n = await runEscalations(c as unknown as Db, { companyId: co.id, userId: null, kind: "automation" });
       const f = await runPoFollowups(c as unknown as Db, { companyId: co.id, userId: null, kind: "automation" });
       const rmd = await runCollectionReminders(c as unknown as Db, { companyId: co.id, userId: null, kind: "automation" });
+      const risk = await runSupplyRiskScan(c as unknown as Db, { companyId: co.id, userId: null, kind: "automation" });
       if (f) console.log(`[purchasing] ${co.id}: ${f} tedarikçi takibi`);
       if (rmd) console.log(`[receivables] ${co.id}: ${rmd} tahsilat hatırlatması`);
+      if (risk.detected || risk.resolved) console.log(`[supply-risk] ${co.id}: ${risk.detected} yeni, ${risk.resolved} çözüldü, ${risk.escalated} yükseltildi`);
       await c.query("commit");
       if (n) console.log(`[workflow] ${co.id}: ${n} görev yükseltildi`);
     } catch (e) {

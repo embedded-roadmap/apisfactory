@@ -16,6 +16,7 @@ export function PurchasingTabs() {
       <NavLink to="/purchasing/followups">Takip</NavLink>
       <NavLink to="/purchasing/suppliers">Tedarikçiler</NavLink>
       <NavLink to="/purchasing/distributors">Distribütörler</NavLink>
+      <NavLink to="/purchasing/supply-risk">Tedarik Riski</NavLink>
     </div>
   );
 }
