@@ -1,4 +1,5 @@
 import pg from "pg";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { DEFAULT_ROLES, type RoleCode } from "@apisfactory/shared";
@@ -6,12 +7,24 @@ import { config } from "../config";
 import { hashPassword } from "../lib/auth";
 
 /**
+ * pg.Client (migration/seed script) ve Db/PoolClient (uygulama havuzu, ör. R39 kurulum ucu) ile
+ * yapısal olarak uyumlu asgari arayüz — ikisi de `.query()` sağlar, tek bir tip zorlamaya gerek yok.
+ */
+type Queryable = { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount: number | null }> };
+
+/**
  * Temel şirket kurulumu: roller (izinleriyle), varsayılan konumlar, departmanlar.
  * Şema sahibi bağlantısıyla, şirket bağlamı ayarlanarak çalışır (RLS politikaları geçerli kalır).
+ * Hem seed script'inden (pg.Client) hem de R39 kurulum ucundan (Db/PoolClient, aynı işlem içinde) çağrılır.
  */
-export async function createCompany(client: pg.Client, input: { code: string; name: string; isDemo?: boolean }) {
-  const c = await client.query(`insert into companies (code, name, is_demo) values ($1, $2, $3) returning id`, [input.code, input.name, input.isDemo ?? false]);
-  const companyId: string = c.rows[0].id;
+export async function createCompany(client: Queryable, input: { code: string; name: string; isDemo?: boolean }) {
+  // Kimliği uygulama tarafında üret ve `returning` KULLANMA: apis_app (kısıtlı) bağlantısından
+  // çağrıldığında (R39 kendi kendine kurulum) satır henüz hiçbir üyeliğe bağlı değilken eklenir —
+  // `company_visibility` SELECT politikası (RLS) yeni satırı henüz görünür kılmaz, bu yüzden
+  // `insert ... returning` kendisi RLS ihlali hatası verir (INSERT'in WITH CHECK'i geçse bile,
+  // RETURNING ayrıca SELECT görünürlüğü ister). Kimliği önceden bilmek bu döngüyü tamamen ortadan kaldırır.
+  const companyId = randomUUID();
+  await client.query(`insert into companies (id, code, name, is_demo) values ($1, $2, $3, $4)`, [companyId, input.code, input.name, input.isDemo ?? false]);
   await client.query(`select set_config('app.company_id', $1, false)`, [companyId]);
   // W42: yeni şirket "trial" paketiyle başlar (deneme süresi: 30 gün — bilinçli bir varsayılan politika,
   // gerçek bir sözleşme/fatura verisi değil). subscription_plans tablosu henüz yoksa (041 migration'dan
@@ -71,14 +84,15 @@ export async function createCompany(client: pg.Client, input: { code: string; na
 }
 
 export async function createUser(
-  client: pg.Client,
+  client: Queryable,
   input: { email: string; name: string; password: string; companyId: string; roles: RoleCode[]; roleIds: Record<string, string> },
 ) {
-  const existing = await client.query(`select id from users where email = $1`, [input.email]);
-  const userId: string =
-    existing.rows[0]?.id ??
-    (await client.query(`insert into users (email, name, password_hash) values ($1, $2, $3) returning id`, [input.email, input.name, await hashPassword(input.password)]))
-      .rows[0].id;
+  // `users` tablosuna doğrudan INSERT apis_app'ten kaldırılmıştır (migration 003) — yalnızca
+  // SECURITY DEFINER `admin_ensure_user()` fonksiyonu üzerinden oluşturulabilir (admin.ts'teki davet
+  // ucuyla aynı desen). Sahip (owner) bağlantısından (seed script) çağrıldığında da aynı fonksiyon
+  // sorunsuz çalışır — iki çağıran için tek, tutarlı kullanıcı oluşturma yolu.
+  const ensured = (await client.query(`select * from admin_ensure_user($1, $2, $3)`, [input.email, input.name, await hashPassword(input.password)])).rows[0];
+  const userId: string = ensured.user_id;
   await client.query(`select set_config('app.company_id', $1, false)`, [input.companyId]);
   const m = await client.query(`insert into memberships (company_id, user_id) values ($1, $2) returning id`, [input.companyId, userId]);
   for (const r of input.roles) {

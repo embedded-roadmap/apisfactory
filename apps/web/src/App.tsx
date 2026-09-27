@@ -37,6 +37,7 @@ import { ScenariosPage } from "./pages/Scenarios";
 import { SubcontractJobsPage } from "./pages/Subcontract";
 import { HelpPage } from "./pages/Help";
 import { RdProjectPage, RdProjectsPage } from "./pages/RdProjects";
+import { CompanySetupPage, OnboardingPage } from "./pages/Setup";
 
 function useAuthState() {
   return useSyncExternalStore(auth.subscribe, auth.get);
@@ -45,12 +46,15 @@ function useAuthState() {
 export function App() {
   const { session, companyId } = useAuthState();
   const [locale, setLocale] = useState<Locale>("tr");
-  if (!session) return <LoginPage />;
+  const [showSetup, setShowSetup] = useState(false);
+  if (!session) {
+    return showSetup ? <CompanySetupPage onCancel={() => setShowSetup(false)} /> : <LoginPage onCreateCompany={() => setShowSetup(true)} />;
+  }
   if (!companyId) return <CompanyPicker session={session} />;
   return <Shell locale={locale} setLocale={setLocale} />;
 }
 
-function LoginPage() {
+function LoginPage({ onCreateCompany }: { onCreateCompany: () => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<unknown>(null);
@@ -87,6 +91,7 @@ function LoginPage() {
         <button className="primary" disabled={busy}>
           {busy ? "Giriş yapılıyor…" : "Giriş yap"}
         </button>
+        <button type="button" onClick={onCreateCompany}>Yeni şirket oluştur</button>
       </form>
     </div>
   );
@@ -137,6 +142,7 @@ const NAV: { to: string; key: string; perm?: Permission }[] = [
   { to: "/events", key: "nav.events", perm: "audit.view" },
   { to: "/admin", key: "nav.admin", perm: "admin.users" },
   { to: "/help", key: "nav.help" },
+  { to: "/onboarding", key: "nav.onboarding" },
 ];
 
 function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) => void }) {
@@ -256,6 +262,7 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/workflow/monitor" element={<WorkflowMonitorPage />} />
               <Route path="/admin" element={<AdminPage />} />
               <Route path="/help" element={<HelpPage />} />
+              <Route path="/onboarding" element={<OnboardingPage />} />
               <Route path="/password" element={<PasswordPage />} />
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>

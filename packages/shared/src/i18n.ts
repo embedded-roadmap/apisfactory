@@ -140,6 +140,7 @@ const tr = {
   "dryout.completed": "Tamamlandı",
   "dryout.aborted": "Yarıda kesildi",
   "nav.help": "Yardım & eğitim",
+  "nav.onboarding": "Başlangıç",
 } as const;
 
 export type MessageKey = keyof typeof tr;
@@ -281,6 +282,7 @@ const en: Record<MessageKey, string> = {
   "dryout.completed": "Completed",
   "dryout.aborted": "Aborted",
   "nav.help": "Help & training",
+  "nav.onboarding": "Getting started",
 };
 
 export const MESSAGES: Record<Locale, Record<MessageKey, string>> = { tr, en };

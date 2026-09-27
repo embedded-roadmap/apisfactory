@@ -10,6 +10,19 @@ export const Uuid = z.string().uuid();
 
 export const LoginInput = z.object({ email: z.string().email(), password: z.string().min(8) });
 
+/** R39: yeni şirket kurulumu — hazır akış/rol/departman şablonuyla hızlı başlangıç (kod POST /api/setup/company doğrular). */
+export const CompanySetupInput = z.object({
+  companyName: z.string().min(2).max(200),
+  companyCode: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z0-9-]{2,20}$/, "2-20 karakter, yalnızca büyük harf/rakam/tire"),
+  adminName: z.string().min(2).max(120),
+  adminEmail: z.string().email(),
+  adminPassword: z.string().min(10).max(200),
+});
+
 export const CreateItemInput = z.object({
   code: z.string().min(1).max(64),
   name: z.string().min(1).max(200),

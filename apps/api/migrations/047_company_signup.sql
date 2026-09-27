@@ -1,0 +1,13 @@
+-- R39: hazır akışlarla hızlı şirket kurulumu (kendi kendine / self-serve şirket + ilk yönetici).
+--
+-- Var olan `company_visibility` politikası (migration 003) yalnızca `using (...)` içerir; tek bir
+-- USING'li politika ALL komutlarına (SELECT/UPDATE/DELETE/INSERT) uygulanır ve INSERT için de aynı
+-- koşulu (id = app_company_id() veya zaten üye olunan şirket) WITH CHECK olarak dayatır. Bu, yeni bir
+-- şirketin İLK satırının INSERT ile oluşturulmasını yapısal olarak imkânsız kılar: henüz hiç kimse o
+-- şirkete üye değildir ve app.company_id de henüz atanmamıştır — kısır döngü.
+--
+-- Çözüm: SELECT/UPDATE/DELETE'i hiç değiştirmeden, yalnızca INSERT'e özel, koşulsuz ayrı bir izin
+-- politikası eklenir. Permissive politikalar OR ile birleşir; bu yalnızca "yeni satır ekle" eylemini
+-- serbest bırakır — apis_app hâlâ yalnızca üye olduğu şirketleri görebilir/değiştirebilir/silebilir,
+-- `company_visibility` politikası SELECT/UPDATE/DELETE için aynen geçerli kalır.
+create policy company_self_signup_insert on companies for insert with check (true);
