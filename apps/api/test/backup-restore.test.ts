@@ -8,21 +8,24 @@
  * ikinci API sunucusu ile doğrulanır" dediği kısım — bkz. scripts/restore-login-probe.mts.
  *
  * Hedef veritabanı, apis_owner'ın CREATEDB yetkisi olmadığından (bilinçli bir sınır — bkz. restore.mjs
- * başlığı), `sudo -n -u postgres` ile oluşturulur/silinir — bu sandbox/dev ortamının zaten diğer tüm
- * testlerin (ve bu oturumdaki manuel restore tatbikatlarının) dayandığı aynı önkoşuldur.
+ * başlığı), bir PostgreSQL YÖNETİCİ bağlantısıyla oluşturulur/silinir: TEST_ADMIN_DATABASE_URL (varsayılan:
+ * docker-compose'daki `postgres` kullanıcısı). Bu bağlantı kurulamazsa Linux'ta eski yol (`sudo -n -u postgres
+ * psql`) denenir. Oturum 41'den beri betikler ve bu test psql/bash/pnpm gerektirmez — Windows'ta da koşar.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
 import pg from "pg";
 import { buildApp } from "../src/app";
 import { migrate } from "../src/db/migrate";
 import { closePool } from "../src/db/pool";
 
-const API_DIR = path.resolve(new URL("..", import.meta.url).pathname);
+const API_DIR = fileURLToPath(new URL("..", import.meta.url));
+const ADMIN_URL = process.env.TEST_ADMIN_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/postgres";
 const SOURCE_MIGRATION_URL = process.env.MIGRATION_DATABASE_URL!;
 const TARGET_DB_NAME = `apisfactory_br_test_${Date.now()}`;
 const TARGET_MIGRATION_URL = `postgres://apis_owner:owner_dev_pw@localhost:5432/${TARGET_DB_NAME}`;
@@ -36,9 +39,24 @@ let password: string;
 let companyCode: string;
 let taskTitle: string;
 
-function psqlAdmin(args: string[]) {
-  const r = spawnSync("sudo", ["-n", "-u", "postgres", "psql", "-v", "ON_ERROR_STOP=1", ...args], { encoding: "utf8" });
-  if (r.status !== 0) throw new Error(`Yönetici psql başarısız: ${r.stderr || r.stdout}`);
+/** Yönetici SQL'i: önce doğrudan yönetici bağlantısı; kurulamazsa (Linux sandbox) sudo + psql. */
+async function admin(sql: string, database?: string) {
+  const url = new URL(ADMIN_URL);
+  if (database) url.pathname = `/${database}`;
+  const c = new pg.Client({ connectionString: url.toString() });
+  try {
+    await c.connect();
+  } catch (connectError) {
+    if (process.platform === "win32") throw new Error(`Yönetici bağlantısı kurulamadı (${ADMIN_URL}): ${(connectError as Error).message}`);
+    const r = spawnSync("sudo", ["-n", "-u", "postgres", "psql", "-v", "ON_ERROR_STOP=1", ...(database ? ["-d", database] : []), "-c", sql], { encoding: "utf8" });
+    if (r.status !== 0) throw new Error(`Yönetici psql başarısız: ${r.stderr || r.stdout}`);
+    return;
+  }
+  try {
+    await c.query(sql);
+  } finally {
+    await c.end();
+  }
 }
 
 beforeAll(async () => {
@@ -70,10 +88,10 @@ beforeAll(async () => {
 
   workDir = await mkdtemp(path.join(tmpdir(), "backup-restore-test-"));
 
-  psqlAdmin(["-c", `drop database if exists ${TARGET_DB_NAME}`]);
-  psqlAdmin(["-c", `create database ${TARGET_DB_NAME} owner apis_owner`]);
-  psqlAdmin(["-d", TARGET_DB_NAME, "-c", `grant connect on database ${TARGET_DB_NAME} to apis_app`]);
-  psqlAdmin(["-d", TARGET_DB_NAME, "-c", "grant usage, create on schema public to apis_owner"]);
+  await admin(`drop database if exists ${TARGET_DB_NAME}`);
+  await admin(`create database ${TARGET_DB_NAME} owner apis_owner`);
+  await admin(`grant connect on database ${TARGET_DB_NAME} to apis_app`, TARGET_DB_NAME);
+  await admin("grant usage, create on schema public to apis_owner", TARGET_DB_NAME);
 }, 60_000);
 
 afterAll(async () => {
@@ -81,7 +99,7 @@ afterAll(async () => {
   await owner.end();
   await closePool();
   if (workDir) await rm(workDir, { recursive: true, force: true }).catch(() => {});
-  psqlAdmin(["-c", `drop database if exists ${TARGET_DB_NAME}`]);
+  await admin(`drop database if exists ${TARGET_DB_NAME}`);
 }, 30_000);
 
 describe("R46: yedekleme ve geri yükleme tatbikatı (gerçek script'ler, gerçek veritabanları)", () => {
@@ -124,7 +142,7 @@ describe("R46: yedekleme ve geri yükleme tatbikatı (gerçek script'ler, gerçe
 
       // ---- YETKİ (RLS/rol) — gerçek ikinci bir API sunucusu, ayrı süreçte, restore edilmiş hedefe
       // bağlanır ve backup ÖNCESİ oluşturulan gerçek kullanıcıyla GERÇEKTEN giriş yapar. ----
-      const probe = spawnSync("pnpm", ["exec", "tsx", "scripts/restore-login-probe.mts"], {
+      const probe = spawnSync(process.execPath, ["--import", "tsx", "scripts/restore-login-probe.mts"], {
         cwd: API_DIR,
         encoding: "utf8",
         env: {

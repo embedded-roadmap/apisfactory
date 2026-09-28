@@ -31,15 +31,88 @@
 // LOCAL_DIR ile aynı diskte/hostta OLMAMALI ("ayrı hata alanı", W37 §28); hangi ayrı disk/host/bulut
 // depolamanın kullanılacağı bir dağıtım/DevOps kararıdır (dış bağımlılık) — bu script yalnızca hedef
 // dizine yazar, o dizinin fiziksel olarak nerede olduğuna karışmaz.
+//
+// PLATFORM (oturum 41): betik yalnız Node + PostgreSQL bağlantısıyla çalışır — psql/bash/openssl/tar
+// komut satırı araçlarına bağımlılık kaldırıldı (Windows'ta `bash` WSL'e gidiyordu, psql kurulu değildi).
+// COPY aynı SQL ile pg-copy-streams üzerinden, arşiv `tar` paketiyle (aynı .tar.gz), şifreleme Node
+// crypto ile `openssl enc -aes-256-cbc -pbkdf2 -salt` ile BİREBİR aynı dosya biçiminde yapılır — önceki
+// yedekler bu betiklerle, bu betiklerin yedekleri openssl ile açılabilir.
 
-import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes } from "node:crypto";
+import { createReadStream, createWriteStream, existsSync } from "node:fs";
+import { cp, mkdir, mkdtemp, open, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pipeline } from "node:stream/promises";
+import { fileURLToPath } from "node:url";
 import pg from "pg";
+import copyStreams from "pg-copy-streams";
+import * as tar from "tar";
 
-export const MIGRATIONS_DIR = path.resolve(new URL("../migrations", import.meta.url).pathname);
+const { to: copyTo, from: copyFrom } = copyStreams;
+
+export const MIGRATIONS_DIR = fileURLToPath(new URL("../migrations", import.meta.url));
+
+// ---- openssl enc -aes-256-cbc -pbkdf2 -salt uyumlu şifreleme -------------------------------------------
+// Biçim: "Salted__" + 8 bayt tuz + şifreli metin; anahtar+IV = PBKDF2-HMAC-SHA256(parola, tuz, 10000, 48 bayt).
+const OPENSSL_MAGIC = Buffer.from("Salted__", "latin1");
+const opensslKeyIv = (pass, salt) => {
+  const kiv = pbkdf2Sync(Buffer.from(pass, "utf8"), salt, 10000, 48, "sha256");
+  return { key: kiv.subarray(0, 32), iv: kiv.subarray(32, 48) };
+};
+
+export async function encryptFile(inPath, outPath, pass) {
+  const salt = randomBytes(8);
+  const { key, iv } = opensslKeyIv(pass, salt);
+  const out = createWriteStream(outPath);
+  out.write(Buffer.concat([OPENSSL_MAGIC, salt]));
+  await pipeline(createReadStream(inPath), createCipheriv("aes-256-cbc", key, iv), out);
+}
+
+export async function decryptFile(inPath, outPath, pass) {
+  const fh = await open(inPath, "r");
+  const head = Buffer.alloc(16);
+  try {
+    await fh.read(head, 0, 16, 0);
+  } finally {
+    await fh.close();
+  }
+  if (!head.subarray(0, 8).equals(OPENSSL_MAGIC)) throw new Error("Yedek dosyası tanınmadı (openssl 'Salted__' başlığı yok)");
+  const { key, iv } = opensslKeyIv(pass, head.subarray(8, 16));
+  try {
+    await pipeline(createReadStream(inPath, { start: 16 }), createDecipheriv("aes-256-cbc", key, iv), createWriteStream(outPath));
+  } catch {
+    throw new Error("Şifre çözme başarısız — yanlış anahtar veya bozuk dosya");
+  }
+}
+
+export async function createArchive(tarPath, cwd, entries) {
+  await tar.c({ gzip: true, file: tarPath, cwd, portable: true }, entries);
+}
+
+export async function extractArchive(tarPath, cwd) {
+  await tar.x({ file: tarPath, cwd });
+}
+
+/** Dizini (içeriğiyle) kopyalar ve kopyalanan dosya sayısını döner; kaynak yoksa 0. */
+export async function copyDirectory(src, dest) {
+  if (!existsSync(src)) return 0;
+  await mkdir(dest, { recursive: true });
+  await cp(src, dest, { recursive: true, force: true });
+  return (await readdir(src, { recursive: true, withFileTypes: true })).filter((d) => d.isFile()).length;
+}
+
+/** Bir CSV'deki veri satırı sayısı — `tail -n +2 | wc -l` ile AYNI anlam (başlıktan sonraki satır sonu sayısı),
+ * böylece önceki yedeklerin manifest'teki toplamlarıyla uzlaşma bozulmaz. */
+export async function countCsvRows(file) {
+  if (!existsSync(file)) return 0;
+  const buf = await readFile(file);
+  let n = 0;
+  for (let i = buf.indexOf(10); i !== -1; i = buf.indexOf(10, i + 1)) n++;
+  return Math.max(0, n - 1);
+}
+
+export const isMainModule = (metaUrl) => Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(metaUrl);
 const STORAGE_LOCAL_DIR = process.env.STORAGE_LOCAL_DIR ?? path.join(process.cwd(), "data", "objects");
 const BACKUP_DIR = process.env.BACKUP_DIR ?? path.join(process.cwd(), "data", "backups");
 const MIGRATION_DATABASE_URL = process.env.MIGRATION_DATABASE_URL ?? "postgres://apis_owner:owner_dev_pw@localhost:5432/apisfactory";
@@ -90,15 +163,15 @@ function quoteIdent(name) {
   return `"${name}"`;
 }
 
-/** psql'in `\copy` istemci-taraflı komutuyla bir tabloyu CSV'ye döker; gerekirse önce app.company_id
- * ayarlar. Aynı psql çağrısı içindeki iki -c bayrağı AYNI oturumu (bağlantıyı) paylaşır, bu yüzden
- * SET (SET LOCAL değil) burada güvenle kalıcıdır. */
-export function copyTableToCsv(url, table, outFile, companyId) {
-  const args = ["-X", "-q", "-v", "ON_ERROR_STOP=1", url];
-  if (companyId) args.push("-c", `select set_config('app.company_id', '${companyId}', false)`);
-  args.push("-c", `\\copy (select * from ${quoteIdent(table)}) to '${outFile}' with csv header`);
-  const r = spawnSync("psql", args, { encoding: "utf8" });
-  if (r.status !== 0) throw new Error(`COPY başarısız (${table}): ${r.stderr}`);
+/** Bir tabloyu CSV'ye döker (`COPY (select …) TO STDOUT WITH CSV HEADER` — psql `\copy` ile aynı çıktı).
+ * `companyId` verilirse önce oturumda app.company_id ayarlanır (SET LOCAL değil — aynı bağlantıda kalıcı). */
+export async function copyTableToCsv(client, table, outFile, companyId) {
+  await client.query(`select set_config('app.company_id', $1, false)`, [companyId ?? ""]);
+  try {
+    await pipeline(client.query(copyTo(`COPY (select * from ${quoteIdent(table)}) TO STDOUT WITH CSV HEADER`)), createWriteStream(outFile));
+  } catch (e) {
+    throw new Error(`COPY başarısız (${table}): ${e.message}`);
+  }
 }
 
 /** Şemadaki `generated always as identity` sütunlu tabloları, bu sütunun BAŞKA bir tablodan FK ile
@@ -155,41 +228,36 @@ export async function guardTriggers(client) {
  * farklı demo/E2E şirketleri ayrı seed akışlarıyla oluşturulduğundan, sırayla numaralanan bu tablolarda
  * (ör. outbox) şirketler arası id çakışması yaşanabiliyor (gerçek geri yükleme denemesinde görüldü);
  * hiçbir tablo bu id'lere FK ile bağlı olmadığından yeni id üretmek veri kaybı YARATMAZ. */
-export function copyCsvIntoTable(url, table, inFile, companyId, identity) {
+export async function copyCsvIntoTable(client, table, inFile, companyId, identity) {
   const t = quoteIdent(table);
-  const args = ["-X", "-q", "-v", "ON_ERROR_STOP=1", url];
-  if (companyId) {
-    args.push("-c", `select set_config('app.company_id', '${companyId}', false)`);
-    args.push("-c", `create temp table _restore_stage (like ${t} including all)`);
-    args.push("-c", `\\copy _restore_stage from '${inFile}' with csv header`);
-    if (identity && !identity.preserve) {
-      const colsRes = spawnSync(
-        "psql",
-        [
-          "-X", "-t", "-A", "-q", "-v", "ON_ERROR_STOP=1", url,
-          "-c",
-          `select string_agg(quote_ident(column_name), ',' order by ordinal_position) from information_schema.columns where table_schema = 'public' and table_name = '${table}' and column_name <> '${identity.column}'`,
-        ],
-        { encoding: "utf8" },
-      );
-      if (colsRes.status !== 0) throw new Error(`Sütun listesi alınamadı (${table}): ${colsRes.stderr}`);
-      const cols = colsRes.stdout.trim();
-      args.push("-c", `insert into ${t} (${cols}) select ${cols} from _restore_stage`);
+  const load = (target) => pipeline(createReadStream(inFile), client.query(copyFrom(`COPY ${target} FROM STDIN WITH CSV HEADER`)));
+  try {
+    if (companyId) {
+      await client.query(`select set_config('app.company_id', $1, false)`, [companyId]);
+      await client.query(`create temp table _restore_stage (like ${t} including all)`);
+      try {
+        await load("_restore_stage");
+        if (identity && !identity.preserve) {
+          const cols = (
+            await client.query(
+              `select string_agg(quote_ident(column_name), ',' order by ordinal_position) as cols from information_schema.columns
+                where table_schema = 'public' and table_name = $1 and column_name <> $2`,
+              [table, identity.column],
+            )
+          ).rows[0].cols;
+          await client.query(`insert into ${t} (${cols}) select ${cols} from _restore_stage`);
+        } else {
+          await client.query(`insert into ${t} overriding system value select * from _restore_stage`);
+        }
+      } finally {
+        await client.query(`drop table if exists _restore_stage`);
+      }
     } else {
-      args.push("-c", `insert into ${t} overriding system value select * from _restore_stage`);
+      await load(t);
     }
-    args.push("-c", `drop table _restore_stage`);
-  } else {
-    args.push("-c", `\\copy ${t} from '${inFile}' with csv header`);
+  } catch (e) {
+    throw new Error(`Geri yükleme COPY başarısız (${table}): ${e.message}`);
   }
-  const r = spawnSync("psql", args, { encoding: "utf8" });
-  if (r.status !== 0) throw new Error(`Geri yükleme COPY başarısız (${table}): ${r.stderr}`);
-}
-
-function countCsvRows(file) {
-  if (!existsSync(file)) return 0;
-  const r = spawnSync("bash", ["-c", `tail -n +2 "${file}" | wc -l`], { encoding: "utf8" });
-  return Number(r.stdout.trim()) || 0;
 }
 
 async function companyScopedTables(client) {
@@ -225,7 +293,7 @@ async function main() {
     const fullOrder = [...order, ...missing];
 
     for (const t of ["users", "companies"]) {
-      copyTableToCsv(MIGRATION_DATABASE_URL, t, path.join(globalDir, `${t}.csv`), null);
+      await copyTableToCsv(client, t, path.join(globalDir, `${t}.csv`), null);
     }
     // subscription_plans GERİ YÜKLEME için COPY edilmez — bu bir uygulama verisi değil, şema/referans
     // katalogudur ve migration 041 tarafından zaten şemayla birlikte (her seferinde YENİ rastgele id
@@ -234,7 +302,7 @@ async function main() {
     // koda ait olduğunu bulup companies.subscription_plan_id / subscription_events.*_plan_id gibi
     // referansları hedefin YENİ id'lerine eşlemek için bunu kullanır (kod her migration çalışmasında
     // sabit kalır, id değil).
-    copyTableToCsv(MIGRATION_DATABASE_URL, "subscription_plans", path.join(globalDir, "subscription_plans.csv"), null);
+    await copyTableToCsv(client, "subscription_plans", path.join(globalDir, "subscription_plans.csv"), null);
 
     const companies = (await client.query(`select id, code from companies order by created_at`)).rows;
     let totalRows = 0;
@@ -243,17 +311,14 @@ async function main() {
       await mkdir(dir, { recursive: true });
       for (const t of fullOrder) {
         const outFile = path.join(dir, `${t}.csv`);
-        copyTableToCsv(MIGRATION_DATABASE_URL, t, outFile, co.id);
-        totalRows += countCsvRows(outFile);
+        await copyTableToCsv(client, t, outFile, co.id);
+        totalRows += await countCsvRows(outFile);
       }
       console.log(`  şirket ${co.code} (${co.id}) yedeklendi — ${fullOrder.length} tablo`);
     }
 
     const filesDir = path.join(work, "files");
-    if (existsSync(STORAGE_LOCAL_DIR)) {
-      await mkdir(filesDir, { recursive: true });
-      execFileSync("bash", ["-c", `cp -r "${STORAGE_LOCAL_DIR}"/. "${filesDir}"/ 2>/dev/null || true`]);
-    }
+    await copyDirectory(STORAGE_LOCAL_DIR, filesDir);
 
     await writeFile(
       path.join(work, "manifest.json"),
@@ -265,12 +330,10 @@ async function main() {
     const tarPath = path.join(work, "backup.tar.gz");
     const encPath = path.join(BACKUP_DIR, `apisfactory-backup-${stamp}.tar.gz.enc`);
 
-    const tarArgs = ["-czf", tarPath, "-C", work, "manifest.json", "global", "companies"];
-    if (existsSync(filesDir)) tarArgs.push("files");
-    execFileSync("tar", tarArgs, { stdio: "inherit" });
-
-    const enc = spawnSync("openssl", ["enc", "-aes-256-cbc", "-pbkdf2", "-salt", "-in", tarPath, "-out", encPath, "-pass", `pass:${ENC_KEY}`], { stdio: "inherit" });
-    if (enc.status !== 0) throw new Error("openssl şifreleme başarısız");
+    const entries = ["manifest.json", "global", "companies"];
+    if (existsSync(filesDir)) entries.push("files");
+    await createArchive(tarPath, work, entries);
+    await encryptFile(tarPath, encPath, ENC_KEY);
 
     const { size } = await stat(encPath);
     const secs = (Date.now() - t0) / 1000;
@@ -283,7 +346,7 @@ async function main() {
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
+if (isMainModule(import.meta.url)) {
   main().catch((e) => {
     console.error(e);
     process.exit(1);

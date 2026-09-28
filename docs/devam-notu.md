@@ -85,8 +85,8 @@ güncellendi.
   kaydı ve yenilemede kalıcılığı, muhasebe rolüyle erişim bilgisi kaydı ve değerin sayfada/API yanıtında hiç
   görünmemesi doğrulandı. Demo veride fatura olmadığı için fatura sayfasındaki hazırlık uyarısı tarayıcıda
   görülmedi (otomatik testle doğrulandı).
-- Windows geliştirme ortamında `backup-restore.test.ts` Linux'a özgü `sudo -u postgres` çağrısı nedeniyle çalışmıyor
-  (bu oturumdan önce de böyleydi; kod hatası değil).
+- (Sonradan düzeltildi — bkz. "Oturum 41 devamı — yedek betikleri platformdan bağımsız".) O an Windows'ta
+  `backup-restore.test.ts` Linux'a özgü `sudo -u postgres` çağrısı nedeniyle çalışmıyordu.
 
 **Kalan (dış bağımlılık):** entegratör seçimi → o sağlayıcının adaptörü (`EINVOICE_PROVIDERS[key]`) → sağlayıcı test
 ortamında gerçek gönderim ve gerçek ETTN. Yüksek hacimde canlı çağrının outbox'a taşınması (şu an fatura satırı
@@ -243,6 +243,29 @@ tablosu ve dönüş bildirimi doğrulandı. **iyzico sandbox'ında gerçek test 
 formu açılmaz; değişiklik için iptal + yeni abonelik veya ileride iyzico upgrade uç noktası); fiyat/plan referansları
 platform işletmecisi ekranı olmadığından SQL ile girilir; iyzico'nun bildirim imzası doğrulanmıyor (bilinçli —
 geri okuma ile gereksiz); yerelde bildirim almak için dışarıdan erişilebilir adres (tünel) gerekir.
+
+## Oturum 41 devamı — yedek/geri yükleme betikleri platformdan bağımsız (R46 düzeltmesi)
+
+**Sorun:** `backup.mjs` / `restore.mjs` psql (`\copy`), bash (`cp`, `find`, `tail | wc`), GNU tar, openssl ve pnpm komut
+satırı araçlarını çağırıyordu. Windows'ta psql/pnpm yoktu ve Node'dan çağrılan `bash` WSL'e (`C:\Windows\System32\bash.exe`)
+gidiyordu; Git Bash'teki GNU tar `C:` sürücü harfini uzak sunucu sanıyordu. Yani yalnız test değil, yedekleme
+özelliğinin kendisi Windows'ta çalışmıyordu. Kullanıcı kararı: betikleri platformdan bağımsız yap.
+
+**Yapılanlar:** COPY aynı SQL ile `pg-copy-streams` üzerinden (tek bağlantı, şirket bağlamı tablo başına); arşiv `tar`
+paketiyle (aynı .tar.gz); şifreleme Node crypto ile `openssl enc -aes-256-cbc -pbkdf2 -salt` biçiminde ("Salted__" +
+8 bayt tuz, PBKDF2-HMAC-SHA256 10000 tur → anahtar+IV); dosya kopyalama `fs.cp`; CSV satır sayımı `tail -n +2 | wc -l`
+ile aynı anlam (eski manifest toplamlarıyla uzlaşma bozulmasın); şema uygulaması `node --import tsx`; `import.meta.url`
+yolları `fileURLToPath`. Geri yüklemede `restoredRows`/`planIdRemap` kapsam hatası (yeniden düzenleme sırasında
+oluşabilirdi) önlendi. Test: yönetici işlemleri `TEST_ADMIN_DATABASE_URL` (varsayılan docker `postgres`) ile; bağlanılamazsa
+Linux'ta eski `sudo psql` yolu; giriş sondası `node --import tsx`.
+
+**Doğrulama:** Windows'ta `backup-restore.test.ts` ilk kez GEÇTİ (gerçek yedek → gerçek hedef veritabanı, 208/208 satır,
+ikinci API süreciyle gerçek giriş + RLS). Yeni `backup-crypto.test.ts` (3): Node gidiş-dönüşü + yanlış anahtar, openssl ↔
+Node çapraz uyumluluk (openssl varsa), arşiv/kopyalama/sayım. Türkçe karakterli anahtarla iki yön **Linux openssl'e
+(Docker, OpenSSL 3.5.7) karşı elle doğrulandı** — Linux'ta alınmış eski yedekler açılabilir. Windows'ta openssl.exe'ye
+ASCII dışı argüman kod sayfası yüzünden farklı iletildiğinden çapraz test orada ASCII anahtar kullanır. `pnpm backup` komut
+satırından Windows'ta gerçek dev veritabanıyla çalıştırıldı (2 şirket, 492 satır). Tam test paketinin tamamı Linux
+konteynerinde koşturulmadı; Linux'a özgü tek risk olan şifreleme uyumu ayrıca doğrulandı, diğer parçalar saf JS.
 
 ## Oturum 40 — R46: yedek, geri yükleme ve kesintide talimat erişimi
 

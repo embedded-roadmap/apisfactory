@@ -23,14 +23,15 @@
 //     --target-storage-dir /path/to/restored-objects
 
 import { createHash } from "node:crypto";
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import Papa from "papaparse";
 import pg from "pg";
-import { copyCsvIntoTable, foreignKeysOn, guardTriggers, identityColumnInfo } from "./backup.mjs";
+import { copyCsvIntoTable, copyDirectory, countCsvRows, decryptFile, extractArchive, foreignKeysOn, guardTriggers, identityColumnInfo, isMainModule } from "./backup.mjs";
 
 // subscription_plans HİÇ COPY EDİLMEZ (bkz. backup.mjs) — hedef veritabanında migration 041 kendi
 // satırlarını KENDİ (yeni, rastgele) id'leriyle zaten oluşturur. Bu yüzden yedekteki eski
@@ -54,7 +55,7 @@ async function buildPlanIdRemap(work, targetClient) {
   return remap;
 }
 
-const API_DIR = path.resolve(new URL("..", import.meta.url).pathname);
+const API_DIR = fileURLToPath(new URL("..", import.meta.url));
 
 function parseArgs(argv) {
   const out = { _: [] };
@@ -82,15 +83,15 @@ export async function runRestore({ backupFile, targetMigrationUrl, targetAppUrl,
   const work = await mkdtemp(path.join(tmpdir(), "apisfactory-restore-"));
   try {
     const tarPath = path.join(work, "backup.tar.gz");
-    const dec = spawnSync("openssl", ["enc", "-d", "-aes-256-cbc", "-pbkdf2", "-in", backupFile, "-out", tarPath, "-pass", `pass:${encryptionKey}`], { stdio: "inherit" });
-    if (dec.status !== 0) throw new Error("openssl şifre çözme başarısız — yanlış anahtar veya bozuk dosya");
-    execFileSync("tar", ["-xzf", tarPath, "-C", work], { stdio: "inherit" });
+    await decryptFile(backupFile, tarPath, encryptionKey);
+    await extractArchive(tarPath, work);
 
     const manifest = JSON.parse(await readFile(path.join(work, "manifest.json"), "utf8"));
     console.log(`Yedek çözüldü: ${manifest.createdAt}, ${manifest.companies.length} şirket, ${manifest.totalRows} satır (kaydedilmiş)`);
 
     console.log("Şema uygulanıyor (gerçek migration script'i, hedef veritabanına)...");
-    const migrateResult = spawnSync("pnpm", ["exec", "tsx", "src/db/migrate.ts"], {
+    // Aynı Node çalıştırıcısı + tsx yükleyicisi (pnpm'in PATH'te olması gerekmez — Windows dahil).
+    const migrateResult = spawnSync(process.execPath, ["--import", "tsx", "src/db/migrate.ts"], {
       cwd: API_DIR,
       env: { ...process.env, MIGRATION_DATABASE_URL: targetMigrationUrl },
       encoding: "utf8",
@@ -134,57 +135,64 @@ export async function runRestore({ backupFile, targetMigrationUrl, targetAppUrl,
     }
 
     const globalDir = path.join(work, "global");
-    for (const t of ["users", "companies"]) {
-      const f = path.join(globalDir, `${t}.csv`);
-      if (existsSync(f)) copyCsvIntoTable(targetMigrationUrl, t, f, null);
-    }
-
-    const remapClient = new pg.Client({ connectionString: targetMigrationUrl });
-    await remapClient.connect();
+    // Tüm COPY yüklemeleri tek bağlantı üzerinden (şirket bağlamı her tabloda yeniden ayarlanır).
+    const loadClient = new pg.Client({ connectionString: targetMigrationUrl });
+    await loadClient.connect();
     let planIdRemap;
-    try {
-      planIdRemap = await buildPlanIdRemap(work, remapClient);
-      let companiesRemapped = 0;
-      for (const [oldId, newId] of planIdRemap) {
-        const r = await remapClient.query(`update companies set subscription_plan_id = $1 where subscription_plan_id = $2`, [newId, oldId]);
-        companiesRemapped += r.rowCount ?? 0;
-      }
-      if (planIdRemap.size > 0) console.log(`subscription_plans id eşlemesi: ${planIdRemap.size} paket kodu eşlendi, companies.subscription_plan_id ${companiesRemapped} satırda güncellendi`);
-    } finally {
-      await remapClient.end();
-    }
-
     let restoredRows = 0;
-    for (const co of manifest.companies) {
-      const dir = path.join(work, "companies", co.id);
-      if (!existsSync(dir)) continue;
-      const files = (await readdir(dir)).filter((f) => f.endsWith(".csv"));
-      const tablesHere = files.map((f) => f.replace(/\.csv$/, ""));
-      for (const t of tablesHere) {
-        const f = path.join(dir, `${t}.csv`);
-        copyCsvIntoTable(targetMigrationUrl, t, f, co.id, identityInfo.get(t));
-        restoredRows += countCsvRows(f);
+    try {
+      for (const t of ["users", "companies"]) {
+        const f = path.join(globalDir, `${t}.csv`);
+        if (existsSync(f)) await copyCsvIntoTable(loadClient, t, f, null);
       }
 
-      // subscription_events.from_plan_id / to_plan_id da aynı şekilde eski plan id'lerini taşır —
-      // FORCE RLS altında olduğu için şirketin kendi app.company_id bağlamında güncellenmeli.
-      if (tablesHere.includes("subscription_events") && planIdRemap.size > 0) {
-        const evClient = new pg.Client({ connectionString: targetMigrationUrl });
-        await evClient.connect();
-        try {
-          await evClient.query("begin");
-          await evClient.query(`select set_config('app.company_id', $1, true)`, [co.id]);
-          for (const [oldId, newId] of planIdRemap) {
-            await evClient.query(`update subscription_events set from_plan_id = $1 where from_plan_id = $2`, [newId, oldId]);
-            await evClient.query(`update subscription_events set to_plan_id = $1 where to_plan_id = $2`, [newId, oldId]);
-          }
-          await evClient.query("commit");
-        } finally {
-          await evClient.end();
+      const remapClient = new pg.Client({ connectionString: targetMigrationUrl });
+      await remapClient.connect();
+      try {
+        planIdRemap = await buildPlanIdRemap(work, remapClient);
+        let companiesRemapped = 0;
+        for (const [oldId, newId] of planIdRemap) {
+          const r = await remapClient.query(`update companies set subscription_plan_id = $1 where subscription_plan_id = $2`, [newId, oldId]);
+          companiesRemapped += r.rowCount ?? 0;
         }
+        if (planIdRemap.size > 0) console.log(`subscription_plans id eşlemesi: ${planIdRemap.size} paket kodu eşlendi, companies.subscription_plan_id ${companiesRemapped} satırda güncellendi`);
+      } finally {
+        await remapClient.end();
       }
 
-      console.log(`  şirket ${co.code} geri yüklendi — ${tablesHere.length} tablo`);
+      for (const co of manifest.companies) {
+        const dir = path.join(work, "companies", co.id);
+        if (!existsSync(dir)) continue;
+        const files = (await readdir(dir)).filter((f) => f.endsWith(".csv"));
+        const tablesHere = files.map((f) => f.replace(/\.csv$/, ""));
+        for (const t of tablesHere) {
+          const f = path.join(dir, `${t}.csv`);
+          await copyCsvIntoTable(loadClient, t, f, co.id, identityInfo.get(t));
+          restoredRows += await countCsvRows(f);
+        }
+
+        // subscription_events.from_plan_id / to_plan_id da aynı şekilde eski plan id'lerini taşır —
+        // FORCE RLS altında olduğu için şirketin kendi app.company_id bağlamında güncellenmeli.
+        if (tablesHere.includes("subscription_events") && planIdRemap.size > 0) {
+          const evClient = new pg.Client({ connectionString: targetMigrationUrl });
+          await evClient.connect();
+          try {
+            await evClient.query("begin");
+            await evClient.query(`select set_config('app.company_id', $1, true)`, [co.id]);
+            for (const [oldId, newId] of planIdRemap) {
+              await evClient.query(`update subscription_events set from_plan_id = $1 where from_plan_id = $2`, [newId, oldId]);
+              await evClient.query(`update subscription_events set to_plan_id = $1 where to_plan_id = $2`, [newId, oldId]);
+            }
+            await evClient.query("commit");
+          } finally {
+            await evClient.end();
+          }
+        }
+
+        console.log(`  şirket ${co.code} geri yüklendi — ${tablesHere.length} tablo`);
+      }
+    } finally {
+      await loadClient.end();
     }
 
     // Kısıtları yeniden ekle. Kod eşleşmesi bulunamayan (artık var olmayan bir paket koduna işaret
@@ -218,9 +226,7 @@ export async function runRestore({ backupFile, targetMigrationUrl, targetAppUrl,
     let filesRestored = 0;
     const filesDir = path.join(work, "files");
     if (existsSync(filesDir) && targetStorageDir) {
-      await mkdir(targetStorageDir, { recursive: true });
-      execFileSync("bash", ["-c", `cp -r "${filesDir}"/. "${targetStorageDir}"/ 2>/dev/null || true`]);
-      filesRestored = Number(spawnSync("bash", ["-c", `find "${filesDir}" -type f | wc -l`], { encoding: "utf8" }).stdout.trim()) || 0;
+      filesRestored = await copyDirectory(filesDir, targetStorageDir);
     }
 
     // ---- DOĞRULAMA -----------------------------------------------------------------------------
@@ -276,13 +282,7 @@ export async function runRestore({ backupFile, targetMigrationUrl, targetAppUrl,
   }
 }
 
-function countCsvRows(file) {
-  if (!existsSync(file)) return 0;
-  const r = spawnSync("bash", ["-c", `tail -n +2 "${file}" | wc -l`], { encoding: "utf8" });
-  return Number(r.stdout.trim()) || 0;
-}
-
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
+if (isMainModule(import.meta.url)) {
   const args = parseArgs(process.argv.slice(2));
   runRestore({
     backupFile: args._[0],
