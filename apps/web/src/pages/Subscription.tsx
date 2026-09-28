@@ -11,7 +11,7 @@ const STATUS_LABEL: Record<string, [string, string]> = {
   cancelled: ["iptal edildi", "bad"],
 };
 const TRANSITIONS: Record<string, string[]> = {
-  trial: ["active", "cancelled"],
+  trial: ["active", "delinquent", "cancelled"],
   active: ["delinquent", "cancelled"],
   delinquent: ["active", "restricted", "cancelled"],
   restricted: ["active", "cancelled"],
@@ -53,7 +53,109 @@ const EVENT_LABEL: Record<string, string> = {
   status_changed: "Durum değişikliği",
   plan_changed: "Paket değişikliği",
   payment_recorded: "Ödeme kaydı",
+  payment_failed: "Başarısız tahsilat",
+  invoice_recorded: "Fatura kesildi",
 };
+const INTERVAL: Record<string, string> = { monthly: "aylık", yearly: "yıllık" };
+const PAY_RESULT: Record<string, [string, string]> = {
+  success: ["ok", "Ödeme alındı; abonelik iyzico üzerinden başlatıldı."],
+  failed: ["bad", "Ödeme tamamlanamadı. Kart bilgilerini kontrol edip tekrar deneyin."],
+};
+
+/** Madde 6 — iyzico ile abonelik ödemesi: fiyat seçimi, ödeme formu, mutabakat ve ek süre bilgisi. */
+function BillingCard({ manage, onChanged }: { manage: boolean; onChanged: () => void }) {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["subscription-billing"], queryFn: () => get<any>("/api/subscription/billing") });
+  const [priceId, setPriceId] = useState("");
+  const [c, setC] = useState({ name: "", surname: "", email: "", gsmNumber: "+90", identityNumber: "", address: "", city: "", country: "Turkey", zipCode: "" });
+  const result = new URLSearchParams(window.location.search).get("payment");
+  const checkout = useMutation({
+    mutationFn: () => post<{ pageUrl: string }>("/api/subscription/checkout", { priceId, customer: { ...c, zipCode: c.zipCode || undefined } }),
+    onSuccess: (r) => { window.location.href = r.pageUrl; },
+  });
+  const sync = useMutation({ mutationFn: () => post<any>("/api/subscription/sync"), onSuccess: () => { qc.invalidateQueries({ queryKey: ["subscription-billing"] }); qc.invalidateQueries({ queryKey: ["provider-payments"] }); onChanged(); } });
+  const b = q.data;
+  if (!b) return q.isLoading ? null : <ErrorNotice error={q.error} />;
+  const field = (k: keyof typeof c, label: string, w?: number) => (
+    <label className="field" style={w ? { width: w } : { flex: 1, minWidth: 160 }}>{label}<input aria-label={`Ödeme ${label}`} value={c[k]} onChange={(e) => setC({ ...c, [k]: e.target.value })} /></label>
+  );
+  return (
+    <section className="card">
+      <div className="row between">
+        <h2 style={{ margin: 0 }}>Ödeme (iyzico)</h2>
+        {manage && b.current?.providerLinked ? <button disabled={sync.isPending} onClick={() => sync.mutate()}>Ödeme durumunu yenile</button> : null}
+      </div>
+      {result && PAY_RESULT[result] ? <div className={`notice ${PAY_RESULT[result]![0]}`}>{PAY_RESULT[result]![1]}</div> : null}
+      {b.current?.graceUntil ? <div className="notice warn">Ödeme alınamadı. {b.current.graceUntil} tarihine kadar ödeme yapılmazsa abonelik otomatik olarak <b>kısıtlı</b> duruma geçer ({b.graceDays} gün ek süre).</div> : null}
+      {b.current?.providerLinked ? (
+        <p style={{ margin: 0 }}>Tekrarlı ödeme iyzico'da aktif: {b.current.planName} · {INTERVAL[b.current.interval] ?? b.current.interval} {fmt(b.current.amount)} {b.current.currency}{b.current.providerSyncedAt ? <span className="muted"> · son mutabakat {fmtDate(b.current.providerSyncedAt)}</span> : null}</p>
+      ) : !b.configured ? (
+        <p className="muted" style={{ margin: 0 }}>Online ödeme henüz etkin değil (platform iyzico hesabı yapılandırılmadı). Ödemeler şimdilik aşağıdaki "Ödeme kaydı" ile elle kaydedilir.</p>
+      ) : null}
+      {b.prices.length ? (
+        <table>
+          <thead><tr><th>Paket</th><th>Dönem</th><th className="num">Fiyat</th><th /></tr></thead>
+          <tbody>{b.prices.map((p: any) => (
+            <tr key={p.id}>
+              <td>{p.planName}</td><td>{INTERVAL[p.interval] ?? p.interval}</td><td className="num">{fmt(p.amount)} {p.currency}</td>
+              <td>{manage && b.configured && p.payable && !b.current?.providerLinked ? <label className="row" style={{ gap: 6 }}><input type="radio" name="price" style={{ minHeight: 0 }} checked={priceId === p.id} onChange={() => setPriceId(p.id)} /> seç</label> : !p.payable ? <span className="muted">ödeme planı tanımlanmadı</span> : null}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      ) : <Empty>Henüz fiyat tanımlanmadı (platform işletmecisi).</Empty>}
+      {priceId ? (
+        <div className="stack">
+          <p className="muted" style={{ margin: 0 }}>Fatura bilgileri (iyzico'ya iletilir). Kart bilgisi bir sonraki adımda iyzico'nun güvenli ödeme formunda girilir; bu sisteme gelmez.</p>
+          <div className="row" style={{ flexWrap: "wrap" }}>{field("name", "Ad")}{field("surname", "Soyad")}{field("email", "E-posta")}{field("gsmNumber", "Telefon", 170)}{field("identityNumber", "TCKN/VKN", 150)}</div>
+          <div className="row" style={{ flexWrap: "wrap" }}>{field("address", "Fatura adresi")}{field("city", "İl", 140)}{field("country", "Ülke", 140)}{field("zipCode", "Posta kodu", 110)}</div>
+          <div className="row"><button className="primary" disabled={checkout.isPending} onClick={() => checkout.mutate()}>iyzico ile öde</button><button onClick={() => setPriceId("")}>Vazgeç</button></div>
+        </div>
+      ) : null}
+      <ErrorNotice error={checkout.error ?? sync.error} />
+    </section>
+  );
+}
+
+/** Sağlayıcı tahsilatları ve fatura takibi (muhasebe resmi faturayı elle keser, numarayla işaretler). */
+function ProviderPayments({ manage }: { manage: boolean }) {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["provider-payments"], queryFn: () => get<any[]>("/api/subscription/provider-payments") });
+  const [inv, setInv] = useState<Record<string, string>>({});
+  const mark = useMutation({
+    mutationFn: (id: string) => post(`/api/subscription/provider-payments/${id}/invoice`, { invoiceNo: inv[id] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["provider-payments"] }); qc.invalidateQueries({ queryKey: ["subscription-events"] }); },
+  });
+  if (!q.data?.length) return null;
+  const pending = q.data.filter((p) => p.invoiceStatus === "to_invoice").length;
+  return (
+    <section className="card">
+      <h2>Tahsilatlar ve fatura</h2>
+      {pending ? <div className="notice warn">{pending} başarılı tahsilatın resmi faturası kesilmedi. Faturayı kestikten sonra fatura numarasıyla işaretleyin.</div> : null}
+      <table>
+        <thead><tr><th>Tarih</th><th>Dönem</th><th className="num">Tutar</th><th>Sonuç</th><th>Fatura</th></tr></thead>
+        <tbody>{q.data.map((p) => (
+          <tr key={p.id}>
+            <td>{fmtDate(p.occurredAt)}<div className="muted mono" style={{ fontSize: 12 }}>{p.orderRef}</div></td>
+            <td>{p.periodStart ? `${p.periodStart} → ${p.periodEnd ?? "?"}` : "—"}</td>
+            <td className="num">{p.amount ? `${fmt(p.amount)} ${p.currency}` : "—"}</td>
+            <td>{p.status === "success" ? <span className="badge ok">alındı</span> : <span className="badge bad">başarısız</span>}</td>
+            <td>
+              {p.invoiceStatus === "invoiced" ? <span className="mono">{p.invoiceNo}</span>
+                : p.invoiceStatus === "not_applicable" ? <span className="muted">—</span>
+                : manage ? (
+                  <div className="row" style={{ gap: 6 }}>
+                    <input aria-label="Fatura numarası" placeholder="fatura no" value={inv[p.id] ?? ""} onChange={(e) => setInv({ ...inv, [p.id]: e.target.value })} style={{ width: 170 }} />
+                    <button disabled={!inv[p.id]?.trim() || mark.isPending} onClick={() => mark.mutate(p.id)}>Kesildi</button>
+                  </div>
+                ) : <span className="badge warn">kesilecek</span>}
+            </td>
+          </tr>
+        ))}</tbody>
+      </table>
+      <ErrorNotice error={mark.error} />
+    </section>
+  );
+}
 
 export function SubscriptionPage() {
   const can = useCan();
@@ -129,6 +231,9 @@ export function SubscriptionPage() {
         </p>
       </section>
 
+      <BillingCard manage={manage} onChanged={invalidate} />
+      <ProviderPayments manage={manage} />
+
       {manage ? (
         <section className="card">
           <h2>Paket değiştir</h2>
@@ -170,7 +275,7 @@ export function SubscriptionPage() {
       {manage ? (
         <section className="card">
           <h2>Ödeme kaydı</h2>
-          <p className="muted" style={{ marginTop: 0 }}>Gerçek bir ödeme sağlayıcı entegrasyonu yoktur — bu yalnızca dışarıda yapılan bir ödemenin kaydını tutar; durumu otomatik değiştirmez.</p>
+          <p className="muted" style={{ marginTop: 0 }}>iyzico dışında yapılan ödemeler (havale vb.) için: yalnızca kaydını tutar; durumu otomatik değiştirmez. iyzico tahsilatları otomatik kaydedilir.</p>
           <div className="row" style={{ flexWrap: "wrap" }}>
             <label className="field">Tutar<input value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} placeholder="0.00" /></label>
             <label className="field" style={{ width: 80 }}>Para<input value={pay.currency} onChange={(e) => setPay({ ...pay, currency: e.target.value.toUpperCase() })} /></label>
@@ -196,7 +301,7 @@ export function SubscriptionPage() {
                 <td>
                   {e.eventType === "status_changed" ? `${STATUS_LABEL[e.fromStatus ?? ""]?.[0] ?? e.fromStatus ?? "—"} → ${STATUS_LABEL[e.toStatus ?? ""]?.[0] ?? e.toStatus ?? "—"}` : null}
                   {e.eventType === "plan_changed" ? `${e.fromPlanCode ?? "—"} → ${e.toPlanCode ?? "—"}` : null}
-                  {e.eventType === "payment_recorded" ? (e.reference ?? "—") : null}
+                  {["payment_recorded", "payment_failed", "invoice_recorded"].includes(e.eventType) ? (e.reference ?? "—") : null}
                 </td>
                 <td className="num">{e.amount ? `${fmt(e.amount)} ${e.currency}` : "—"}</td>
                 <td>{e.note ?? "—"}</td>

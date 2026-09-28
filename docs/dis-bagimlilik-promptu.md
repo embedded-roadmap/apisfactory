@@ -223,12 +223,25 @@ sayaçları, **idempotent ödeme kaydı** (`POST /api/subscription/payments`) �
 yapılmış bir ödemenin elle girilen notudur, gerçek bir tahsilat/fatura akışı değil ve durumu otomatik
 değiştirmez.
 
-**Sizden karar gerekenler:**
-1. Hangi ödeme sağlayıcısı? (iyzico, Stripe, Param, PayTR gibi — Türkiye pazarı için iyzico/PayTR yaygın,
-   uluslararası için Stripe.)
-2. Sağlayıcı hesabı + API anahtarları (genelde test/sandbox anahtarıyla başlanır).
-3. Fatura kesme sorumluluğu: ödeme sağlayıcısı mı fatura kesecek yoksa e-fatura entegratörünüz mü (madde 1
-   ile bağlantılı bir karar).
+**Kararlar (oturum 41, kullanıcı):** sağlayıcı **iyzico Abonelik**; fiyatlar paket başına **aylık + yıllık,
+USD/EUR**; ödeme alınamazsa veya deneme ödeme yöntemi eklenmeden biterse **otomatik gecikmiş + 14 gün ek süre →
+kısıtlı**; resmi faturayı **muhasebe elle keser** (sistem kesilecekleri listeler).
+
+**Oturum 41'de eklenen (kod tamam, iyzico hesabı bekliyor):** `lib/iyzico.ts` (IYZWSv2 imzası iyzico belgesiyle
+doğrulandı; checkout başlatma/sonuç, abonelik detayı, iptal), `modules/billing.ts` (ödeme formu — kart bilgisi
+iyzico'da girilir, bize gelmez; dönüş; bildirim içeriğine güvenmeyen, iyzico'dan geri okuyan mutabakat; tahsilat
+kaydı sipariş referansıyla tekil; otomatik geçişler; fatura işaretleme), migration 053 (`subscription_prices`,
+`subscription_checkouts`, `subscription_payments`, şirkette iyzico referansları ve ek süre), işçide deneme/ek süre
+geçişleri + günlük mutabakat, kalıcı iptalde iyzico tekrarlı ödemesinin durdurulması, web'de "Ödeme (iyzico)" ve
+"Tahsilatlar ve fatura". `billing.test.ts` 13/13 sahte HTTP ile. **Gerçek iyzico sandbox'ında doğrulanmadı.**
+
+**Sizden gereken (platform işletmecisi):**
+1. iyzico üye işyeri hesabı + **Abonelik eklentisi** (panelden) + yabancı para (USD/EUR) tahsilatının açık olması.
+2. Sandbox API anahtarı/gizli anahtarı → `apps/api/.env` (`IYZICO_API_KEY`, `IYZICO_SECRET_KEY`).
+3. iyzico panelinde abonelik ürünü ve her fiyat için ödeme planı (aylık/yıllık, USD/EUR); planın referans kodunu
+   `subscription_prices` tablosuna tutar ile birlikte girmek (platform işletmecisi ekranı olmadığından SQL ile).
+4. Bildirim (webhook) adresi: `{PUBLIC_API_BASE}/api/subscription/iyzico/webhook` (dışarıdan erişilebilir olmalı;
+   yerelde ngrok benzeri bir tünel gerekir).
 
 **Kabul kriteri:** sağlayıcının test/sandbox modunda gerçek bir kart işleminin (test kartıyla) başarıyla
 tamamlanması ve `companies.subscription_status`'ün otomatik güncellenmesi (elle not girme yerine).

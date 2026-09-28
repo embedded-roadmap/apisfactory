@@ -6,6 +6,7 @@ import { runPoFollowups } from "../modules/procurement";
 import { runCollectionReminders } from "../modules/collections";
 import { runSupplyRiskScan } from "../modules/supply-risk";
 import { pushMeeting, runCalendarPull } from "../modules/calendar";
+import { reconcileBilling, runSubscriptionLifecycle } from "../modules/billing";
 
 /**
  * Çıkış kutusu işleyicisi (test bağlayıcısı). Bu fazda dış sisteme hiçbir şey gönderilmez;
@@ -50,6 +51,7 @@ setInterval(() => tick(client).catch((e) => console.error(e)), 2000);
 /** Zaman aşımı taraması: her şirket için kendi bağlamında (RLS) süresi geçen onay görevlerini yükseltir. */
 async function escalate(c: pg.Client) {
   const companies = await c.query(`select id from companies`);
+  const needsBillingSync: string[] = [];
   for (const co of companies.rows) {
     await c.query("begin");
     try {
@@ -58,6 +60,9 @@ async function escalate(c: pg.Client) {
       const f = await runPoFollowups(c as unknown as Db, { companyId: co.id, userId: null, kind: "automation" });
       const rmd = await runCollectionReminders(c as unknown as Db, { companyId: co.id, userId: null, kind: "automation" });
       const risk = await runSupplyRiskScan(c as unknown as Db, { companyId: co.id, userId: null, kind: "automation" });
+      const life = await runSubscriptionLifecycle(c as unknown as Db, co.id);
+      if (life.transitions.length) console.log(`[billing] ${co.id}: ${life.transitions.join(" → ")}`);
+      if (life.needsSync) needsBillingSync.push(co.id);
       if (f) console.log(`[purchasing] ${co.id}: ${f} tedarikçi takibi`);
       if (rmd) console.log(`[receivables] ${co.id}: ${rmd} tahsilat hatırlatması`);
       if (risk.detected || risk.resolved) console.log(`[supply-risk] ${co.id}: ${risk.detected} yeni, ${risk.resolved} çözüldü, ${risk.escalated} yükseltildi`);
@@ -78,6 +83,13 @@ async function escalate(c: pg.Client) {
       await c.query("rollback");
       console.error("[calendar] senkron hatası", (e as Error).message);
     }
+  }
+  // Günlük iyzico mutabakatı (dış çağrı; şirket işlemlerinin dışında).
+  for (const id of needsBillingSync) {
+    await reconcileBilling(id).then(
+      (r) => r.recorded || r.transition ? console.log(`[billing] ${id}: ${r.recorded} tahsilat, ${r.transition ?? "durum değişmedi"}`) : undefined,
+      (e) => console.error("[billing] mutabakat hatası", (e as Error).message),
+    );
   }
 }
 setInterval(() => escalate(client).catch((e) => console.error(e)), 60_000);

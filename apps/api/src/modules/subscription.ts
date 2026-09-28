@@ -2,7 +2,8 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { Db } from "../db/pool";
 import { conflict, notFound } from "../lib/errors";
-import { idempotent, recordEvent } from "../lib/records";
+import { idempotent, recordEvent, type Actor } from "../lib/records";
+import { cancelProviderSubscription } from "./billing";
 import { idempotencyKey, parse, tenant } from "../http/context";
 
 /**
@@ -41,7 +42,8 @@ import { idempotencyKey, parse, tenant } from "../http/context";
 const STATUSES = ["trial", "active", "delinquent", "restricted", "cancelled"] as const;
 type Status = (typeof STATUSES)[number];
 const TRANSITIONS: Record<Status, Status[]> = {
-  trial: ["active", "cancelled"],
+  // Oturum 41: deneme süresi ödeme yöntemi eklenmeden biterse ek süre (gecikmiş) başlar.
+  trial: ["active", "delinquent", "cancelled"],
   active: ["delinquent", "cancelled"],
   delinquent: ["active", "restricted", "cancelled"],
   restricted: ["active", "cancelled"],
@@ -54,6 +56,30 @@ export async function assertNotRestricted(db: Db, companyId: string, action: str
   if (r.rows[0]?.subscription_status === "restricted") {
     throw conflict("subscription_restricted", `Şirketin aboneliği kısıtlı durumda; ${action} yapılamaz. Abonelik durumunu düzeltmek için yöneticinize başvurun.`);
   }
+}
+
+/**
+ * Durum geçişi (elle ve otomatik ortak). Geçiş grafiği dışındaki adım reddedilir; her geçiş subscription_events'e
+ * ve olay defterine gerekçesiyle yazılır. `grace` verilirse ek süre bitişi de ayarlanır (gecikmiş durumda).
+ */
+export async function transitionSubscription(db: Db, actor: Actor, to: Status, reason: string, opts: { graceUntil?: string | null } = {}) {
+  const cur = await db.query(`select subscription_status from companies where id = $1 for update`, [actor.companyId]);
+  if (!cur.rows[0]) throw notFound("Şirket");
+  const from = cur.rows[0].subscription_status as Status;
+  if (from === to) throw conflict("invalid_transition", `Zaten "${from}" durumunda`);
+  if (!TRANSITIONS[from].includes(to)) throw conflict("invalid_transition", `"${from}" durumundan "${to}" durumuna geçilemez`, { from, allowed: TRANSITIONS[from] });
+  await db.query(
+    `update companies set subscription_status = $2, subscription_status_reason = $3, subscription_status_changed_at = now(),
+            grace_until = case when $2 = 'delinquent' then $4::date when $2 = 'active' then null else grace_until end
+      where id = $1`,
+    [actor.companyId, to, reason, opts.graceUntil ?? null],
+  );
+  await db.query(
+    `insert into subscription_events (company_id, event_type, from_status, to_status, note, recorded_by) values ($1, 'status_changed', $2, $3, $4, $5)`,
+    [actor.companyId, from, to, reason, actor.userId],
+  );
+  await recordEvent(db, actor, { entityType: "company", entityId: actor.companyId, eventType: "subscription.status_changed", before: { status: from }, after: { status: to, graceUntil: opts.graceUntil ?? undefined }, reason });
+  return { from, to };
 }
 
 export async function subscriptionRoutes(app: FastifyInstance) {
@@ -128,23 +154,12 @@ export async function subscriptionRoutes(app: FastifyInstance) {
   /** Durum geçişi: açık gerekçe zorunlu, yalnızca tanımlı geçiş grafiğindeki adımlara izin verilir. */
   app.post("/api/subscription/transition", async (req) => {
     const input = parse(z.object({ to: z.enum(STATUSES), reason: z.string().min(3).max(1000) }), req.body);
-    return tenant(req, "subscription.manage", async (db, actor) => {
-      const cur = await db.query(`select subscription_status from companies where id = $1 for update`, [actor.companyId]);
-      if (!cur.rows[0]) throw notFound("Şirket");
-      const from = cur.rows[0].subscription_status as Status;
-      if (from === input.to) throw conflict("invalid_transition", `Zaten "${from}" durumunda`);
-      if (!TRANSITIONS[from].includes(input.to)) throw conflict("invalid_transition", `"${from}" durumundan "${input.to}" durumuna geçilemez`, { from, allowed: TRANSITIONS[from] });
-      await db.query(
-        `update companies set subscription_status = $2, subscription_status_reason = $3, subscription_status_changed_at = now() where id = $1`,
-        [actor.companyId, input.to, input.reason],
-      );
-      await db.query(
-        `insert into subscription_events (company_id, event_type, from_status, to_status, note, recorded_by) values ($1, 'status_changed', $2, $3, $4, $5)`,
-        [actor.companyId, from, input.to, input.reason, actor.userId],
-      );
-      await recordEvent(db, actor, { entityType: "company", entityId: actor.companyId, eventType: "subscription.status_changed", before: { status: from }, after: { status: input.to }, reason: input.reason });
-      return { from, to: input.to };
-    });
+    // Kalıcı iptalde sağlayıcıdaki tekrarlı ödeme de durdurulur (dış çağrı veri tabanı işleminden önce).
+    if (input.to === "cancelled") {
+      const ref = await tenant(req, "subscription.manage", async (db, actor) => (await db.query(`select provider_subscription_ref from companies where id = $1`, [actor.companyId])).rows[0]?.provider_subscription_ref as string | null);
+      if (ref) await cancelProviderSubscription(ref);
+    }
+    return tenant(req, "subscription.manage", (db, actor) => transitionSubscription(db, actor, input.to, input.reason));
   });
 
   /**

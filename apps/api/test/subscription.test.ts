@@ -93,7 +93,8 @@ describe("Abonelik ve şirket yaşam döngüsü (W42)", () => {
     const invalid = await call(w.app, "accounting@a.test", A, "POST", "/api/subscription/transition", { to: "restricted", reason: "trial'dan doğrudan restricted'a geçilemez" });
     expect(invalid.status).toBe(409);
     expect(invalid.body.error.code).toBe("invalid_transition");
-    expect(invalid.body.error.details.allowed).toEqual(["active", "cancelled"]);
+    // Oturum 41: deneme ödeme yöntemi eklenmeden biterse ek süre (delinquent) başlar.
+    expect(invalid.body.error.details.allowed).toEqual(["active", "delinquent", "cancelled"]);
     const short = await call(w.app, "accounting@a.test", A, "POST", "/api/subscription/transition", { to: "active", reason: "ab" });
     expect(short.status).toBe(400); // gerekçe en az 3 karakter
   });
