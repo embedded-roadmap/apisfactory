@@ -38,7 +38,8 @@ export function Discussion({ entityType, entityId }: { entityType: string; entit
   const qc = useQueryClient();
   const key = ["thread", entityType, entityId];
   const q = useQuery({ queryKey: key, queryFn: () => get<any>(`/api/threads/${entityType}/${entityId}`) });
-  const people = useQuery({ queryKey: ["mentionable", entityType, entityId], queryFn: () => get<any[]>(`/api/threads/${entityType}/${entityId}/mentionable`) });
+  // Birebir konuşmada bahsetme yok (sunucu da reddeder).
+  const people = useQuery({ queryKey: ["mentionable", entityType, entityId], queryFn: () => get<any[]>(`/api/threads/${entityType}/${entityId}/mentionable`), enabled: entityType !== "direct" });
   const [body, setBody] = useState("");
   const [mentions, setMentions] = useState<string[]>([]);
   const [replyTo, setReplyTo] = useState<any | null>(null);
@@ -164,10 +165,10 @@ export function Discussion({ entityType, entityId }: { entityType: string; entit
             Video ekle
             <input type="file" accept={VIDEO_TYPES.join(",")} style={{ display: "none" }} onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} disabled={!!uploading} />
           </label>
-          <select aria-label="Kişiden bahset" value="" onChange={(e) => { if (e.target.value && !mentions.includes(e.target.value)) setMentions([...mentions, e.target.value]); }}>
+          {entityType !== "direct" ? <select aria-label="Kişiden bahset" value="" onChange={(e) => { if (e.target.value && !mentions.includes(e.target.value)) setMentions([...mentions, e.target.value]); }}>
             <option value="">@ Kişiden bahset…</option>
             {people.data?.filter((p) => p.id !== me?.user.id && !mentions.includes(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          </select> : null}
           {mentions.map((id) => {
             const p = people.data?.find((x) => x.id === id);
             return <span key={id} className="badge">@{p?.name ?? id} <button type="button" className="link" aria-label={`${p?.name} çıkar`} onClick={() => setMentions(mentions.filter((x) => x !== id))}>×</button></span>;

@@ -35,6 +35,14 @@ export const ENTITY: Record<string, { table: string; perm: Permission; label: (r
   task: { table: "tasks", perm: "task.view", select: "title as code", label: (r) => r.code, link: (id) => `/planning/tasks/${id}` },
   meeting: { table: "meetings", perm: "task.view", select: "code || ' ' || title as code", label: (r) => r.code, link: (id) => `/planning/meetings/${id}` },
   channel: { table: "channels", perm: "task.view", select: "code || ' ' || name as code", label: (r) => r.code, link: (id) => `/collaboration/channels/${id}` },
+  // Birebir konuşma (R25): kayıt RLS ile yalnız iki katılımcıya görünür; etiket karşı tarafın adıdır.
+  direct: {
+    table: "direct_conversations",
+    perm: "task.view",
+    select: "(select name from users where id = case when user_a = app_user_id() then user_b else user_a end) as code",
+    label: (r) => r.code,
+    link: (id) => `/collaboration/direct/${id}`,
+  },
   item_alternate: {
     table: "item_alternates",
     perm: "bom.view",
@@ -187,6 +195,47 @@ function buildMeetingIcs(
 }
 
 export async function collaborationRoutes(app: FastifyInstance) {
+  // ---- Birebir konuşma (R25) --------------------------------------------------------------
+  /** Konuşmayı başlatır veya mevcut olanı döner (çift başına tek konuşma). */
+  app.post("/api/direct-conversations", async (req) => {
+    const input = parse(z.object({ userId: z.string().uuid() }), req.body);
+    return tenant(req, "task.view", async (db, actor) => {
+      if (!actor.userId) throw badRequest("Kullanıcı gerekli");
+      if (input.userId === actor.userId) throw badRequest("Kendinizle konuşma açılamaz");
+      const m = await db.query(`select 1 from memberships where user_id = $1 and status = 'active'`, [input.userId]);
+      if (!m.rowCount) throw notFound("Kişi");
+      const [a, b] = [actor.userId, input.userId].sort();
+      // Tablo değişmez (UPDATE yetkisi yok): çakışmada hiçbir şey yapma, mevcut kaydı oku.
+      await db.query(`insert into direct_conversations (company_id, user_a, user_b) values (app_company_id(), $1, $2) on conflict (company_id, user_a, user_b) do nothing`, [a, b]);
+      const r = await db.query(`select id from direct_conversations where user_a = $1 and user_b = $2`, [a, b]);
+      return { id: r.rows[0].id as string };
+    });
+  });
+
+  /** Kendi birebir konuşmalarım: karşı taraf, son mesaj zamanı, okunmamış sayısı. */
+  app.get("/api/direct-conversations", async (req) =>
+    tenant(req, "task.view", async (db, actor) =>
+      (await db.query(
+        `select d.id, u.id as "userId", u.name, t.id as "threadId",
+                (select max(m.created_at) from messages m where m.thread_id = t.id) as "lastMessageAt",
+                (select count(*) from messages m where m.thread_id = t.id and m.author_id <> $1
+                    and m.created_at > coalesce((select r.last_read_at from thread_reads r where r.thread_id = t.id and r.user_id = $1), '-infinity'))::int as unread
+           from direct_conversations d
+           join users u on u.id = case when d.user_a = $1 then d.user_b else d.user_a end
+           left join threads t on t.entity_type = 'direct' and t.entity_id = d.id
+          order by "lastMessageAt" desc nulls last, u.name`,
+        [actor.userId],
+      )).rows,
+    ),
+  );
+
+  /** Konuşma başlatılabilecek kişiler: şirketteki aktif üyeler (kendisi hariç). */
+  app.get("/api/direct-conversations/people", async (req) =>
+    tenant(req, "task.view", async (db, actor) =>
+      (await db.query(`select u.id, u.name from memberships m join users u on u.id = m.user_id where m.status = 'active' and u.id <> $1 order by u.name`, [actor.userId])).rows,
+    ),
+  );
+
   // ---- Mesajlaşma ------------------------------------------------------------------------
   app.get("/api/threads/:entityType/:entityId", async (req) => {
     const { entityType, entityId } = req.params as { entityType: string; entityId: string };
@@ -254,6 +303,8 @@ export async function collaborationRoutes(app: FastifyInstance) {
       z.object({ body: z.string().trim().min(1).max(4000), mentions: z.array(z.string().uuid()).max(20).default([]), replyTo: z.string().uuid().optional(), attachments: z.array(AttachmentInput).max(MAX_ATTACHMENTS).default([]) }),
       req.body,
     );
+    // Birebir konuşmada bahsetme yok: üçüncü kişiye bildirim gizliliği deler (içeriği göremese de).
+    if (entityType === "direct" && input.mentions.length) throw badRequest("Birebir konuşmada bahsetme kullanılmaz");
     const inlineInputs = input.attachments.filter((a): a is z.infer<typeof InlineAttachmentInput> => "contentBase64" in a);
     const stagedInputs = input.attachments.filter((a): a is z.infer<typeof StagedAttachmentInput> => "stagedUploadId" in a);
     const files = inlineInputs.map((a) => {

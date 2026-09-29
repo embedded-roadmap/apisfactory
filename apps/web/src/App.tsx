@@ -38,6 +38,7 @@ const MeetingPage = lazyNamed(() => import("./pages/Meetings"), "MeetingPage");
 const MeetingsPage = lazyNamed(() => import("./pages/Meetings"), "MeetingsPage");
 const ChannelPage = lazyNamed(() => import("./pages/Channels"), "ChannelPage");
 const ChannelsPage = lazyNamed(() => import("./pages/Channels"), "ChannelsPage");
+const DirectMessagesPage = lazyNamed(() => import("./pages/DirectMessages"), "DirectMessagesPage");
 const DistributorsPage = lazyNamed(() => import("./pages/Distributors"), "DistributorsPage");
 const SupplyRiskPage = lazyNamed(() => import("./pages/SupplyRisk"), "SupplyRiskPage");
 const AlternatesPage = lazyNamed(() => import("./pages/Alternates"), "AlternatesPage");
@@ -182,6 +183,7 @@ const NAV: { to: string; key: string; perm?: Permission }[] = [
   { to: "/subcontract-jobs", key: "nav.subcontractJobs", perm: "subcontract.manage" },
   { to: "/workflow", key: "nav.workflow", perm: "task.view" },
   { to: "/collaboration/channels", key: "nav.channels", perm: "task.view" },
+  { to: "/collaboration/direct", key: "nav.direct", perm: "task.view" },
   { to: "/events", key: "nav.events", perm: "audit.view" },
   { to: "/admin", key: "nav.admin", perm: "admin.users" },
   { to: "/help", key: "nav.help" },
@@ -307,6 +309,8 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/planning/meetings/:id" element={<MeetingPage />} />
               <Route path="/collaboration/channels" element={<ChannelsPage />} />
               <Route path="/collaboration/channels/:id" element={<ChannelPage />} />
+              <Route path="/collaboration/direct" element={<DirectMessagesPage />} />
+              <Route path="/collaboration/direct/:id" element={<DirectMessagesPage />} />
               <Route path="/planning/org" element={<OrgPage />} />
               <Route path="/planning/team" element={<TeamReportPage />} />
               <Route path="/quality" element={<QualityPage />} />

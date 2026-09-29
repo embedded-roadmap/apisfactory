@@ -166,7 +166,7 @@ function quoteIdent(name) {
 /** Bir tabloyu CSV'ye döker (`COPY (select …) TO STDOUT WITH CSV HEADER` — psql `\copy` ile aynı çıktı).
  * `companyId` verilirse önce oturumda app.company_id ayarlanır (SET LOCAL değil — aynı bağlantıda kalıcı). */
 export async function copyTableToCsv(client, table, outFile, companyId) {
-  await client.query(`select set_config('app.company_id', $1, false)`, [companyId ?? ""]);
+  await client.query(`select set_config('app.company_id', $1, false), set_config('app.system_scope', 'backup', false)`, [companyId ?? ""]);
   try {
     await pipeline(client.query(copyTo(`COPY (select * from ${quoteIdent(table)}) TO STDOUT WITH CSV HEADER`)), createWriteStream(outFile));
   } catch (e) {
@@ -233,7 +233,7 @@ export async function copyCsvIntoTable(client, table, inFile, companyId, identit
   const load = (target) => pipeline(createReadStream(inFile), client.query(copyFrom(`COPY ${target} FROM STDIN WITH CSV HEADER`)));
   try {
     if (companyId) {
-      await client.query(`select set_config('app.company_id', $1, false)`, [companyId]);
+      await client.query(`select set_config('app.company_id', $1, false), set_config('app.system_scope', 'backup', false)`, [companyId]);
       await client.query(`create temp table _restore_stage (like ${t} including all)`);
       try {
         await load("_restore_stage");

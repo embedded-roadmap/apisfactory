@@ -177,7 +177,7 @@ export async function runRestore({ backupFile, targetMigrationUrl, targetStorage
           await evClient.connect();
           try {
             await evClient.query("begin");
-            await evClient.query(`select set_config('app.company_id', $1, true)`, [co.id]);
+            await evClient.query(`select set_config('app.company_id', $1, true), set_config('app.system_scope', 'backup', true)`, [co.id]);
             for (const [oldId, newId] of planIdRemap) {
               await evClient.query(`update subscription_events set from_plan_id = $1 where from_plan_id = $2`, [newId, oldId]);
               await evClient.query(`update subscription_events set to_plan_id = $1 where to_plan_id = $2`, [newId, oldId]);
@@ -247,7 +247,7 @@ export async function runRestore({ backupFile, targetMigrationUrl, targetStorage
       if (targetStorageDir && filesDir && existsSync(filesDir)) {
         for (const co of manifest.companies) {
           await client.query("begin");
-          await client.query(`select set_config('app.company_id', $1, true)`, [co.id]);
+          await client.query(`select set_config('app.company_id', $1, true), set_config('app.system_scope', 'backup', true)`, [co.id]);
           const atts = await client.query(`select object_key as "objectKey", sha256 from message_attachments where object_key is not null`);
           for (const row of atts.rows) {
             const p = path.join(targetStorageDir, row.objectKey);

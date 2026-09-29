@@ -1457,3 +1457,12 @@ Migration 064: `work_orders.production_stage` (prototype/pilot/series, varsayıl
 (low/medium/high/boş). İş emri açılışında `productionStage`; `PUT /api/products/:id/complexity` (product.create, gerekçeli). `/api/metrics` ve
 kaynak kayıtlar isteğe bağlı `stage` filtresi (hurda, ilk testte başarı, yeniden işleme); `metricData` 6. parametre (varsayılan null —
 report-findings çağrıları değişmedi). Ekip raporu: `operationsByStage`, `operationsByComplexity`, `testsByStage`. `production-stage.test.ts` 3/3.
+
+## Oturum 41 devamı — R25 birebir mesajlaşma
+
+Migration 065. `direct_conversations` (çift başına tek; user_a < user_b) + mevcut threads/messages altyapısı (`entity_type = direct`).
+Gizlilik veri tabanında: kısıtlayıcı RLS politikaları konuşmayı ve bağlı mesaj/ek/bahsetme/okundu kayıtlarını yalnız iki katılımcıya
+gösterir (politika alt sorguları da RLS'e tabi olduğu için zincirleme). İstisna yalnız `app.system_scope = backup` — backup.mjs/restore.mjs
+ayarlar, uygulama istekleri hiç ayarlamaz. Şirket dışa aktarımı dışa aktaranın yalnız kendi birebir konuşmalarını içerir. Uçlar:
+`POST/GET /api/direct-conversations`, `/people`; mesajlar genel `/api/threads/direct/:id` uçlarıyla (bahsetme reddedilir). Web: Mesajlar.
+Mobil ekran yok. `direct-messages.test.ts` 4/4 (veri tabanı düzeyi dahil).
