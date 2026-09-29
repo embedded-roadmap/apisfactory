@@ -161,6 +161,40 @@ describe("Ar-Ge maliyeti (R05)", () => {
     expect(events.rows.map((e) => e.event_type)).toEqual(["rd_cost.handover", "rd_cost.recalculation"]);
   });
 
+  it("stoktan karşılanan proje malzemesi: depoya görev, projeye çıkış/iade, lot maliyetiyle Ar-Ge maliyetine girer", async () => {
+    const itemId = expectOk(await call(w.app, "rd@a.test", A, "POST", "/api/items", { code: "MAT-PRJ-1", name: "Prototip konnektör", kind: "component" })).id;
+    const sp = expectOk(await call(w.app, "warehouse@a.test", A, "POST", "/api/imports/stock/preview", {
+      fileName: "m.csv", content: "kod,miktar,lot,konum\nMAT-PRJ-1,10,MAT-L1,STK", mapping: { itemCode: "kod", qty: "miktar", lotNo: "lot", locationCode: "konum" },
+    }));
+    expectOk(await call(w.app, "warehouse@a.test", A, "POST", `/api/imports/${sp.jobId}/commit`, {}));
+    const lotId = expectOk(await call(w.app, "warehouse@a.test", A, "GET", "/api/lots/lookup?code=MAT-L1"))[0].id;
+    expectOk(await call(w.app, "purchasing@a.test", A, "POST", `/api/lots/${lotId}/cost`, { unitCost: "2.5", currency: "TRY", source: "invoice", reference: "FTR-MAT" }));
+    const before = expectOk(await call(w.app, "rd@a.test", A, "GET", `/api/rd-projects/${projectId}/cost`)).byCurrency[0];
+
+    const pr = expectOk(await call(w.app, "rd@a.test", A, "POST", "/api/purchase-requests", { itemId, qty: "4", note: "Prototip için stoktan", projectId }));
+    expect(pr).toMatchObject({ covered: true, coveredQty: "4" });
+    const task = await w.owner.query(`select assignee_role from tasks where kind = 'rd_material_issue' and entity_id = $1 and status = 'open'`, [projectId]);
+    expect(task.rows.map((t) => t.assignee_role)).toEqual(["warehouse"]);
+
+    expect((await call(w.app, "rd@a.test", A, "POST", `/api/rd-projects/${projectId}/material-issues`, { lotId, qty: "4" })).status).toBe(403);
+    const open = expectOk(await call(w.app, "warehouse@a.test", A, "GET", "/api/rd-projects/open-for-issue"));
+    expect(Object.keys(open.find((x: any) => x.id === projectId)).sort()).toEqual(["code", "id", "name"]);
+    expect((await call(w.app, "warehouse@a.test", A, "GET", `/api/rd-projects/${projectId}`)).status).toBe(403); // bütçe/harcama depoya kapalı
+    expect((await call(w.app, "warehouse@a.test", A, "POST", `/api/rd-projects/${projectId}/material-issues`, { lotId, qty: "100" })).body.error.code).toBe("lot_not_usable");
+    expectOk(await call(w.app, "warehouse@a.test", A, "POST", `/api/rd-projects/${projectId}/material-issues`, { lotId, qty: "4", note: "Prototip tezgâhına" }));
+    expect((await call(w.app, "warehouse@a.test", A, "POST", `/api/rd-projects/${projectId}/material-returns`, { lotId, qty: "5", note: "fazla iade" })).body.error.code).toBe("over_return");
+    expectOk(await call(w.app, "warehouse@a.test", A, "POST", `/api/rd-projects/${projectId}/material-returns`, { lotId, qty: "1", note: "Kullanılmadı" }));
+
+    const cost = expectOk(await call(w.app, "rd@a.test", A, "GET", `/api/rd-projects/${projectId}/cost`));
+    const now = cost.byCurrency[0];
+    expect(now.stockIssued).toBe("7.50"); // (4 − 1) × 2,50
+    expect(Number(now.total) - Number(before.total)).toBeCloseTo(7.5, 2);
+    expect(Number(now.byCategory.prototype_material) - Number(before.byCategory.prototype_material)).toBeCloseTo(7.5, 2);
+    expect(cost.stockMaterials.map((m: any) => [m.moveType, m.amount])).toEqual([["issue", "10.00"], ["return", "-2.50"]]);
+    const moves = expectOk(await call(w.app, "rd@a.test", A, "GET", `/api/rd-projects/${projectId}/material-moves`));
+    expect(moves).toHaveLength(2);
+  });
+
   it("kapalı projeye zaman kaydı girilmez", async () => {
     expectOk(await call(w.app, "rd@a.test", A, "POST", `/api/rd-projects/${projectId}/close`, { reason: "Devir tamamlandı" }));
     const r = await call(w.app, "rd@a.test", A, "POST", `/api/rd-projects/${projectId}/time-entries`, { workDate: addDays(0), hours: "1", activity: "test" });

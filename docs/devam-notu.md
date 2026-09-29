@@ -1410,3 +1410,11 @@ derived_analysis, export, account_pricing, ai_processing) × allowed/denied/unkn
 `distributor_connectors_live_licensed`. Teyit daraltılınca bağlayıcı `not_connected` olur (olay kaydında). Tedarik riski
 taraması canlı bağlayıcının geçmişini yalnız history + derived_analysis izinliyse kullanır. Web: Satın alma → Distribütörler
 → Ayarla altında lisans teyidi. `distributor-live.test.ts` güncellendi (+1 test).
+
+## Oturum 41 devamı — stoktan karşılanan Ar-Ge malzemesi
+
+Projeye bağlı talep (kısmen) stoktan karşılanınca depoya `rd_material_issue` görevi açılır. Depo `POST /api/rd-projects/:id/material-issues`
+(inventory.issue; yalnız kullanılabilir stok, ayrılmamış miktar, idempotent) ile çıkış, `material-returns` ile iade yapar (net çıkıştan
+fazlası iade edilemez); hareketler `stock_moves` ref_type rd_project. Ar-Ge maliyeti (`computeRdCost`) net çıkışı lotun güncel
+maliyetiyle prototip malzemesine ekler (`stockIssued`); lot maliyeti yoksa rapor geçici. Depo bütçe/harcama görmez: dar liste
+`GET /api/rd-projects/open-for-issue` (yalnız kod/ad). Web: Depo sayfasında "Ar-Ge projesine malzeme çıkışı / iadesi".

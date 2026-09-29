@@ -334,10 +334,14 @@ export async function workflowRoutes(app: FastifyInstance) {
               eventType: "material_request.covered_by_stock",
               after: { requestedQty: input.qty, note: input.note, projectId: input.projectId, costCenter },
             });
+            await openTask(db, actor.companyId, { kind: "rd_material_issue", title: `Ar-Ge projesine stoktan çıkış — ${item.rows[0].code} × ${input.qty}`, entityType: "rd_project", entityId: input.projectId, assigneeRole: "warehouse" });
             return { id: null, code: null, covered: true, requestedQty: input.qty, coveredQty: input.qty, forwardedQty: "0", estimatedAmount: null, currency: null, amountSource: "stoktan tamamen karşılandı" };
           }
           netQty = fromMicro(net);
           coveredFromStock = fromMicro(covered);
+          if (covered > 0n) {
+            await openTask(db, actor.companyId, { kind: "rd_material_issue", title: `Ar-Ge projesine stoktan çıkış — ${item.rows[0].code} × ${coveredFromStock}`, entityType: "rd_project", entityId: input.projectId, assigneeRole: "warehouse" });
+          }
         }
 
         const est = await estimatePurchase(db, input.itemId, netQty);

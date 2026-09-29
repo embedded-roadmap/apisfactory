@@ -37,11 +37,11 @@ function money(c: bigint): string {
   return `${neg ? "-" : ""}${a / 100n}.${String(a % 100n).padStart(2, "0")}`;
 }
 
-type Bucket = { invoiced: bigint; accrued: bigint; allocated: bigint; engineering: bigint; openCommitment: bigint; byCategory: Map<Category, bigint> };
+type Bucket = { invoiced: bigint; accrued: bigint; allocated: bigint; engineering: bigint; stockIssued: bigint; openCommitment: bigint; byCategory: Map<Category, bigint> };
 function bucket(map: Map<string, Bucket>, currency: string): Bucket {
   let b = map.get(currency);
   if (!b) {
-    b = { invoiced: 0n, accrued: 0n, allocated: 0n, engineering: 0n, openCommitment: 0n, byCategory: new Map() };
+    b = { invoiced: 0n, accrued: 0n, allocated: 0n, engineering: 0n, stockIssued: 0n, openCommitment: 0n, byCategory: new Map() };
     map.set(currency, b);
   }
   return b;
@@ -113,6 +113,28 @@ export async function computeRdCost(db: Db, projectId: string) {
     });
   }
 
+  // Stoktan projeye çıkılan malzeme (iade düşülür): lotun güncel maliyetiyle, prototip malzemesi.
+  const moves = (await db.query(
+    `select m.id, m.move_type, i.code as "itemCode", lo.lot_no as "lotNo", m.qty, c.unit_cost as "unitCost", c.currency,
+            case when c.unit_cost is null then null else round(m.qty * c.unit_cost, 2) end as amount
+       from stock_moves m join items i on i.id = m.item_id join lots lo on lo.id = m.lot_id
+       left join lateral (select unit_cost, currency from lot_costs where lot_id = m.lot_id order by id desc limit 1) c on true
+      where m.ref_type = 'rd_project' and m.ref_id = $1 and m.move_type in ('issue', 'return')
+      order by m.created_at`,
+    [projectId],
+  )).rows;
+  const stockMaterials = [];
+  for (const m of moves) {
+    const sign = m.move_type === "return" ? -1n : 1n;
+    if (m.amount === null) provisionalReasons.push(`Stoktan çıkış ${m.itemCode} / lot ${m.lotNo}: lot maliyeti yok`);
+    else {
+      const b = bucket(totals, m.currency);
+      b.stockIssued += sign * cents(m.amount);
+      addCat(b, "prototype_material", sign * cents(m.amount));
+    }
+    stockMaterials.push({ moveType: m.move_type, itemCode: m.itemCode, lotNo: m.lotNo, qty: m.qty, unitCost: m.unitCost, currency: m.currency, amount: m.amount === null ? null : money(sign * cents(m.amount)) });
+  }
+
   const allocations = (await db.query(
     `select id, amount, currency, category, description, source_ref as "sourceRef", allocated_at as "allocatedAt"
        from project_cost_allocations where project_id = $1 order by allocated_at`,
@@ -153,8 +175,8 @@ export async function computeRdCost(db: Db, projectId: string) {
   const categories: Category[] = ["prototype_material", "pcb_assembly", "engineering_time", "external_service", "test", "other"];
   const byCurrency = [...totals.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([currency, b]) => ({
     currency,
-    invoiced: money(b.invoiced), accrued: money(b.accrued), allocated: money(b.allocated), engineering: money(b.engineering),
-    total: money(b.invoiced + b.accrued + b.allocated + b.engineering),
+    invoiced: money(b.invoiced), accrued: money(b.accrued), allocated: money(b.allocated), engineering: money(b.engineering), stockIssued: money(b.stockIssued),
+    total: money(b.invoiced + b.accrued + b.allocated + b.engineering + b.stockIssued),
     openCommitment: money(b.openCommitment),
     byCategory: Object.fromEntries(categories.map((c) => [c, money(b.byCategory.get(c) ?? 0n)])),
   }));
@@ -166,13 +188,14 @@ export async function computeRdCost(db: Db, projectId: string) {
     provisionalReasons,
     byCurrency,
     purchased,
+    stockMaterials,
     allocations: allocations.map((a) => ({ ...a, amount: money(cents(a.amount)) })),
     engineering: {
       hours: money(hours), unpricedHours: money(unpricedHours), entries: time.length,
       byActivity: [...byActivity.entries()].map(([activity, h]) => ({ activity, hours: money(h) })),
     },
     limitations: [
-      "Projeye bağlı talebin stoktan karşılanan kısmı için stok çıkışı/maliyet kaydı oluşmaz; bu malzeme rapora girmez.",
+      "Stoktan karşılanan proje malzemesi yalnız depo projeye çıkış yaptığında (lot maliyetiyle) rapora girer.",
       "Para birimleri dönüştürülmez; her para birimi ayrı toplanır.",
     ],
   };

@@ -44,7 +44,7 @@ export function RdCostView({ report }: { report: any }) {
               </tr>
             ))}
             <tr><td><b>Toplam</b></td>{report.byCurrency.map((c: any) => <td key={c.currency} className="num"><b>{fmt(c.total)}</b></td>)}</tr>
-            <tr className="muted"><td>— faturalanan / tahakkuk / bölüştürülen</td>{report.byCurrency.map((c: any) => <td key={c.currency} className="num">{fmt(c.invoiced)} / {fmt(c.accrued)} / {fmt(c.allocated)}</td>)}</tr>
+            <tr className="muted"><td>— faturalanan / tahakkuk / bölüştürülen / stoktan</td>{report.byCurrency.map((c: any) => <td key={c.currency} className="num">{fmt(c.invoiced)} / {fmt(c.accrued)} / {fmt(c.allocated)} / {fmt(c.stockIssued ?? "0")}</td>)}</tr>
             <tr className="muted"><td>Açık sipariş taahhüdü (toplama dahil değil)</td>{report.byCurrency.map((c: any) => <td key={c.currency} className="num">{fmt(c.openCommitment)}</td>)}</tr>
           </tbody>
         </table>

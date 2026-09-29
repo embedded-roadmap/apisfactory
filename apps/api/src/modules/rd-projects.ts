@@ -2,8 +2,9 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { Db } from "../db/pool";
 import { badRequest, conflict, notFound } from "../lib/errors";
-import { nextCode, recordEvent } from "../lib/records";
-import { parse, tenant } from "../http/context";
+import { idempotent, nextCode, recordEvent } from "../lib/records";
+import { fromMicro, toMicro } from "../lib/decimal";
+import { idempotencyKey, parse, tenant } from "../http/context";
 import { RD_ACTIVITIES, RD_COST_CATEGORIES, computeRdCost, doubleCountedInvoice, writeRdCostReport } from "../lib/rd-cost";
 
 /**
@@ -97,6 +98,11 @@ export async function rdProjectsRoutes(app: FastifyInstance) {
       return r.rows;
     });
   });
+
+  /** Depo için dar liste: açık projelerin yalnız kodu ve adı (bütçe/harcama gösterilmez). */
+  app.get("/api/rd-projects/open-for-issue", async (req) =>
+    tenant(req, "inventory.issue", async (db) => (await db.query(`select id, code, name from rd_projects where status = 'open' order by code`)).rows),
+  );
 
   app.get("/api/rd-projects/:id", async (req) => {
     const { id } = req.params as { id: string };
@@ -207,6 +213,90 @@ export async function rdProjectsRoutes(app: FastifyInstance) {
       });
       return { versionNo: n };
     });
+  });
+
+  // ---------------------------------------------------------------------------------------------
+  // Projeye stoktan malzeme çıkışı / iadesi (R04 + R05): talep stoktan karşılandığında depo çıkışı yapar; Ar-Ge maliyetine
+  // lot maliyetiyle girer. Kullanılmayan malzeme iade edilebilir (çıkılandan fazla değil).
+
+  app.get("/api/rd-projects/:id/material-moves", async (req) => {
+    const { id } = req.params as { id: string };
+    return tenant(req, "rd.project.view", async (db) =>
+      (await db.query(
+        `select m.id, m.move_type as "moveType", i.code as "itemCode", lo.lot_no as "lotNo", m.qty, u.name as "createdBy", m.created_at as "createdAt"
+           from stock_moves m join items i on i.id = m.item_id join lots lo on lo.id = m.lot_id left join users u on u.id = m.created_by
+          where m.ref_type = 'rd_project' and m.ref_id = $1 order by m.created_at desc`,
+        [id],
+      )).rows,
+    );
+  });
+
+  app.post("/api/rd-projects/:id/material-issues", async (req) => {
+    const { id } = req.params as { id: string };
+    const input = parse(z.object({ lotId: z.string().uuid(), qty: z.string().regex(/^\d+(\.\d{1,6})?$/), note: z.string().max(500).optional() }), req.body);
+    return tenant(req, "inventory.issue", (db, actor) =>
+      idempotent(db, actor.companyId, "rd_issue", idempotencyKey(req), async () => {
+        const p = (await db.query(`select code, status from rd_projects where id = $1`, [id])).rows[0];
+        if (!p) throw notFound("Ar-Ge projesi");
+        if (p.status !== "open") throw conflict("project_closed", `Proje "${p.code}" kapalı`);
+        const qty = toMicro(input.qty);
+        if (qty <= 0n) throw badRequest("Miktar sıfırdan büyük olmalı");
+        const lot = (await db.query(`select l.id, l.item_id, l.lot_no from lots l where l.id = $1 for update`, [input.lotId])).rows[0];
+        if (!lot) throw notFound("Lot");
+        await db.query(`select id from items where id = $1 for update`, [lot.item_id]);
+        const src = (await db.query(
+          `select b.location_id, b.qty from stock_balances b join locations loc on loc.id = b.location_id
+            where b.lot_id = $1 and loc.type = 'stock' order by b.qty desc limit 1`,
+          [input.lotId],
+        )).rows[0];
+        if (!src || toMicro(src.qty) < qty) throw conflict("lot_not_usable", "Lot kullanılabilir stokta yeterli değil (giriş kontrolündeki/karantinadaki malzeme çıkılamaz)");
+        // Başka işlere ayrılmış miktar projeye çıkılamaz.
+        const free = (await db.query(
+          `select coalesce((select sum(b.qty) from stock_balances b join locations loc on loc.id = b.location_id where b.item_id = $1 and loc.type = 'stock'), 0) as usable,
+                  coalesce((select sum(qty) from reservations where item_id = $1 and status = 'active'), 0) as reserved`,
+          [lot.item_id],
+        )).rows[0];
+        const freeQty = toMicro(free.usable) - toMicro(free.reserved);
+        if (qty > freeQty) throw conflict("reserved_for_other", `Serbest miktar ${fromMicro(freeQty > 0n ? freeQty : 0n)}; kalanı başka işlere ayrılmış`);
+        const m = await db.query(
+          `insert into stock_moves (company_id, item_id, lot_id, from_location_id, qty, move_type, ref_type, ref_id, created_by)
+           values (app_company_id(), $1, $2, $3, $4, 'issue', 'rd_project', $5, $6) returning id`,
+          [lot.item_id, input.lotId, src.location_id, input.qty, id, actor.userId],
+        );
+        await recordEvent(db, actor, { entityType: "rd_project", entityId: id, eventType: "material.issued", after: { lotNo: lot.lot_no, qty: input.qty, moveId: m.rows[0].id }, reason: input.note });
+        return { id: m.rows[0].id as string };
+      }),
+    );
+  });
+
+  app.post("/api/rd-projects/:id/material-returns", async (req) => {
+    const { id } = req.params as { id: string };
+    const input = parse(z.object({ lotId: z.string().uuid(), qty: z.string().regex(/^\d+(\.\d{1,6})?$/), note: z.string().min(3).max(500) }), req.body);
+    return tenant(req, "inventory.issue", (db, actor) =>
+      idempotent(db, actor.companyId, "rd_return", idempotencyKey(req), async () => {
+        const p = (await db.query(`select code from rd_projects where id = $1`, [id])).rows[0];
+        if (!p) throw notFound("Ar-Ge projesi");
+        const lot = (await db.query(`select id, item_id, lot_no from lots where id = $1 for update`, [input.lotId])).rows[0];
+        if (!lot) throw notFound("Lot");
+        const net = (await db.query(
+          `select coalesce(sum(case when move_type = 'issue' then qty else -qty end), 0) as q from stock_moves
+            where ref_type = 'rd_project' and ref_id = $1 and lot_id = $2 and move_type in ('issue', 'return')`,
+          [id, input.lotId],
+        )).rows[0].q;
+        const qty = toMicro(input.qty);
+        if (qty <= 0n) throw badRequest("Miktar sıfırdan büyük olmalı");
+        if (qty > toMicro(net)) throw conflict("over_return", `Bu lottan projeye net çıkış ${fromMicro(toMicro(net))}; fazlası iade edilemez`);
+        const loc = (await db.query(`select id from locations where type = 'stock' order by code limit 1`)).rows[0];
+        if (!loc) throw conflict("location_missing", "Stok konumu tanımlı değil");
+        const m = await db.query(
+          `insert into stock_moves (company_id, item_id, lot_id, to_location_id, qty, move_type, ref_type, ref_id, created_by)
+           values (app_company_id(), $1, $2, $3, $4, 'return', 'rd_project', $5, $6) returning id`,
+          [lot.item_id, input.lotId, loc.id, input.qty, id, actor.userId],
+        );
+        await recordEvent(db, actor, { entityType: "rd_project", entityId: id, eventType: "material.returned", after: { lotNo: lot.lot_no, qty: input.qty, moveId: m.rows[0].id }, reason: input.note });
+        return { id: m.rows[0].id as string };
+      }),
+    );
   });
 
   // ---------------------------------------------------------------------------------------------

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ItemAvailability, StockBalance } from "@apisfactory/shared";
 import { auth, get, post } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, fmtDate, useCan } from "../lib/ui";
+import { RdMaterialIssue } from "../components/RdMaterialIssue";
 import { LotCosts } from "./Reports";
 
 const MSL_LEVELS = ["1", "2", "2a", "3", "4", "5", "5a", "6"];
@@ -248,6 +249,7 @@ export function InventoryPage() {
         sub="Miktar yalnızca hareketlerle değişir; kullanılabilir, kontrol bekleyen, karantina ve rezerve miktar ayrı gösterilir."
         actions={can("export.run") ? <button onClick={exportCsv}>CSV dışa aktar</button> : null}
       />
+      <RdMaterialIssue />
       {item ? (
         <section className="card">
           <div className="row between"><h2>{item.code} — miktar durumu</h2><button onClick={() => setItem(null)}>Kapat</button></div>
