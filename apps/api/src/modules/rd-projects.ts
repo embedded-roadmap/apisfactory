@@ -66,6 +66,12 @@ async function loadProject(db: Db, id: string) {
   }
   const spendByCurrency = [...byCurrency.values()].map((c) => ({ ...c, total: (Number(c.orderedAmount) + Number(c.allocatedAmount)).toFixed(2) }));
 
+  const budgetVersions = (await db.query(
+    `select b.version_no as "versionNo", b.amount, b.currency, b.reason, u.name as "approvedBy", b.created_at as "createdAt"
+       from rd_project_budgets b left join users u on u.id = b.approved_by where b.project_id = $1 order by b.version_no desc`,
+    [id],
+  )).rows;
+
   const budgetStatus = p.budgetAmount
     ? (() => {
         const own = spendByCurrency.find((c) => c.currency === p.currency);
@@ -74,7 +80,7 @@ async function loadProject(db: Db, id: string) {
       })()
     : null;
 
-  return { ...p, purchaseRequests: requests, spendByCurrency, allocations, budgetStatus };
+  return { ...p, purchaseRequests: requests, spendByCurrency, allocations, budgetStatus, budgetVersions };
 }
 
 export async function rdProjectsRoutes(app: FastifyInstance) {
@@ -117,6 +123,14 @@ export async function rdProjectsRoutes(app: FastifyInstance) {
         [code, input.name, input.costCenter ?? null, input.budgetAmount ?? null, input.currency?.toUpperCase() ?? null, input.ownerUserId ?? null, input.note ?? null, actor.userId],
       );
       const id = r.rows[0].id as string;
+      if (input.budgetAmount) {
+        // Açılışta verilen bütçe onaylı baz bütçenin sürüm 1'idir (bütçe sapması buna göre ölçülür).
+        await db.query(
+          `insert into rd_project_budgets (company_id, project_id, version_no, amount, currency, reason, approved_by)
+           values (app_company_id(), $1, 1, $2, $3, 'Proje açılış bütçesi', $4)`,
+          [id, input.budgetAmount, input.currency!.toUpperCase(), actor.userId],
+        );
+      }
       await recordEvent(db, actor, { entityType: "rd_project", entityId: id, eventType: "created", after: { code, ...input } });
       return { id, code };
     });
@@ -165,6 +179,33 @@ export async function rdProjectsRoutes(app: FastifyInstance) {
       const allocId = r.rows[0].id as string;
       await recordEvent(db, actor, { entityType: "rd_project", entityId: id, eventType: "cost_allocated", after: { allocationId: allocId, ...input } });
       return { id: allocId };
+    });
+  });
+
+  /** Onaylı baz bütçe revizyonu: yeni sürüm (öncekiler korunur); proje kartındaki güncel bütçe de güncellenir. */
+  app.post("/api/rd-projects/:id/budget", async (req) => {
+    const { id } = req.params as { id: string };
+    const input = parse(
+      z.object({ amount: z.string().regex(/^\d+(\.\d{1,2})?$/), currency: z.string().regex(/^[A-Za-z]{3}$/), reason: z.string().min(3).max(500) }),
+      req.body,
+    );
+    return tenant(req, "cost.manage", async (db, actor) => {
+      const p = (await db.query(`select code, status, budget_amount, currency from rd_projects where id = $1 for update`, [id])).rows[0];
+      if (!p) throw notFound("Ar-Ge projesi");
+      if (p.status !== "open") throw conflict("project_closed", `Proje "${p.code}" kapalı`);
+      const n = (await db.query(`select coalesce(max(version_no), 0) + 1 as n from rd_project_budgets where project_id = $1`, [id])).rows[0].n;
+      const currency = input.currency.toUpperCase();
+      await db.query(
+        `insert into rd_project_budgets (company_id, project_id, version_no, amount, currency, reason, approved_by)
+         values (app_company_id(), $1, $2, $3, $4, $5, $6)`,
+        [id, n, input.amount, currency, input.reason, actor.userId],
+      );
+      await db.query(`update rd_projects set budget_amount = $2, currency = $3 where id = $1`, [id, input.amount, currency]);
+      await recordEvent(db, actor, {
+        entityType: "rd_project", entityId: id, eventType: "budget.revised",
+        before: { amount: p.budget_amount, currency: p.currency }, after: { versionNo: n, amount: input.amount, currency }, reason: input.reason,
+      });
+      return { versionNo: n };
     });
   });
 

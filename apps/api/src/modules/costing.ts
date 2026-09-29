@@ -6,6 +6,10 @@ import { conflict, forbidden, notFound } from "../lib/errors";
 import { recordEvent, type Actor } from "../lib/records";
 import { fromMicro, toMicro } from "../lib/decimal";
 import { can, parse, tenant } from "../http/context";
+import { convertMicro, describeRate, findRate } from "../lib/fx";
+import { computeRdCost } from "../lib/rd-cost";
+
+const dateOf = (v: string | Date) => (v instanceof Date ? v.toISOString() : String(v)).slice(0, 10);
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const Money = z.string().regex(/^\d+(\.\d{1,6})?$/);
@@ -39,12 +43,13 @@ export async function recordLotCost(db: Db, actor: Actor, lotId: string, e: { un
 async function activePolicy(db: Db, onDate: string) {
   const r = await db.query(
     `select id, version_no as "versionNo", valid_from::text as "validFrom", currency, labor_rate_per_hour as "laborRatePerHour",
-            overhead_per_labor_hour as "overheadPerLaborHour", overhead_pct_of_material as "overheadPctOfMaterial", valuation, scrap_treatment as "scrapTreatment", note
+            overhead_per_labor_hour as "overheadPerLaborHour", overhead_pct_of_material as "overheadPctOfMaterial", valuation, scrap_treatment as "scrapTreatment", note,
+            fx_max_age_days as "fxMaxAgeDays"
        from cost_policies where valid_from <= $1 order by valid_from desc, version_no desc limit 1`,
     [onDate],
   );
   return r.rows[0] as
-    | { id: string; versionNo: number; validFrom: string; currency: string; laborRatePerHour: string; overheadPerLaborHour: string; overheadPctOfMaterial: string; valuation: string; scrapTreatment: string }
+    | { id: string; versionNo: number; validFrom: string; currency: string; laborRatePerHour: string; overheadPerLaborHour: string; overheadPctOfMaterial: string; valuation: string; scrapTreatment: string; fxMaxAgeDays: number }
     | undefined;
 }
 
@@ -80,14 +85,22 @@ export async function computeWorkOrderCost(db: Db, woId: string, today = new Dat
     const qty = toMicro(m.qty);
     let cost: bigint | null = null;
     let note: string | null = null;
+    let fx: string | null = null;
     if (!c) note = "lot maliyeti yok";
-    else if (currency && c.currency !== currency) note = `para birimi ${c.currency} ≠ politika ${currency} (kur dönüşümü yok)`;
-    else cost = mulM(qty, toMicro(c.unit_cost));
+    else if (currency && c.currency !== currency) {
+      // Kur: lot maliyetinin kaydedildiği tarih (maliyetin oluştuğu gün), politikadaki azami yaşla.
+      const q = await findRate(db, c.currency, currency, dateOf(c.created_at), policy!.fxMaxAgeDays);
+      if ("error" in q) note = `${q.error}: dönüştürülemedi`;
+      else {
+        cost = convertMicro(mulM(qty, toMicro(c.unit_cost)), q);
+        fx = describeRate(q);
+      }
+    } else cost = mulM(qty, toMicro(c.unit_cost));
     if (cost === null) gaps.push(`${m.item_code} / lot ${m.lot_no}: ${note}`);
     else material += cost;
     materials.push({
       itemCode: m.item_code, lotNo: m.lot_no, qty: money(qty), unitCost: c ? money(toMicro(c.unit_cost)) : null, currency: c?.currency ?? null,
-      costSource: c?.source ?? null, costReference: c?.reference ?? null, costEntryId: c ? String(c.id) : null, cost: cost === null ? null : money(cost), note,
+      costSource: c?.source ?? null, costReference: c?.reference ?? null, costEntryId: c ? String(c.id) : null, cost: cost === null ? null : money(cost), fx, note,
     });
   }
   if (!issues.rows.length) gaps.push("Malzeme çıkışı yok");
@@ -114,22 +127,30 @@ export async function computeWorkOrderCost(db: Db, woId: string, today = new Dat
   for (const s of subJobs.rows) {
     if (s.status !== "completed") {
       gaps.push(`Fason iş ${s.code}: durumu "${s.status}" (henüz tamamlanmadı) — maliyete henüz sayılmadı`);
-      externals.push({ jobCode: s.code, status: s.status, price: s.price === null ? null : money(toMicro(s.price)), currency: s.currency, cost: null, note: "tamamlanmadı" });
+      externals.push({ jobCode: s.code, status: s.status, price: s.price === null ? null : money(toMicro(s.price)), currency: s.currency, cost: null, fx: null, note: "tamamlanmadı" });
       continue;
     }
     if (s.price === null) {
       gaps.push(`Fason iş ${s.code}: anlaşılan fiyat girilmemiş`);
-      externals.push({ jobCode: s.code, status: s.status, price: null, currency: s.currency, cost: null, note: "fiyat yok" });
+      externals.push({ jobCode: s.code, status: s.status, price: null, currency: s.currency, cost: null, fx: null, note: "fiyat yok" });
       continue;
     }
     if (currency && s.currency !== currency) {
-      gaps.push(`Fason iş ${s.code}: para birimi ${s.currency} ≠ politika ${currency} (kur dönüşümü yok)`);
-      externals.push({ jobCode: s.code, status: s.status, price: money(toMicro(s.price)), currency: s.currency, cost: null, note: "para birimi uyuşmuyor" });
+      // Kur: hesap tarihi (fason işin tamamlanma tarihi ayrıca tutulmuyor).
+      const q = await findRate(db, s.currency, currency, today, policy!.fxMaxAgeDays);
+      if ("error" in q) {
+        gaps.push(`Fason iş ${s.code}: ${q.error}`);
+        externals.push({ jobCode: s.code, status: s.status, price: money(toMicro(s.price)), currency: s.currency, cost: null, fx: null, note: "kur yok" });
+        continue;
+      }
+      const cost = convertMicro(toMicro(s.price), q);
+      external += cost;
+      externals.push({ jobCode: s.code, status: s.status, price: money(toMicro(s.price)), currency: s.currency, cost: money(cost), fx: describeRate(q), note: null });
       continue;
     }
     const cost = toMicro(s.price);
     external += cost;
-    externals.push({ jobCode: s.code, status: s.status, price: money(cost), currency: s.currency, cost: money(cost), note: null });
+    externals.push({ jobCode: s.code, status: s.status, price: money(cost), currency: s.currency, cost: money(cost), fx: null, note: null });
   }
   const total = material + labor + overhead + external;
 
@@ -173,6 +194,115 @@ export async function computeWorkOrderCost(db: Db, woId: string, today = new Dat
   return { result, fingerprint, policyId: policy?.id ?? null, finishedItemId: wo.item_id as string, woCode: wo.code as string };
 }
 
+/**
+ * İade maliyeti (§18 "yeniden işleme … muhasebe politikasıyla"): tamir işçiliği (deneme saati × deneme tarihindeki
+ * politika ücreti + saat başı genel gider) + tamirde kullanılan parçalar + hurdaya ayrılan iade ürünü + değişim ürünü.
+ * Tutarlar hesap tarihindeki politikanın para birimindedir; farklı para birimi hareket tarihindeki kurla çevrilir.
+ * Lot maliyeti veya kur yoksa kalem hesaplanmaz, eksik olarak gösterilir. Bu maliyet brüt kârdan düşülmez, ayrı sunulur.
+ */
+export async function computeRmaCost(db: Db, rmaId: string, today = new Date().toISOString().slice(0, 10)) {
+  const rma = (await db.query(
+    `select r.id, r.code, r.status, r.disposition, r.qty, r.lot_id, r.replacement_lot_id, r.replacement_device_id, r.decided_at,
+            i.code as item_code, lo.lot_no
+       from rmas r join items i on i.id = r.item_id join lots lo on lo.id = r.lot_id where r.id = $1`,
+    [rmaId],
+  )).rows[0];
+  if (!rma) throw notFound("İade");
+  const policy = await activePolicy(db, today);
+  const gaps: string[] = [];
+  if (!policy) gaps.push("Geçerli maliyet politikası yok: iade maliyeti hesaplanamadı");
+  const currency = policy?.currency ?? null;
+
+  /** Lot maliyetini politika para birimine, verilen tarihteki kurla çevirir. */
+  async function lotValue(lotId: string, qty: bigint, onDate: string, label: string) {
+    const c = await currentLotCost(db, lotId);
+    if (!c) {
+      gaps.push(`${label}: lot maliyeti yok`);
+      return { unitCost: null, currency: null, cost: null, fx: null };
+    }
+    const raw = mulM(qty, toMicro(c.unit_cost));
+    if (!currency || c.currency === currency) return { unitCost: money(toMicro(c.unit_cost)), currency: c.currency, cost: currency ? raw : null, fx: null };
+    const q = await findRate(db, c.currency, currency, onDate, policy!.fxMaxAgeDays);
+    if ("error" in q) {
+      gaps.push(`${label}: ${q.error}`);
+      return { unitCost: money(toMicro(c.unit_cost)), currency: c.currency, cost: null, fx: null };
+    }
+    return { unitCost: money(toMicro(c.unit_cost)), currency: c.currency, cost: convertMicro(raw, q), fx: describeRate(q) };
+  }
+
+  let repairTotal = 0n;
+  const attempts = [];
+  const rows = (await db.query(
+    `select id, attempt_no, labor_hours, retest_passed, created_at from rma_repair_attempts where rma_id = $1 order by attempt_no`,
+    [rmaId],
+  )).rows;
+  for (const a of rows) {
+    const onDate = dateOf(a.created_at);
+    const p = policy ? await activePolicy(db, onDate) : undefined;
+    const hours = toMicro(a.labor_hours);
+    let labor = 0n;
+    let overhead = 0n;
+    if (hours > 0n && policy) {
+      if (!p) gaps.push(`Tamir denemesi ${a.attempt_no}: ${onDate} tarihinde geçerli politika yok, işçilik hesaplanamadı`);
+      else if (p.currency !== currency) gaps.push(`Tamir denemesi ${a.attempt_no}: politika para birimi değişmiş (${p.currency} → ${currency}), işçilik hesaplanamadı`);
+      else {
+        labor = mulM(hours, toMicro(p.laborRatePerHour));
+        overhead = mulM(hours, toMicro(p.overheadPerLaborHour));
+      }
+    }
+    const parts = [];
+    let partsCost = 0n;
+    const moves = (await db.query(
+      `select m.item_id, i.code as item_code, m.lot_id, lo.lot_no, m.qty, m.created_at
+         from stock_moves m join items i on i.id = m.item_id join lots lo on lo.id = m.lot_id
+        where m.ref_type = 'rma_repair' and m.ref_id = $1 order by i.code`,
+      [a.id],
+    )).rows;
+    for (const m of moves) {
+      const v = await lotValue(m.lot_id, toMicro(m.qty), dateOf(m.created_at), `Tamir parçası ${m.item_code} / lot ${m.lot_no}`);
+      if (v.cost !== null) partsCost += v.cost;
+      parts.push({ itemCode: m.item_code, lotNo: m.lot_no, qty: money(toMicro(m.qty)), unitCost: v.unitCost, currency: v.currency, cost: v.cost === null ? null : money(v.cost), fx: v.fx });
+    }
+    const total = labor + overhead + partsCost;
+    repairTotal += total;
+    attempts.push({ attemptNo: a.attempt_no, date: onDate, laborHours: money(hours), labor: money(labor), overhead: money(overhead), parts, partsCost: money(partsCost), total: money(total), retestPassed: a.retest_passed });
+  }
+
+  let scrap = null as null | { qty: string; unitCost: string | null; cost: string | null; fx: string | null };
+  let scrapCost = 0n;
+  const sm = (await db.query(
+    `select coalesce(sum(qty), 0) as qty, max(created_at) as at from stock_moves where move_type = 'scrap' and ref_type = 'rma' and ref_id = $1`,
+    [rmaId],
+  )).rows[0];
+  if (toMicro(sm.qty) > 0n) {
+    const v = await lotValue(rma.lot_id, toMicro(sm.qty), dateOf(sm.at), `Hurdaya ayrılan iade ürünü ${rma.item_code} / lot ${rma.lot_no}`);
+    if (v.cost !== null) scrapCost = v.cost;
+    scrap = { qty: money(toMicro(sm.qty)), unitCost: v.unitCost, cost: v.cost === null ? null : money(v.cost), fx: v.fx };
+  }
+
+  let replacement = null as null | { qty: string; unitCost: string | null; cost: string | null; fx: string | null };
+  let replacementCost = 0n;
+  if (rma.disposition === "replace" && rma.replacement_lot_id) {
+    const qty = rma.replacement_device_id ? toMicro("1") : toMicro(rma.qty);
+    const v = await lotValue(rma.replacement_lot_id, qty, dateOf(rma.decided_at ?? today), "Değişim ürünü");
+    if (v.cost !== null) replacementCost = v.cost;
+    replacement = { qty: money(qty), unitCost: v.unitCost, cost: v.cost === null ? null : money(v.cost), fx: v.fx };
+  }
+  if (rma.status !== "closed" && rma.status !== "cancelled") gaps.push(`İade "${rma.status}": ara maliyet (henüz kapanmadı)`);
+
+  return {
+    rma: { id: rma.id as string, code: rma.code as string, status: rma.status as string, disposition: rma.disposition as string | null },
+    currency,
+    policy: policy ? { versionNo: policy.versionNo, laborRatePerHour: fromMicro(toMicro(policy.laborRatePerHour)), overheadPerLaborHour: fromMicro(toMicro(policy.overheadPerLaborHour)) } : null,
+    repair: { attempts, total: money(repairTotal) },
+    scrap,
+    replacement,
+    totals: { repair: money(repairTotal), scrap: money(scrapCost), replacement: money(replacementCost), total: money(repairTotal + scrapCost + replacementCost) },
+    gaps,
+    complete: gaps.length === 0,
+  };
+}
+
 /** Metrik sözlüğü (sürüm 1). Tanım, pay, payda ve kapsam her yanıtta görünür (prompt §18). */
 export const METRICS = [
   { key: "scrap_rate", name: "Ürün hurda oranı", definition: "Üretimde hurdaya ayrılan benzersiz cihaz / kapsamda üretime alınan (seri üretilen) cihaz", unit: "%" },
@@ -181,7 +311,7 @@ export const METRICS = [
   { key: "component_scrap", name: "Komponent firesi", definition: "Komponent hurda hareket miktarı / üretime çıkış miktarı (payda: iş emrine malzeme çıkışı)", unit: "%" },
   { key: "on_time_delivery", name: "Zamanında teslim", definition: "Taahhüt tarihi dönem içinde olan sipariş satırlarından taahhüt tarihine kadar tamamı sevk edilenler / taahhüt tarihi geçmiş veya tamamı sevk edilmiş satırlar. Taahhütsüz satırlar kapsam dışıdır.", unit: "%" },
   { key: "return_rate", name: "İade oranı", definition: "Dönemde açılan (iptal hariç) iade adedi / dönemde sevk edilen adet", unit: "%" },
-  { key: "budget_variance", name: "Bütçe sapması", definition: "Gerçekleşen veya güncel tahmin − onaylı baz bütçe", unit: "para" },
+  { key: "budget_variance", name: "Bütçe sapması", definition: "Açık Ar-Ge projelerinde (gerçekleşen Ar-Ge maliyeti − onaylı baz bütçe) / onaylı baz bütçe. Proje bazında tutarlar kaynak satırlarında; farklı para birimleri dönem sonu kuruyla bütçe para birimine çevrilir.", unit: "%" },
 ] as const;
 
 type MetricKey = (typeof METRICS)[number]["key"];
@@ -260,8 +390,53 @@ export async function metricData(db: Db, key: MetricKey, from: string, to: strin
       const num = rmas.reduce((a, r) => a + toMicro(r.qty), 0n);
       return { numerator: Number(fromMicro(num)), denominator: Number(fromMicro(toMicro(shipped.rows[0].q))), rows: rmas.map((r) => ({ ...r, qty: fromMicro(toMicro(r.qty)) })), note: "İade, sevk dönemine göre değil açılış dönemine göre sayılır" };
     }
-    case "budget_variance":
-      return { numerator: null, denominator: null, rows: [], note: "Onaylı baz bütçe kaydı yok (bütçe modülü planlandı)" };
+    case "budget_variance": {
+      // Kapsam: açık ve onaylı baz bütçesi olan Ar-Ge projeleri (dönem filtresi uygulanmaz — bütçe proje ömrü boyuncadır).
+      const projects = (await db.query(
+        `select p.id, p.code, p.name, b.version_no as "versionNo", b.amount, b.currency
+           from rd_projects p
+           join lateral (select version_no, amount, currency from rd_project_budgets where project_id = p.id order by version_no desc limit 1) b on true
+          where p.status = 'open' order by p.code`,
+      )).rows;
+      const maxAge = (await activePolicy(db, to))?.fxMaxAgeDays ?? 7;
+      const rows = [];
+      const sums = new Map<string, { actual: bigint; baseline: bigint }>();
+      let incomplete = 0;
+      for (const p of projects) {
+        const cost = (await computeRdCost(db, p.id))!;
+        let actual = 0n;
+        const gaps: string[] = [];
+        const fx: string[] = [];
+        for (const c of cost.byCurrency) {
+          const q = await findRate(db, c.currency, p.currency, to, maxAge);
+          if ("error" in q) gaps.push(q.error);
+          else {
+            actual += convertMicro(toMicro(c.total), q);
+            if (c.currency !== p.currency) fx.push(describeRate(q));
+          }
+        }
+        const baseline = toMicro(p.amount);
+        const ok = gaps.length === 0;
+        if (ok) {
+          const s = sums.get(p.currency) ?? { actual: 0n, baseline: 0n };
+          s.actual += actual;
+          s.baseline += baseline;
+          sums.set(p.currency, s);
+        } else incomplete++;
+        rows.push({
+          projectCode: p.code, projectName: p.name, budgetVersion: p.versionNo, currency: p.currency, baseline: money(baseline),
+          actual: ok ? money(actual) : null, variance: ok ? money(actual - baseline) : null,
+          costStatus: cost.status, fx, note: ok ? (cost.status === "provisional" ? "Ar-Ge maliyeti geçici" : null) : gaps.join("; "),
+        });
+      }
+      if (!projects.length) return { numerator: null, denominator: null, rows, note: "Onaylı baz bütçesi olan açık Ar-Ge projesi yok" };
+      if (sums.size !== 1) return { numerator: null, denominator: null, rows, note: sums.size === 0 ? "Hiçbir projede gerçekleşen tutar hesaplanamadı (kur eksik)" : "Bütçeler farklı para birimlerinde: toplu oran hesaplanmaz, proje satırlarına bakın" };
+      const [cur, s] = [...sums.entries()][0]!;
+      return {
+        numerator: Number(fromMicro(s.actual - s.baseline)), denominator: Number(fromMicro(s.baseline)), rows,
+        note: `${cur} bazında${incomplete ? `; ${incomplete} proje kur eksikliği nedeniyle dışarıda` : ""}`,
+      };
+    }
   }
 }
 
@@ -305,7 +480,7 @@ export async function costingRoutes(app: FastifyInstance) {
       const r = await db.query(
         `select cp.id, cp.version_no as "versionNo", cp.valid_from::text as "validFrom", cp.currency, cp.labor_rate_per_hour as "laborRatePerHour",
                 cp.overhead_per_labor_hour as "overheadPerLaborHour", cp.overhead_pct_of_material as "overheadPctOfMaterial", cp.valuation,
-                cp.scrap_treatment as "scrapTreatment", cp.note, cp.created_at as "createdAt", u.name as "createdBy"
+                cp.scrap_treatment as "scrapTreatment", cp.fx_max_age_days as "fxMaxAgeDays", cp.note, cp.created_at as "createdAt", u.name as "createdBy"
            from cost_policies cp left join users u on u.id = cp.created_by order by cp.version_no desc`,
       );
       return r.rows;
@@ -316,7 +491,7 @@ export async function costingRoutes(app: FastifyInstance) {
     const input = parse(
       z.object({
         validFrom: z.string().regex(DATE), currency: Currency, laborRatePerHour: Money, overheadPerLaborHour: Money.default("0"),
-        overheadPctOfMaterial: Money.default("0"), note: z.string().min(3).max(1000),
+        overheadPctOfMaterial: Money.default("0"), fxMaxAgeDays: z.number().int().min(0).max(31).default(7), note: z.string().min(3).max(1000),
       }),
       req.body,
     );
@@ -324,12 +499,53 @@ export async function costingRoutes(app: FastifyInstance) {
       await db.query(`select pg_advisory_xact_lock(hashtext('cost_policy:' || app_company_id()::text))`);
       const n = (await db.query(`select coalesce(max(version_no), 0) + 1 as n from cost_policies`)).rows[0].n;
       const r = await db.query(
-        `insert into cost_policies (company_id, version_no, valid_from, currency, labor_rate_per_hour, overhead_per_labor_hour, overhead_pct_of_material, note, created_by)
-         values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8) returning id`,
-        [n, input.validFrom, input.currency, input.laborRatePerHour, input.overheadPerLaborHour, input.overheadPctOfMaterial, input.note, actor.userId],
+        `insert into cost_policies (company_id, version_no, valid_from, currency, labor_rate_per_hour, overhead_per_labor_hour, overhead_pct_of_material, note, created_by, fx_max_age_days)
+         values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9) returning id`,
+        [n, input.validFrom, input.currency, input.laborRatePerHour, input.overheadPerLaborHour, input.overheadPctOfMaterial, input.note, actor.userId, input.fxMaxAgeDays],
       );
       await recordEvent(db, actor, { entityType: "cost_policy", entityId: r.rows[0].id, eventType: "created", after: { versionNo: n, ...input } });
       return { id: r.rows[0].id, versionNo: n, ...input };
+    });
+  });
+
+  // ---- Kur ---------------------------------------------------------------------------
+  app.get("/api/exchange-rates", async (req) => {
+    const q = z.object({ currency: Currency.optional() }).parse(req.query);
+    return tenant(req, "field.cost.view", async (db) =>
+      (await db.query(
+        `select x.id, x.base_currency as "baseCurrency", x.quote_currency as "quoteCurrency", x.rate::text as rate, x.rate_date::text as "rateDate",
+                x.source, x.note, u.name as "createdBy", x.created_at as "createdAt"
+           from exchange_rates x left join users u on u.id = x.created_by
+          where ($1::text is null or x.base_currency = $1 or x.quote_currency = $1)
+          order by x.rate_date desc, x.created_at desc limit 200`,
+        [q.currency ?? null],
+      )).rows,
+    );
+  });
+
+  /** Kur kaydı değişmez; aynı çift ve tarih için yeni kayıt öncekinin yerine geçer (düzeltme izi kalır). */
+  app.post("/api/exchange-rates", async (req) => {
+    const input = parse(
+      z.object({
+        baseCurrency: Currency, quoteCurrency: Currency, rate: z.string().regex(/^\d{1,10}(\.\d{1,10})?$/),
+        rateDate: z.string().regex(DATE), source: z.string().min(2).max(120), note: z.string().max(500).optional(),
+      }).refine((v) => v.baseCurrency !== v.quoteCurrency, { message: "Aynı para birimi için kur girilmez" })
+        .refine((v) => Number(v.rate) > 0, { message: "Kur sıfırdan büyük olmalı" }),
+      req.body,
+    );
+    if (input.rateDate > new Date().toISOString().slice(0, 10)) throw conflict("future_rate", "İleri tarihli kur girilemez");
+    return tenant(req, "cost.manage", async (db, actor) => {
+      const prev = (await db.query(
+        `select rate::text as rate, source from exchange_rates where base_currency = $1 and quote_currency = $2 and rate_date = $3 order by created_at desc limit 1`,
+        [input.baseCurrency, input.quoteCurrency, input.rateDate],
+      )).rows[0];
+      const r = await db.query(
+        `insert into exchange_rates (company_id, base_currency, quote_currency, rate, rate_date, source, note, created_by)
+         values (app_company_id(), $1, $2, $3, $4, $5, $6, $7) returning id`,
+        [input.baseCurrency, input.quoteCurrency, input.rate, input.rateDate, input.source, input.note ?? null, actor.userId],
+      );
+      await recordEvent(db, actor, { entityType: "exchange_rate", entityId: r.rows[0].id, eventType: prev ? "corrected" : "created", before: prev, after: input });
+      return { id: r.rows[0].id as string, corrected: !!prev };
     });
   });
 
@@ -368,6 +584,12 @@ export async function costingRoutes(app: FastifyInstance) {
       }
       return { unchanged: false, versionNo, runId: r.rows[0].id, ...c.result };
     });
+  });
+
+  // ---- İade maliyeti -----------------------------------------------------------------
+  app.get("/api/rmas/:id/cost", async (req) => {
+    const { id } = req.params as { id: string };
+    return tenant(req, "field.cost.view", (db) => computeRmaCost(db, id));
   });
 
   // ---- Satış kârlılığı --------------------------------------------------------------
@@ -440,10 +662,19 @@ export async function computeMarginReport(db: Db, from: string, to: string) {
     const revenue = x.unitPrice === null ? null : mulM(qty, toMicro(x.unitPrice));
     let cogs: bigint | null = null;
     let note: string | null = null;
+    let fx: string | null = null;
     if (revenue === null) note = "satış fiyatı yok";
     if (!cost) note = [note, "lot maliyeti yok"].filter(Boolean).join("; ");
-    else if (cost.currency !== x.currency) note = [note, `maliyet ${cost.currency} ≠ satış ${x.currency} (kur yok)`].filter(Boolean).join("; ");
-    else cogs = mulM(qty, toMicro(cost.unit_cost));
+    else if (cost.currency !== x.currency) {
+      // Maliyet satış para birimine sevk tarihindeki kurla çevrilir (gelirle aynı gün).
+      const shipDate = dateOf(x.shippedAt);
+      const q = await findRate(db, cost.currency, x.currency, shipDate, (await activePolicy(db, shipDate))?.fxMaxAgeDays ?? 7);
+      if ("error" in q) note = [note, q.error].filter(Boolean).join("; ");
+      else {
+        cogs = convertMicro(mulM(qty, toMicro(cost.unit_cost)), q);
+        fx = describeRate(q);
+      }
+    } else cogs = mulM(qty, toMicro(cost.unit_cost));
     const gross = revenue !== null && cogs !== null ? revenue - cogs : null;
     const margin = gross !== null && revenue !== null && revenue > 0n ? Number(fromMicro(divM(gross, revenue))) : null;
     if (gross === null) incomplete++;
@@ -457,7 +688,7 @@ export async function computeMarginReport(db: Db, from: string, to: string) {
       shipmentCode: x.shipmentCode, shippedAt: x.shippedAt, orderCode: x.orderCode, customerName: x.customerName, product: `${x.productCode} Rev.${x.rev}`,
       lotNo: x.lotNo, qty: money(qty), currency: x.currency, unitPrice: x.unitPrice === null ? null : money(toMicro(x.unitPrice)),
       unitCost: cost ? money(toMicro(cost.unit_cost)) : null, costSource: cost?.source ?? null,
-      revenue: revenue === null ? null : money(revenue), cogs: cogs === null ? null : money(cogs), grossProfit: gross === null ? null : money(gross), grossMargin: margin, note,
+      revenue: revenue === null ? null : money(revenue), cogs: cogs === null ? null : money(cogs), grossProfit: gross === null ? null : money(gross), grossMargin: margin, fx, note,
     });
   }
   const returns = await db.query(
@@ -465,6 +696,26 @@ export async function computeMarginReport(db: Db, from: string, to: string) {
        from rmas where status <> 'cancelled' and created_at >= $1::date and created_at < ($2::date + 1)`,
     [from, to],
   );
+  // İade maliyeti (tamir + hurda + değişim): dönemde KARAR verilen iadeler; brüt kârdan düşülmez, ayrı gösterilir.
+  const decided = (await db.query(
+    `select id from rmas where status <> 'cancelled' and decided_at >= $1::date and decided_at < ($2::date + 1) order by decided_at`,
+    [from, to],
+  )).rows;
+  const returnCosts = new Map<string, { repair: bigint; scrap: bigint; replacement: bigint }>();
+  let returnCostIncomplete = 0;
+  for (const d of decided) {
+    const c = await computeRmaCost(db, d.id, to);
+    if (!c.currency) {
+      returnCostIncomplete++;
+      continue;
+    }
+    if (c.gaps.some((g) => !g.includes("ara maliyet"))) returnCostIncomplete++;
+    const t = returnCosts.get(c.currency) ?? { repair: 0n, scrap: 0n, replacement: 0n };
+    t.repair += toMicro(c.totals.repair);
+    t.scrap += toMicro(c.totals.scrap);
+    t.replacement += toMicro(c.totals.replacement);
+    returnCosts.set(c.currency, t);
+  }
   return {
     from, to, rows,
     totals: [...totals.entries()].map(([currency, t]) => ({
@@ -472,10 +723,14 @@ export async function computeMarginReport(db: Db, from: string, to: string) {
       grossMargin: t.revenue > 0n ? Number(fromMicro(divM(t.revenue - t.cogs, t.revenue))) : null,
     })),
     incompleteLines: incomplete,
-    returns: { count: returns.rows[0].n, qty: fromMicro(toMicro(returns.rows[0].q)), creditNoteRequests: returns.rows[0].credit },
+    returns: {
+      count: returns.rows[0].n, qty: fromMicro(toMicro(returns.rows[0].q)), creditNoteRequests: returns.rows[0].credit,
+      costs: [...returnCosts.entries()].map(([currency, t]) => ({ currency, repair: money(t.repair), scrap: money(t.scrap), replacement: money(t.replacement), total: money(t.repair + t.scrap + t.replacement) })),
+      decidedInPeriod: decided.length, costIncomplete: returnCostIncomplete,
+    },
     notes: [
       "Gelir: sevk edilen miktar × sipariş birim fiyatı (vergi hariç, sipariş para birimi). Satılmamış stokta kâr gösterilmez.",
-      "Satılan malın maliyeti: sevk edilen lotun güncel birim maliyeti (üretimden gelen lotta iş emri maliyet hesabı).",
+      "Satılan malın maliyeti: sevk edilen lotun güncel birim maliyeti (üretimden gelen lotta iş emri maliyet hesabı). Para birimi farklıysa sevk tarihindeki kurla çevrilir (kur ve kaynağı satırda).",
       "İadeler ve alacak belgeleri resmî muhasebe kaydı olmadığı için gelirden düşülmez; ayrıca gösterilir.",
       "Nakit akışı ve tahsilat bu rapora dahil değildir.",
     ],

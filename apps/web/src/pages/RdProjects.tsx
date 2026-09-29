@@ -100,6 +100,7 @@ export function RdProjectPage() {
             </form>
           ) : null}
           {d.status === "closed" ? <div className="notice">Kapatıldı: {d.closedReason}</div> : null}
+          <BudgetVersions id={id!} versions={d.budgetVersions ?? []} open={d.status === "open"} />
           <ErrorNotice error={close.error} />
         </div>
         <div className="card" style={{ flex: 1 }}>
@@ -186,5 +187,36 @@ export function RdProjectPage() {
 
       <RdProjectCost projectId={id!} open={d.status === "open"} />
     </>
+  );
+}
+
+/** Onaylı baz bütçe sürümleri; bütçe sapması (Raporlar → metrikler) son sürüme göre ölçülür. */
+function BudgetVersions({ id, versions, open }: { id: string; versions: any[]; open: boolean }) {
+  const can = useCan();
+  const qc = useQueryClient();
+  const [f, setF] = useState({ amount: "", currency: versions[0]?.currency ?? "TRY", reason: "" });
+  const save = useMutation({
+    mutationFn: () => post(`/api/rd-projects/${id}/budget`, f),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["rd-project", id] }); setF({ ...f, amount: "", reason: "" }); },
+  });
+  return (
+    <div style={{ marginTop: 10 }}>
+      <b>Onaylı baz bütçe</b>
+      {versions.length ? (
+        <table>
+          <thead><tr><th>Sürüm</th><th className="num">Tutar</th><th>Gerekçe</th><th>Onaylayan</th></tr></thead>
+          <tbody>{versions.map((v) => <tr key={v.versionNo}><td>v{v.versionNo}</td><td className="num">{fmt(v.amount)} {v.currency}</td><td>{v.reason}</td><td className="muted">{v.approvedBy ?? "—"} · {new Date(v.createdAt).toLocaleDateString("tr-TR")}</td></tr>)}</tbody>
+        </table>
+      ) : <div className="muted">Onaylı bütçe yok — bütçe sapması ölçülmez.</div>}
+      {open && can("cost.manage") ? (
+        <form className="row" onSubmit={(e: FormEvent) => { e.preventDefault(); save.mutate(); }}>
+          <label className="field" style={{ width: 120 }}>Yeni bütçe<input aria-label="Yeni bütçe" required inputMode="decimal" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></label>
+          <label className="field" style={{ width: 80 }}>Para<input aria-label="Bütçe para birimi" required maxLength={3} value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value.toUpperCase() })} /></label>
+          <label className="field" style={{ flex: 1 }}>Gerekçe<input aria-label="Bütçe gerekçesi" required minLength={3} value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} /></label>
+          <button style={{ alignSelf: "flex-end" }} disabled={save.isPending}>Bütçeyi revize et</button>
+        </form>
+      ) : null}
+      <ErrorNotice error={save.error} />
+    </div>
   );
 }

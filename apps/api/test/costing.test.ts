@@ -229,3 +229,52 @@ describe("Satış kârlılığı ve metrikler", () => {
     void orderId;
   });
 });
+
+describe("Kur ve bütçe sapması (oturum 41, kalan işler 7b)", () => {
+  it("iş emri maliyeti: farklı para birimindeki lot maliyeti kayıt tarihindeki kurla çevrilir; kur yoksa eksik", async () => {
+    // Kondansatör lotuna USD maliyet (bugün): 2 adet × 0,01 USD
+    expectOk(await call(w.app, P, A, "POST", `/api/lots/${await lotId("CAP-C1")}/cost`, { unitCost: "0.01", currency: "USD", source: "invoice", reference: "FTR-USD" }));
+    let c = expectOk(await call(w.app, M, A, "POST", `/api/work-orders/${wo2.id}/costs`));
+    const cap = () => c.materials.find((m: any) => m.itemCode === "CMP-TESTPASSIVE-CAP-C");
+    expect(cap()).toMatchObject({ currency: "USD", cost: null });
+    expect(cap().note).toMatch(/USD→TRY kuru yok/);
+    expect(c.complete).toBe(false);
+
+    expect((await call(w.app, "warehouse@a.test", A, "GET", "/api/exchange-rates")).status).toBe(403);
+    expectOk(await call(w.app, M, A, "POST", "/api/exchange-rates", { baseCurrency: "USD", quoteCurrency: "TRY", rate: "40", rateDate: plus(-2), source: "TCMB döviz alış" }));
+    c = expectOk(await call(w.app, M, A, "POST", `/api/work-orders/${wo2.id}/costs`));
+    expect(cap()).toMatchObject({ currency: "USD", unitCost: "0.01", cost: "0.8", fx: `1 USD = 40 TRY (${plus(-2)}, TCMB döviz alış)` });
+    expect(c.totals.material).toBe("13.8"); // MCU 1 × 13 TRY + kondansatör 2 × 0,01 USD × 40
+    const list = expectOk(await call(w.app, M, A, "GET", "/api/exchange-rates?currency=USD"));
+    expect(list[0]).toMatchObject({ baseCurrency: "USD", quoteCurrency: "TRY", source: "TCMB döviz alış" });
+  });
+
+  it("bütçe sapması: açık Ar-Ge projesinde (gerçekleşen − onaylı baz bütçe) / baz; bütçe revizyonu yeni sürüm", async () => {
+    const p = expectOk(await call(w.app, "rd@a.test", A, "POST", "/api/rd-projects", { name: "Bütçeli proje", budgetAmount: "5000", currency: "TRY" }));
+    expectOk(await call(w.app, M, A, "POST", `/api/rd-projects/${p.id}/cost-allocations`, { amount: "100", currency: "EUR", description: "Avrupa laboratuvarı", reason: "Tamamı bu projeye", category: "test" }));
+    let m = expectOk(await call(w.app, M, A, "GET", `/api/metrics?from=${today}&to=${today}`));
+    let bv = m.metrics.find((x: any) => x.key === "budget_variance");
+    expect(bv.value).toBeNull();
+    const src = expectOk(await call(w.app, M, A, "GET", `/api/metrics/budget_variance/sources?from=${today}&to=${today}`));
+    expect(src.rows[0]).toMatchObject({ baseline: "5000", actual: null });
+    expect(src.rows[0].note).toMatch(/EUR→TRY kuru yok/);
+
+    // Ters çift: 1 TRY = 0,025 EUR → 1 EUR = 40 TRY
+    expectOk(await call(w.app, M, A, "POST", "/api/exchange-rates", { baseCurrency: "TRY", quoteCurrency: "EUR", rate: "0.025", rateDate: today, source: "Banka" }));
+    m = expectOk(await call(w.app, M, A, "GET", `/api/metrics?from=${today}&to=${today}`));
+    bv = m.metrics.find((x: any) => x.key === "budget_variance");
+    expect(bv).toMatchObject({ numerator: -1000, denominator: 5000, value: -0.2 });
+
+    expect((await call(w.app, "rd@a.test", A, "POST", `/api/rd-projects/${p.id}/budget`, { amount: "3000", currency: "TRY", reason: "Kapsam daraldı" })).status).toBe(403);
+    expectOk(await call(w.app, M, A, "POST", `/api/rd-projects/${p.id}/budget`, { amount: "3000", currency: "TRY", reason: "Kapsam daraldı" }));
+    const d = expectOk(await call(w.app, M, A, "GET", `/api/rd-projects/${p.id}`));
+    expect(d.budgetVersions.map((v: any) => [v.versionNo, v.amount])).toEqual([[2, "3000.00"], [1, "5000.00"]]);
+    expect(d.budgetStatus).toMatchObject({ budgetAmount: "3000.00" });
+    m = expectOk(await call(w.app, M, A, "GET", `/api/metrics?from=${today}&to=${today}`));
+    bv = m.metrics.find((x: any) => x.key === "budget_variance");
+    expect(bv).toMatchObject({ numerator: 1000, denominator: 3000 });
+    expect(bv.value).toBeCloseTo(0.3333, 4);
+    await w.owner.query(`select set_config('app.company_id', $1, false)`, [A]);
+    await expect(w.owner.query(`update rd_project_budgets set amount = 1`)).rejects.toThrow(/append/i);
+  });
+});

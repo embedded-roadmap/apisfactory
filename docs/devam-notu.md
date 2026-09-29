@@ -1349,3 +1349,25 @@ satırlarına bağlı tedarikçi faturası (iç kod veya fatura no.) elle bölü
 Web: proje sayfasında anlık maliyet, zaman kaydı/ters çevirme, saat ücreti; ürün sayfasında revizyon proje bağı ve rapor
 sürümleri. Kalan: Ar-Ge payının ürün birim maliyetine aktarımı (amortisman) yok; stoktan karşılanan proje malzemesi
 stok çıkışı olmadığı için rapora girmez. `rd-cost.test.ts` 6/6.
+
+## Oturum 41 devamı — kalan işler 7b: maliyet — kur, bütçe, iade tamiri/hurda
+
+Migration 056.
+- **Kur** (`lib/fx.ts`): `exchange_rates` değişmez; 1 taban = kur × karşılık, kaynak zorunlu, aynı çift/gün için yeni
+  kayıt düzeltmedir (son girilen geçerli). İşlem tarihine en yakın önceki kur; `cost_policies.fx_max_age_days`
+  (varsayılan 7) aşılırsa dönüştürülmez → eksik. Doğrudan çift yoksa ters çift. Kur 10 ondalıkla çarpılır. Kullanım:
+  iş emri malzemesi (lot maliyet kayıt tarihi), fason iş (hesap tarihi), kâr raporu SMM (sevk tarihi), iade maliyeti
+  (hareket tarihi), bütçe sapması (dönem sonu). Uçlar: `GET/POST /api/exchange-rates` (okuma field.cost.view,
+  yazma cost.manage). Kur otomatik çekilmez.
+- **Bütçe**: `rd_project_budgets` onaylı baz bütçe sürümleri (açılış bütçesi v1; mevcut projeler migration'da
+  dolduruldu); `POST /api/rd-projects/:id/budget` (cost.manage, gerekçeli). Metrik `budget_variance` artık
+  hesaplanır: açık projelerde (Ar-Ge maliyeti toplamı, bütçe para birimine çevrilmiş − son baz) / baz. Bütçeler farklı
+  para birimindeyse toplu oran verilmez, proje satırları kaynak kayıtlarda.
+- **İade maliyeti** (`computeRmaCost`, `GET /api/rmas/:id/cost`): `POST /api/rmas/:id/repair` artık isteğe bağlı
+  `laborHours` ve `parts` alır; her deneme `rma_repair_attempts`'a değişmez yazılır, parçalar ana depodan `issue`
+  hareketiyle (`ref_type = 'rma_repair'`) düşülür (yetersiz stok → `negative_stock`, deneme de geri alınır). Maliyet =
+  deneme saati × deneme tarihindeki politika ücreti + saat başı genel gider + parça lot maliyeti + hurdaya ayrılan iade
+  ürünü + değişim ürünü. Kâr raporunda dönemde karar verilen iadelerin maliyeti ayrı gösterilir, brüt kârdan düşülmez.
+
+Web: Raporlar → kur tablosu ve politika azami kur yaşı, kâr raporunda iade maliyeti ve satır kuru, iş emri
+malzemesinde kur; iade detayında tamir saati/parça ve iade maliyeti paneli; Ar-Ge projesinde bütçe sürümleri.

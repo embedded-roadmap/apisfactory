@@ -118,7 +118,7 @@ export function ReturnPage() {
   const act = useMutation({ mutationFn: (f: () => Promise<unknown>) => f(), onSuccess: refresh });
   const [inspect, setInspect] = useState({ finding: "", cause: "unknown", openChangeRequest: false });
   const [decide, setDecide] = useState({ disposition: "repair", note: "", creditNote: false, replacementCode: "", retestPassed: false });
-  const [repair, setRepair] = useState({ note: "", retestPassed: true });
+  const [repair, setRepair] = useState({ note: "", retestPassed: true, laborHours: "", partCode: "", partQty: "" });
   const [ship, setShip] = useState({ carrier: "", trackingNo: "" });
   const [shipKey] = useState(newKey());
   const [cancel, setCancel] = useState("");
@@ -224,13 +224,26 @@ export function ReturnPage() {
       {r.status === "decided" && r.disposition === "repair" && r.retestPassed === null && can("production.test.record") ? (
         <section className="card">
           <h2>Tamir ve tekrar test</h2>
-          <form className="row" onSubmit={(e) => { e.preventDefault(); act.mutate(() => post(`/api/rmas/${id}/repair`, repair)); }}>
+          <form className="row" onSubmit={(e) => { e.preventDefault(); act.mutate(async () => {
+            // Parça (isteğe bağlı): lot kodu → lot/kalem kimliği; stoktan düşülür, tamir maliyetine girer.
+            const parts = [];
+            if (repair.partCode) {
+              const lot = (await get<any[]>(`/api/lots/lookup?code=${encodeURIComponent(repair.partCode)}`))[0];
+              if (!lot) throw new Error(`Parça lotu bulunamadı: ${repair.partCode}`);
+              parts.push({ itemId: lot.itemId, lotId: lot.id, qty: repair.partQty || "1" });
+            }
+            return post(`/api/rmas/${id}/repair`, { note: repair.note, retestPassed: repair.retestPassed, laborHours: repair.laborHours || undefined, parts });
+          }); }}>
             <label className="field" style={{ flex: 1 }}>Tamir notu<input required minLength={3} value={repair.note} onChange={(e) => setRepair({ ...repair, note: e.target.value })} /></label>
             <label className="field">Tekrar test
               <select value={repair.retestPassed ? "pass" : "fail"} onChange={(e) => setRepair({ ...repair, retestPassed: e.target.value === "pass" })}><option value="pass">Geçti</option><option value="fail">Kaldı</option></select>
             </label>
+            <label className="field" style={{ width: 100 }}>İşçilik (saat)<input aria-label="Tamir işçilik saati" inputMode="decimal" value={repair.laborHours} onChange={(e) => setRepair({ ...repair, laborHours: e.target.value })} /></label>
+            <label className="field">Kullanılan parça (lot kodu)<input aria-label="Parça lot kodu" value={repair.partCode} onChange={(e) => setRepair({ ...repair, partCode: e.target.value })} /></label>
+            <label className="field" style={{ width: 80 }}>Miktar<input aria-label="Parça miktarı" inputMode="decimal" placeholder="1" value={repair.partQty} onChange={(e) => setRepair({ ...repair, partQty: e.target.value })} /></label>
             <button className="primary" style={{ alignSelf: "flex-end" }}>Kaydet</button>
           </form>
+          <p className="muted" style={{ margin: 0 }}>Saat ve parça tamir maliyetine girer (politikadaki işçilik ücreti + genel gider, parçanın lot maliyeti). Parça ana depodan düşülür.</p>
         </section>
       ) : null}
 
@@ -254,6 +267,7 @@ export function ReturnPage() {
           </div>
         </section>
       ) : null}
+      {r.status !== "open" && can("field.cost.view") ? <RmaCost id={r.id} /> : null}
       <Discussion entityType="rma" entityId={r.id} />
       <History entityType="rma" id={r.id} />
     </>
@@ -261,6 +275,45 @@ export function ReturnPage() {
 }
 
 /** Cihaz geçmişi: seri → revizyon, BOM, lotlar, testler, sevkiyat, iade (prompt §22). */
+/** İade maliyeti: tamir (işçilik + genel gider + parça), hurda ve değişim ürünü; brüt kârdan ayrı. */
+function RmaCost({ id }: { id: string }) {
+  const q = useQuery({ queryKey: ["rmaCost", id], queryFn: () => get<any>(`/api/rmas/${id}/cost`) });
+  const c = q.data;
+  return (
+    <section className="card">
+      <h2>İade maliyeti</h2>
+      {q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />}
+      {c ? (
+        <>
+          <div className="kpis">
+            <div className="kpi"><small>Toplam{c.currency ? ` (${c.currency})` : ""}</small><b>{fmt(c.totals.total)}</b><span className="muted">{c.complete ? "tamam" : "eksik / ara"}</span></div>
+            <div className="kpi"><small>Tamir</small><b>{fmt(c.totals.repair)}</b><span className="muted">{c.repair.attempts.length} deneme</span></div>
+            <div className="kpi"><small>Hurda</small><b>{fmt(c.totals.scrap)}</b><span className="muted">{c.scrap ? `${fmt(c.scrap.qty)} adet` : "—"}</span></div>
+            <div className="kpi"><small>Değişim ürünü</small><b>{fmt(c.totals.replacement)}</b><span className="muted">{c.replacement ? `${fmt(c.replacement.qty)} adet` : "—"}</span></div>
+          </div>
+          {c.gaps.length ? <div className="notice warn"><b>Eksik:</b> {c.gaps.join(" · ")}</div> : null}
+          {c.repair.attempts.length ? (
+            <table>
+              <thead><tr><th>Deneme</th><th>Tarih</th><th className="num">Saat</th><th className="num">İşçilik</th><th className="num">Genel gider</th><th>Parçalar</th><th className="num">Toplam</th><th>Tekrar test</th></tr></thead>
+              <tbody>
+                {c.repair.attempts.map((a: any) => (
+                  <tr key={a.attemptNo}>
+                    <td>#{a.attemptNo}</td><td>{a.date}</td><td className="num">{fmt(a.laborHours)}</td><td className="num">{fmt(a.labor)}</td><td className="num">{fmt(a.overhead)}</td>
+                    <td className="muted">{a.parts.length ? a.parts.map((p: any) => `${p.itemCode} / ${p.lotNo} × ${fmt(p.qty)} = ${p.cost === null ? "?" : fmt(p.cost)}${p.fx ? ` (${p.fx})` : ""}`).join("; ") : "—"}</td>
+                    <td className="num"><b>{fmt(a.total)}</b></td><td>{a.retestPassed ? "geçti" : "kaldı"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : null}
+          {c.scrap?.fx || c.replacement?.fx ? <p className="muted" style={{ margin: 0 }}>Kur: {[c.scrap?.fx, c.replacement?.fx].filter(Boolean).join(" · ")}</p> : null}
+          <p className="muted" style={{ margin: 0 }}>İade maliyeti brüt kârdan düşülmez; kâr raporunda ayrı gösterilir.</p>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
 export function DevicePage() {
   const { serial } = useParams();
   const nav = useNavigate();

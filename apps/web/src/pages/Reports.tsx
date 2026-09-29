@@ -46,6 +46,7 @@ export function ReportsPage() {
       ) : null}
       {can("field.cost.view") && can("field.price.view") ? <Margin from={from} to={to} /> : null}
       {can("field.cost.view") ? <Policies /> : null}
+      {can("field.cost.view") ? <ExchangeRates /> : null}
     </>
   );
 }
@@ -97,6 +98,12 @@ function Margin({ from, to }: { from: string; to: string }) {
             ))}
             <div className="kpi"><small>Eksik veri</small><b>{r.incompleteLines}</b><span className="muted">satır hesaplanamadı</span></div>
             <div className="kpi"><small>İade (dönem)</small><b>{r.returns.count}</b><span className="muted">{fmt(r.returns.qty)} adet · {r.returns.creditNoteRequests} alacak talebi</span></div>
+            {(r.returns.costs ?? []).map((c: any) => (
+              <div key={c.currency} className="kpi">
+                <small>İade maliyeti ({c.currency})</small><b>{fmt(c.total)}</b>
+                <span className="muted">tamir {fmt(c.repair)} · hurda {fmt(c.scrap)} · değişim {fmt(c.replacement)}{r.returns.costIncomplete ? ` · ${r.returns.costIncomplete} iade eksik` : ""}</span>
+              </div>
+            ))}
           </div>
           {r.rows.length === 0 ? <Empty>Dönemde sevkiyat yok; satılmamış stokta kâr gösterilmez.</Empty> : (
             <table>
@@ -106,7 +113,7 @@ function Margin({ from, to }: { from: string; to: string }) {
                   <tr key={i}>
                     <td className="mono">{x.shipmentCode}</td><td className="mono">{x.orderCode}</td><td>{x.customerName}</td><td><span className="mono">{x.product}</span><div className="muted mono">{x.lotNo}</div></td>
                     <td className="num">{fmt(x.qty)}</td><td className="num">{fmt(x.unitPrice)} {x.currency}</td><td className="num">{fmt(x.unitCost)}<div className="muted">{x.costSource ?? ""}</div></td>
-                    <td className="num">{fmt(x.revenue)}</td><td className="num">{fmt(x.cogs)}</td><td className="num"><b>{fmt(x.grossProfit)}</b></td><td className="num">{pct(x.grossMargin)}</td><td className="muted">{x.note ?? ""}</td>
+                    <td className="num">{fmt(x.revenue)}</td><td className="num">{fmt(x.cogs)}</td><td className="num"><b>{fmt(x.grossProfit)}</b></td><td className="num">{pct(x.grossMargin)}</td><td className="muted">{x.note ?? ""}{x.fx ? <div>{x.fx}</div> : null}</td>
                   </tr>
                 ))}
               </tbody>
@@ -123,8 +130,8 @@ function Policies() {
   const can = useCan();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["costPolicies"], queryFn: () => get<any[]>("/api/cost-policies") });
-  const [f, setF] = useState({ validFrom: iso(new Date()), currency: "TRY", laborRatePerHour: "", overheadPerLaborHour: "0", overheadPctOfMaterial: "0", note: "" });
-  const add = useMutation({ mutationFn: () => post("/api/cost-policies", f), onSuccess: () => { qc.invalidateQueries({ queryKey: ["costPolicies"] }); setF({ ...f, note: "" }); } });
+  const [f, setF] = useState({ validFrom: iso(new Date()), currency: "TRY", laborRatePerHour: "", overheadPerLaborHour: "0", overheadPctOfMaterial: "0", fxMaxAgeDays: "7", note: "" });
+  const add = useMutation({ mutationFn: () => post("/api/cost-policies", { ...f, fxMaxAgeDays: Number(f.fxMaxAgeDays) }), onSuccess: () => { qc.invalidateQueries({ queryKey: ["costPolicies"] }); setF({ ...f, note: "" }); } });
   return (
     <section className="card">
       <h2>Maliyet politikası (sürümlü)</h2>
@@ -132,8 +139,8 @@ function Policies() {
       {q.data?.length === 0 ? <div className="notice warn">Politika yok: işçilik ve genel gider hesaplanamaz, maliyet hesapları "eksik" kalır.</div> : null}
       {q.data?.length ? (
         <table>
-          <thead><tr><th>Sürüm</th><th>Geçerlilik</th><th className="num">İşçilik / saat</th><th className="num">Genel gider / saat</th><th className="num">Genel gider % malzeme</th><th>Not</th><th>Kaydeden</th></tr></thead>
-          <tbody>{q.data.map((p) => <tr key={p.id}><td>v{p.versionNo}</td><td>{p.validFrom}</td><td className="num">{fmt(p.laborRatePerHour)} {p.currency}</td><td className="num">{fmt(p.overheadPerLaborHour)}</td><td className="num">%{fmt(p.overheadPctOfMaterial)}</td><td>{p.note}</td><td className="muted">{p.createdBy} · {fmtDate(p.createdAt)}</td></tr>)}</tbody>
+          <thead><tr><th>Sürüm</th><th>Geçerlilik</th><th className="num">İşçilik / saat</th><th className="num">Genel gider / saat</th><th className="num">Genel gider % malzeme</th><th className="num">Azami kur yaşı</th><th>Not</th><th>Kaydeden</th></tr></thead>
+          <tbody>{q.data.map((p) => <tr key={p.id}><td>v{p.versionNo}</td><td>{p.validFrom}</td><td className="num">{fmt(p.laborRatePerHour)} {p.currency}</td><td className="num">{fmt(p.overheadPerLaborHour)}</td><td className="num">%{fmt(p.overheadPctOfMaterial)}</td><td className="num">{p.fxMaxAgeDays} gün</td><td>{p.note}</td><td className="muted">{p.createdBy} · {fmtDate(p.createdAt)}</td></tr>)}</tbody>
         </table>
       ) : null}
       {can("cost.manage") ? (
@@ -143,8 +150,45 @@ function Policies() {
           <label className="field" style={{ width: 120 }}>İşçilik/saat<input required inputMode="decimal" value={f.laborRatePerHour} onChange={(e) => setF({ ...f, laborRatePerHour: e.target.value })} /></label>
           <label className="field" style={{ width: 120 }}>Genel gider/saat<input inputMode="decimal" value={f.overheadPerLaborHour} onChange={(e) => setF({ ...f, overheadPerLaborHour: e.target.value })} /></label>
           <label className="field" style={{ width: 120 }}>% malzeme<input inputMode="decimal" value={f.overheadPctOfMaterial} onChange={(e) => setF({ ...f, overheadPctOfMaterial: e.target.value })} /></label>
+          <label className="field" style={{ width: 110 }}>Azami kur yaşı (gün)<input aria-label="Azami kur yaşı" inputMode="numeric" value={f.fxMaxAgeDays} onChange={(e) => setF({ ...f, fxMaxAgeDays: e.target.value })} /></label>
           <label className="field" style={{ flex: 1 }}>Gerekçe / not<input required minLength={3} value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></label>
           <button className="primary" style={{ alignSelf: "flex-end" }} disabled={add.isPending}>Yeni sürüm</button>
+        </form>
+      ) : null}
+      <ErrorNotice error={add.error} />
+    </section>
+  );
+}
+
+/** Kur tablosu: değişmez; aynı gün için yeni kayıt düzeltmedir. Maliyet hesapları işlem tarihine en yakın önceki kuru kullanır. */
+function ExchangeRates() {
+  const can = useCan();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["fxRates"], queryFn: () => get<any[]>("/api/exchange-rates") });
+  const [f, setF] = useState({ baseCurrency: "USD", quoteCurrency: "TRY", rate: "", rateDate: iso(new Date()), source: "TCMB döviz alış", note: "" });
+  const add = useMutation({
+    mutationFn: () => post("/api/exchange-rates", { ...f, note: f.note || undefined }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["fxRates"] }); setF({ ...f, rate: "", note: "" }); },
+  });
+  return (
+    <section className="card">
+      <h2>Kurlar</h2>
+      <p className="muted" style={{ margin: 0 }}>Farklı para birimindeki maliyet, işlemin tarihindeki (veya en yakın önceki) kurla çevrilir; politikadaki azami yaştan eski kur kullanılmaz, hesap eksik görünür. Kayıt değiştirilmez; aynı gün için yeni kayıt düzeltme sayılır.</p>
+      {q.data?.length ? (
+        <table>
+          <thead><tr><th>Tarih</th><th>Kur</th><th>Kaynak</th><th>Not</th><th>Kaydeden</th></tr></thead>
+          <tbody>{q.data.map((x) => <tr key={x.id}><td>{x.rateDate}</td><td className="mono">1 {x.baseCurrency} = {x.rate.replace(/\.?0+$/, "")} {x.quoteCurrency}</td><td>{x.source}</td><td className="muted">{x.note ?? ""}</td><td className="muted">{x.createdBy} · {fmtDate(x.createdAt)}</td></tr>)}</tbody>
+        </table>
+      ) : q.data ? <Empty>Kur girilmedi: farklı para birimli maliyetler hesaplanamaz.</Empty> : null}
+      {can("cost.manage") ? (
+        <form className="row" onSubmit={(e: FormEvent) => { e.preventDefault(); add.mutate(); }}>
+          <label className="field">Tarih<input type="date" aria-label="Kur tarihi" required max={iso(new Date())} value={f.rateDate} onChange={(e) => setF({ ...f, rateDate: e.target.value })} /></label>
+          <label className="field" style={{ width: 80 }}>1 birim<input aria-label="Taban para birimi" required pattern="[A-Z]{3}" value={f.baseCurrency} onChange={(e) => setF({ ...f, baseCurrency: e.target.value.toUpperCase() })} /></label>
+          <label className="field" style={{ width: 120 }}>Kur<input aria-label="Kur" required inputMode="decimal" value={f.rate} onChange={(e) => setF({ ...f, rate: e.target.value })} /></label>
+          <label className="field" style={{ width: 80 }}>Karşılık<input aria-label="Karşılık para birimi" required pattern="[A-Z]{3}" value={f.quoteCurrency} onChange={(e) => setF({ ...f, quoteCurrency: e.target.value.toUpperCase() })} /></label>
+          <label className="field">Kaynak<input aria-label="Kur kaynağı" required minLength={2} value={f.source} onChange={(e) => setF({ ...f, source: e.target.value })} /></label>
+          <label className="field" style={{ flex: 1 }}>Not<input value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></label>
+          <button className="primary" style={{ alignSelf: "flex-end" }} disabled={add.isPending}>Kur ekle</button>
         </form>
       ) : null}
       <ErrorNotice error={add.error} />
@@ -188,7 +232,7 @@ export function WorkOrderCost({ woId }: { woId: string }) {
           {r.gaps.length ? <div className="notice warn"><b>Eksik:</b> {r.gaps.join(" · ")}</div> : null}
           <table>
             <thead><tr><th>Kalem</th><th>Lot</th><th className="num">Miktar</th><th className="num">Birim maliyet</th><th>Kaynak</th><th className="num">Tutar</th></tr></thead>
-            <tbody>{r.materials.map((m: any) => <tr key={m.itemCode + m.lotNo}><td className="mono">{m.itemCode}</td><td className="mono">{m.lotNo}</td><td className="num">{fmt(m.qty)}</td><td className="num">{m.unitCost === null ? "—" : `${fmt(m.unitCost)} ${m.currency}`}</td><td className="muted">{m.costSource ? `${m.costSource} · ${m.costReference ?? ""}` : m.note}</td><td className="num">{fmt(m.cost)}</td></tr>)}</tbody>
+            <tbody>{r.materials.map((m: any) => <tr key={m.itemCode + m.lotNo}><td className="mono">{m.itemCode}</td><td className="mono">{m.lotNo}</td><td className="num">{fmt(m.qty)}</td><td className="num">{m.unitCost === null ? "—" : `${fmt(m.unitCost)} ${m.currency}`}</td><td className="muted">{m.costSource ? `${m.costSource} · ${m.costReference ?? ""}` : m.note}{m.fx ? <div>{m.fx}</div> : null}{m.costSource && m.note ? <div>{m.note}</div> : null}</td><td className="num">{fmt(m.cost)}</td></tr>)}</tbody>
           </table>
           {r.externals?.length ? (
             <table>

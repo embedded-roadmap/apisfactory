@@ -409,13 +409,41 @@ export async function returnRoutes(app: FastifyInstance) {
   /** Tamir sonucu: tekrar test geçmezse ürün gönderilemez; kalite yeniden karar verir (ör. hurda / değişim). */
   app.post("/api/rmas/:id/repair", async (req) => {
     const { id } = req.params as { id: string };
-    const input = parse(z.object({ note: z.string().min(3).max(2000), retestPassed: z.boolean() }), req.body);
+    const input = parse(
+      z.object({
+        note: z.string().min(3).max(2000),
+        retestPassed: z.boolean(),
+        // Tamir maliyeti için (isteğe bağlı): işçilik saati ve kullanılan parçalar (stoktan düşülür).
+        laborHours: z.string().regex(/^\d{1,3}(\.\d{1,2})?$/).optional(),
+        parts: z.array(z.object({ itemId: z.string().uuid(), lotId: z.string().uuid(), qty: z.string().regex(/^\d+(\.\d{1,6})?$/) })).max(20).default([]),
+      }),
+      req.body,
+    );
     return tenant(req, "production.test.record", async (db, actor) => {
       const rma = await lockRma(db, id);
       if (rma.status !== "decided" || rma.disposition !== "repair" || rma.retest_passed !== null) throw conflict("invalid_transition", "Tamir sonucu yalnızca tamir kararı verilmiş ve sonucu girilmemiş iade için girilir");
+      const attemptNo = (await db.query(`select coalesce(max(attempt_no), 0) + 1 as n from rma_repair_attempts where rma_id = $1`, [id])).rows[0].n;
+      const attempt = await db.query(
+        `insert into rma_repair_attempts (company_id, rma_id, attempt_no, labor_hours, note, retest_passed, created_by)
+         values (app_company_id(), $1, $2, $3, $4, $5, $6) returning id`,
+        [id, attemptNo, input.laborHours ?? "0", input.note, input.retestPassed, actor.userId],
+      );
+      if (input.parts.length) {
+        const stockLoc = await locationOf(db, "stock");
+        for (const p of input.parts) {
+          if (toMicro(p.qty) <= 0n) throw conflict("invalid_qty", "Parça miktarı sıfırdan büyük olmalı");
+          const lot = await db.query(`select 1 from lots where id = $1 and item_id = $2`, [p.lotId, p.itemId]);
+          if (!lot.rowCount) throw notFound("Parça lotu");
+          await db.query(
+            `insert into stock_moves (company_id, item_id, lot_id, from_location_id, qty, move_type, ref_type, ref_id, created_by)
+             values (app_company_id(), $1, $2, $3, $4, 'issue', 'rma_repair', $5, $6)`,
+            [p.itemId, p.lotId, stockLoc, p.qty, attempt.rows[0].id, actor.userId],
+          );
+        }
+      }
       await db.query(`update rmas set repair_note = $2, retest_passed = $3 where id = $1`, [id, input.note, input.retestPassed]);
       if (input.retestPassed) await db.query(`update devices set status = 'returned' where id = $1`, [rma.device_id]);
-      await recordEvent(db, actor, { entityType: "rma", entityId: id, eventType: input.retestPassed ? "repair.passed" : "repair.failed", after: { retestPassed: input.retestPassed }, reason: input.note });
+      await recordEvent(db, actor, { entityType: "rma", entityId: id, eventType: input.retestPassed ? "repair.passed" : "repair.failed", after: { retestPassed: input.retestPassed, attemptNo, laborHours: input.laborHours ?? "0", parts: input.parts }, reason: input.note });
       await recordEvent(db, actor, { entityType: "device", entityId: rma.device_id, eventType: input.retestPassed ? "rma.repaired" : "rma.repair_failed", after: { rma: rma.code }, reason: input.note });
       await closeTasks(db, actor.companyId, "rma_repair", id);
       if (input.retestPassed) {

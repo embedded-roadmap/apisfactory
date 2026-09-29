@@ -243,3 +243,84 @@ describe("Teslim alma, inceleme ve karar", () => {
     expect(hist.map((e: any) => e.eventType)).toEqual(expect.arrayContaining(["rma.opened", "rma.inspected", "rma.repair", "rma.repair_failed", "rma.replace"]));
   });
 });
+
+describe("İade maliyeti: tamir, hurda ve değişim (oturum 41, kalan işler 7b)", () => {
+  const M = "manager@a.test";
+  const P = "purchasing@a.test";
+  const today = new Date().toISOString().slice(0, 10);
+  const daysAgo = (n: number) => { const d = new Date(`${today}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
+  let repairRma: any;
+  const lotOf = async (code: string) => expectOk(await call(w.app, W, A, "GET", `/api/lots/lookup?code=${code}`))[0];
+
+  it("maliyet girdileri: politika, lot maliyetleri (biri USD) ve kur", async () => {
+    expectOk(await call(w.app, M, A, "POST", "/api/cost-policies", { validFrom: "2026-01-01", currency: "TRY", laborRatePerHour: "600", overheadPerLaborHour: "100", note: "İade maliyeti testi" }));
+    const fg = expectOk(await call(w.app, Q, A, "GET", `/api/devices/${serials[3]}`));
+    const fgLot = await lotOf(fg.finishedLotNo);
+    expect(fgLot).toBeTruthy();
+    expectOk(await call(w.app, P, A, "POST", `/api/lots/${fgLot.id}/cost`, { unitCost: "500", currency: "TRY", source: "manual", reference: "Stok değeri" }));
+    expectOk(await call(w.app, P, A, "POST", `/api/lots/${(await lotOf("MR-1")).id}/cost`, { unitCost: "12.5", currency: "TRY", source: "invoice", reference: "FTR-MR" }));
+    expectOk(await call(w.app, P, A, "POST", `/api/lots/${(await lotOf("LOT-FG")).id}/cost`, { unitCost: "20", currency: "USD", source: "manual", reference: "İthal lot" }));
+    expect((await call(w.app, W, A, "POST", "/api/exchange-rates", { baseCurrency: "USD", quoteCurrency: "TRY", rate: "40", rateDate: today, source: "TCMB" })).status).toBe(403);
+    expect((await call(w.app, M, A, "POST", "/api/exchange-rates", { baseCurrency: "USD", quoteCurrency: "USD", rate: "1", rateDate: today, source: "TCMB" })).status).toBe(400);
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    expect((await call(w.app, M, A, "POST", "/api/exchange-rates", { baseCurrency: "USD", quoteCurrency: "TRY", rate: "40", rateDate: tomorrow, source: "TCMB" })).body.error.code).toBe("future_rate");
+  });
+
+  it("kur yoksa veya politikadaki azami yaştan eskiyse dönüştürülmez; eksik olarak görünür", async () => {
+    const scrapRma = expectOk(await call(w.app, M, A, "GET", "/api/rmas")).find((r: any) => r.disposition === "scrap");
+    let c = expectOk(await call(w.app, M, A, "GET", `/api/rmas/${scrapRma.id}/cost`));
+    expect(c.scrap).toMatchObject({ qty: "2", unitCost: "20", cost: null });
+    expect(c.gaps.join(" ")).toMatch(/USD→TRY kuru yok/);
+    expectOk(await call(w.app, M, A, "POST", "/api/exchange-rates", { baseCurrency: "USD", quoteCurrency: "TRY", rate: "39", rateDate: daysAgo(10), source: "TCMB" }));
+    c = expectOk(await call(w.app, M, A, "GET", `/api/rmas/${scrapRma.id}/cost`));
+    expect(c.gaps.join(" ")).toMatch(/7 günden eski/);
+    // Aynı gün için düzeltme: son girilen geçerli, önceki iz olarak kalır.
+    expectOk(await call(w.app, M, A, "POST", "/api/exchange-rates", { baseCurrency: "USD", quoteCurrency: "TRY", rate: "41", rateDate: daysAgo(1), source: "TCMB" }));
+    const fix = expectOk(await call(w.app, M, A, "POST", "/api/exchange-rates", { baseCurrency: "USD", quoteCurrency: "TRY", rate: "40", rateDate: daysAgo(1), source: "TCMB", note: "Yanlış girilmişti" }));
+    expect(fix.corrected).toBe(true);
+    c = expectOk(await call(w.app, M, A, "GET", `/api/rmas/${scrapRma.id}/cost`));
+    expect(c.scrap).toMatchObject({ qty: "2", cost: "1600", fx: `1 USD = 40 TRY (${daysAgo(1)}, TCMB)` });
+    expect(c.totals.total).toBe("1600");
+    expect(c.complete).toBe(true);
+    await w.owner.query(`select set_config('app.company_id', $1, false)`, [A]);
+    await expect(w.owner.query(`update exchange_rates set rate = 1`)).rejects.toThrow(/append/i);
+  });
+
+  it("tamir: işçilik saati × politika ücreti + genel gider + stoktan düşülen parça; her deneme değişmez", async () => {
+    repairRma = expectOk(await call(w.app, S, A, "POST", "/api/rmas", { code: serials[2], kind: "warranty", complaint: "Tekrar arıza" }));
+    expectOk(await call(w.app, W, A, "POST", `/api/rmas/${repairRma.id}/receive`, {}));
+    expectOk(await call(w.app, Q, A, "POST", `/api/rmas/${repairRma.id}/inspect`, { finding: "MCU arızalı", cause: "component" }));
+    expectOk(await call(w.app, Q, A, "POST", `/api/rmas/${repairRma.id}/decide`, { disposition: "repair", note: "MCU değişimi" }));
+    const mr = await lotOf("MR-1");
+    const tooMany = await call(w.app, "technician@a.test", A, "POST", `/api/rmas/${repairRma.id}/repair`, { note: "MCU değişti", retestPassed: true, laborHours: "1.5", parts: [{ itemId: mr.itemId, lotId: mr.id, qty: "100" }] });
+    expect(tooMany.body.error.code).toBe("negative_stock");
+    const before = await avail(mr.itemId);
+    expectOk(await call(w.app, "technician@a.test", A, "POST", `/api/rmas/${repairRma.id}/repair`, { note: "MCU değişti, test geçti", retestPassed: true, laborHours: "1.5", parts: [{ itemId: mr.itemId, lotId: mr.id, qty: "1" }] }));
+    expect(Number(before.physical) - Number((await avail(mr.itemId)).physical)).toBe(1);
+
+    let c = expectOk(await call(w.app, M, A, "GET", `/api/rmas/${repairRma.id}/cost`));
+    expect(c.repair.attempts).toHaveLength(1); // reddedilen deneme geri alındı, iz bırakmadı
+    expect(c.repair.attempts[0]).toMatchObject({ attemptNo: 1, laborHours: "1.5", labor: "900", overhead: "150", partsCost: "12.5", total: "1062.5", retestPassed: true });
+    expect(c.totals).toEqual({ repair: "1062.5", scrap: "0", replacement: "0", total: "1062.5" });
+    expect(c.complete).toBe(false); // henüz geri gönderilmedi
+    expect(c.gaps.join(" ")).toContain("ara maliyet");
+    expectOk(await call(w.app, W, A, "POST", `/api/rmas/${repairRma.id}/ship-back`, { carrier: "Test kargo" }));
+    c = expectOk(await call(w.app, M, A, "GET", `/api/rmas/${repairRma.id}/cost`));
+    expect(c.complete).toBe(true);
+    await expect(w.owner.query(`update rma_repair_attempts set labor_hours = 0`)).rejects.toThrow(/append/i);
+    expect((await call(w.app, W, A, "GET", `/api/rmas/${repairRma.id}/cost`)).status).toBe(403);
+  });
+
+  it("değişim: giden cihazın lot maliyeti; başarısız ilk tamir denemesi de maliyette", async () => {
+    const c = expectOk(await call(w.app, M, A, "GET", `/api/rmas/${rma1.id}/cost`));
+    expect(c.repair.attempts).toEqual([expect.objectContaining({ attemptNo: 1, laborHours: "0", total: "0", retestPassed: false })]);
+    expect(c.replacement).toMatchObject({ qty: "1", unitCost: "500", cost: "500" });
+    expect(c.totals.total).toBe("500");
+  });
+
+  it("kâr raporu iade maliyetini brüt kârdan düşmeden ayrı gösterir", async () => {
+    const r = expectOk(await call(w.app, M, A, "GET", `/api/reports/margin?from=${today}&to=${today}`));
+    expect(r.returns.costs).toEqual([{ currency: "TRY", repair: "1062.5", scrap: "1600", replacement: "500", total: "3162.5" }]);
+    expect(r.returns.costIncomplete).toBe(0);
+  });
+});
