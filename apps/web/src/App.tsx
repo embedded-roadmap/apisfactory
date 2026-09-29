@@ -1,44 +1,86 @@
-import { useState, useSyncExternalStore, type FormEvent } from "react";
+import { lazy, Suspense, useState, useSyncExternalStore, type ComponentType, type FormEvent } from "react";
 import { Link, NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Locale, Me, Permission, Session } from "@apisfactory/shared";
 import { api, auth, get, post } from "./lib/api";
 import { ErrorNotice, Loading, MeContext, useT } from "./lib/ui";
-import { TodayPage } from "./pages/Today";
-import { ProductsPage, ProductDetailPage } from "./pages/Products";
-import { BomImportPage } from "./pages/BomImport";
-import { InventoryPage } from "./pages/Inventory";
-import { ReceivingPage } from "./pages/Receiving";
-import { SalesPage, SalesOrderPage } from "./pages/Sales";
-import { PurchasingPage } from "./pages/Purchasing";
-import { ImportsPage } from "./pages/Imports";
-import { ConnectorsStatusPage, EventsPage } from "./pages/Events";
-import { ProductionPage, WorkOrderPage } from "./pages/Production";
-import { AdminPage, PasswordPage } from "./pages/Admin";
-import { QualityPage } from "./pages/Quality";
-import { StationPage } from "./pages/Station";
-import { RoutingPage } from "./pages/Routing";
-import { MeetingPage, MeetingsPage } from "./pages/Meetings";
-import { ChannelPage, ChannelsPage } from "./pages/Channels";
-import { DistributorsPage } from "./pages/Distributors";
-import { SupplyRiskPage } from "./pages/SupplyRisk";
-import { AlternatesPage } from "./pages/Alternates";
-import { CustomerInvoicePage, CustomerInvoicesPage, EinvoiceConnectorsPage, ReceivablesAgingPage } from "./pages/Receivables";
-import { AgingPage, ApPolicyPage, InvoicePage, InvoicesPage, NewInvoicePage } from "./pages/Payables";
-import { SubscriptionPage } from "./pages/Subscription";
-import { FollowupsPage, PurchaseOrderPage, PurchaseOrdersPage, RfqPage, RfqsPage, SuppliersPage } from "./pages/Procurement";
-import { GanttPage, OrgPage, PlanningPage, TaskPage, TeamReportPage } from "./pages/Planning";
-import { ExecutiveReportPage, ReportsPage } from "./pages/Reports";
-import { DevicePage, ReturnPage, ReturnsPage } from "./pages/Returns";
-import { CargoConnectorsPage, ShipmentPage, ShipmentPrintPage, ShipmentsPage } from "./pages/Shipping";
-import { ChangePage, ChangesPage } from "./pages/Changes";
-import { DelegationsPage, WorkflowMonitorPage, WorkflowPage } from "./pages/Workflow";
-import { ScenariosPage } from "./pages/Scenarios";
-import { SubcontractJobsPage } from "./pages/Subcontract";
-import { HelpPage } from "./pages/Help";
-import { RdProjectPage, RdProjectsPage } from "./pages/RdProjects";
 import { CompanySetupPage, OnboardingPage } from "./pages/Setup";
 import { OfflinePage } from "./pages/Offline";
+
+/**
+ * Sayfalar rota bazında ayrı parçalara bölünür (ilk açılışta tek büyük paket yerine yalnız gereken sayfa indirilir).
+ * İstisnalar ana pakette kalır: OfflinePage (bağlantı yokken açılabilmeli — ayrı parça ağsız indirilemez) ve
+ * CompanySetupPage (giriş ekranında, oturum öncesi).
+ */
+function lazyNamed<M extends Record<string, unknown>, K extends keyof M>(load: () => Promise<M>, name: K) {
+  return lazy(() => load().then((m) => ({ default: m[name] as ComponentType<any> })));
+}
+const TodayPage = lazyNamed(() => import("./pages/Today"), "TodayPage");
+const ProductsPage = lazyNamed(() => import("./pages/Products"), "ProductsPage");
+const ProductDetailPage = lazyNamed(() => import("./pages/Products"), "ProductDetailPage");
+const BomImportPage = lazyNamed(() => import("./pages/BomImport"), "BomImportPage");
+const InventoryPage = lazyNamed(() => import("./pages/Inventory"), "InventoryPage");
+const ReceivingPage = lazyNamed(() => import("./pages/Receiving"), "ReceivingPage");
+const SalesPage = lazyNamed(() => import("./pages/Sales"), "SalesPage");
+const SalesOrderPage = lazyNamed(() => import("./pages/Sales"), "SalesOrderPage");
+const PurchasingPage = lazyNamed(() => import("./pages/Purchasing"), "PurchasingPage");
+const ImportsPage = lazyNamed(() => import("./pages/Imports"), "ImportsPage");
+const ConnectorsStatusPage = lazyNamed(() => import("./pages/Events"), "ConnectorsStatusPage");
+const EventsPage = lazyNamed(() => import("./pages/Events"), "EventsPage");
+const ProductionPage = lazyNamed(() => import("./pages/Production"), "ProductionPage");
+const WorkOrderPage = lazyNamed(() => import("./pages/Production"), "WorkOrderPage");
+const AdminPage = lazyNamed(() => import("./pages/Admin"), "AdminPage");
+const PasswordPage = lazyNamed(() => import("./pages/Admin"), "PasswordPage");
+const QualityPage = lazyNamed(() => import("./pages/Quality"), "QualityPage");
+const StationPage = lazyNamed(() => import("./pages/Station"), "StationPage");
+const RoutingPage = lazyNamed(() => import("./pages/Routing"), "RoutingPage");
+const MeetingPage = lazyNamed(() => import("./pages/Meetings"), "MeetingPage");
+const MeetingsPage = lazyNamed(() => import("./pages/Meetings"), "MeetingsPage");
+const ChannelPage = lazyNamed(() => import("./pages/Channels"), "ChannelPage");
+const ChannelsPage = lazyNamed(() => import("./pages/Channels"), "ChannelsPage");
+const DistributorsPage = lazyNamed(() => import("./pages/Distributors"), "DistributorsPage");
+const SupplyRiskPage = lazyNamed(() => import("./pages/SupplyRisk"), "SupplyRiskPage");
+const AlternatesPage = lazyNamed(() => import("./pages/Alternates"), "AlternatesPage");
+const CustomerInvoicePage = lazyNamed(() => import("./pages/Receivables"), "CustomerInvoicePage");
+const CustomerInvoicesPage = lazyNamed(() => import("./pages/Receivables"), "CustomerInvoicesPage");
+const EinvoiceConnectorsPage = lazyNamed(() => import("./pages/Receivables"), "EinvoiceConnectorsPage");
+const ReceivablesAgingPage = lazyNamed(() => import("./pages/Receivables"), "ReceivablesAgingPage");
+const AgingPage = lazyNamed(() => import("./pages/Payables"), "AgingPage");
+const ApPolicyPage = lazyNamed(() => import("./pages/Payables"), "ApPolicyPage");
+const InvoicePage = lazyNamed(() => import("./pages/Payables"), "InvoicePage");
+const InvoicesPage = lazyNamed(() => import("./pages/Payables"), "InvoicesPage");
+const NewInvoicePage = lazyNamed(() => import("./pages/Payables"), "NewInvoicePage");
+const SubscriptionPage = lazyNamed(() => import("./pages/Subscription"), "SubscriptionPage");
+const FollowupsPage = lazyNamed(() => import("./pages/Procurement"), "FollowupsPage");
+const PurchaseOrderPage = lazyNamed(() => import("./pages/Procurement"), "PurchaseOrderPage");
+const PurchaseOrdersPage = lazyNamed(() => import("./pages/Procurement"), "PurchaseOrdersPage");
+const RfqPage = lazyNamed(() => import("./pages/Procurement"), "RfqPage");
+const RfqsPage = lazyNamed(() => import("./pages/Procurement"), "RfqsPage");
+const SuppliersPage = lazyNamed(() => import("./pages/Procurement"), "SuppliersPage");
+const GanttPage = lazyNamed(() => import("./pages/Planning"), "GanttPage");
+const OrgPage = lazyNamed(() => import("./pages/Planning"), "OrgPage");
+const PlanningPage = lazyNamed(() => import("./pages/Planning"), "PlanningPage");
+const TaskPage = lazyNamed(() => import("./pages/Planning"), "TaskPage");
+const TeamReportPage = lazyNamed(() => import("./pages/Planning"), "TeamReportPage");
+const ExecutiveReportPage = lazyNamed(() => import("./pages/Reports"), "ExecutiveReportPage");
+const ReportsPage = lazyNamed(() => import("./pages/Reports"), "ReportsPage");
+const DevicePage = lazyNamed(() => import("./pages/Returns"), "DevicePage");
+const ReturnPage = lazyNamed(() => import("./pages/Returns"), "ReturnPage");
+const ReturnsPage = lazyNamed(() => import("./pages/Returns"), "ReturnsPage");
+const CargoConnectorsPage = lazyNamed(() => import("./pages/Shipping"), "CargoConnectorsPage");
+const ShipmentPage = lazyNamed(() => import("./pages/Shipping"), "ShipmentPage");
+const ShipmentPrintPage = lazyNamed(() => import("./pages/Shipping"), "ShipmentPrintPage");
+const ShipmentsPage = lazyNamed(() => import("./pages/Shipping"), "ShipmentsPage");
+const ChangePage = lazyNamed(() => import("./pages/Changes"), "ChangePage");
+const ChangesPage = lazyNamed(() => import("./pages/Changes"), "ChangesPage");
+const DelegationsPage = lazyNamed(() => import("./pages/Workflow"), "DelegationsPage");
+const WorkflowMonitorPage = lazyNamed(() => import("./pages/Workflow"), "WorkflowMonitorPage");
+const WorkflowPage = lazyNamed(() => import("./pages/Workflow"), "WorkflowPage");
+const ScenariosPage = lazyNamed(() => import("./pages/Scenarios"), "ScenariosPage");
+const SubcontractJobsPage = lazyNamed(() => import("./pages/Subcontract"), "SubcontractJobsPage");
+const HelpPage = lazyNamed(() => import("./pages/Help"), "HelpPage");
+const RdProjectPage = lazyNamed(() => import("./pages/RdProjects"), "RdProjectPage");
+const RdProjectsPage = lazyNamed(() => import("./pages/RdProjects"), "RdProjectsPage");
 
 function useAuthState() {
   return useSyncExternalStore(auth.subscribe, auth.get);
@@ -208,6 +250,7 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
             </div>
           </header>
           <main className="content">
+            <Suspense fallback={<Loading />}>
             <Routes>
               <Route path="/" element={external ? <SubcontractJobsPage /> : <TodayPage />} />
               <Route path="/subcontract-jobs" element={<SubcontractJobsPage />} />
@@ -280,6 +323,7 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/password" element={<PasswordPage />} />
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>
+            </Suspense>
           </main>
         </div>
       </div>
