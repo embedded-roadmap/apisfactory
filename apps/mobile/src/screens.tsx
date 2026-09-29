@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Item, Session, Task } from "@apisfactory/shared";
 import { api, newKey, store } from "./api";
 import { Scanner } from "./Scanner";
+import { MobileCheckForm } from "./checklist";
 import { Badge, Button, ErrorBox, Field, OkBox } from "./ui";
 import { c, s } from "./theme";
 
@@ -283,6 +284,7 @@ function InspectCard({ r, canDecide }: { r: Pending; canDecide: boolean }) {
       </Text>
       {canDecide ? (
         <>
+          <MobileCheckForm contextType="receipt_line" contextId={r.id} />
           <ErrorBox error={decide.error} />
           <View style={s.row}>
             <View style={{ flex: 1 }}>
@@ -505,6 +507,7 @@ function WorkOrderScreen({ id, perms, onBack }: { id: string; perms: Set<string>
             ) : null}
             {perms.has("production.execute") && o.status === "in_progress" && wo.status !== "on_hold" ? (
               <View style={{ gap: 8 }}>
+                <MobileCheckForm contextType="operation" contextId={o.id} />
                 <Button title="Tamamla" primary onPress={() => act.mutate(() => api("POST", `/api/work-orders/${id}/operations/${o.id}/complete`, {}))} />
                 <View style={[s.row, { flexWrap: "wrap" }]}>
                   {PAUSE_REASONS.map((r) => (

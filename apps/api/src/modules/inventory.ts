@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { assertChecksPassed } from "../lib/checklists";
 import { GoodsReceiptInput, InspectionInput, type ItemAvailability, USABLE_LOCATION_TYPES } from "@apisfactory/shared";
 import { z } from "zod";
 import type { Db } from "../db/pool";
@@ -208,6 +209,8 @@ export async function inventoryRoutes(app: FastifyInstance) {
       ]);
       if (!sum.rows[0].nonneg) throw badRequest("Miktarlar negatif olamaz");
       if (!sum.rows[0].ok) throw badRequest(`Kabul + ret, teslim miktarına (${line.qty}) eşit olmalı`);
+      // Giriş kontrol listesi (varsa): kabul için güncel sürümü geçmiş olmalı; tamamen ret her zaman mümkün.
+      if (Number(input.acceptedQty) > 0) await assertChecksPassed(db, { type: "receipt_line", id }, "Giriş kontrolü");
 
       const [inspectionLoc, stockLoc, quarantineLoc] = [
         await locationByType(db, "incoming_inspection"),

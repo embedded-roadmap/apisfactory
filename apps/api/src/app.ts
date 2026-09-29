@@ -29,6 +29,7 @@ import { changeRoutes } from "./modules/changes";
 import { leadTimeRoutes } from "./modules/leadtime";
 import { capacityRoutes } from "./modules/capacity";
 import { alternateResearchRoutes } from "./modules/alternate-research";
+import { checklistRoutes } from "./modules/checklists";
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import { ZodError } from "zod";
@@ -93,6 +94,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(leadTimeRoutes);
   await app.register(capacityRoutes);
   await app.register(alternateResearchRoutes);
+  await app.register(checklistRoutes);
   await app.register(packagingRoutes);
   await app.register(returnRoutes);
   await app.register(costingRoutes);

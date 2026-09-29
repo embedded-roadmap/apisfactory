@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { CheckForm } from "../components/Checklist";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Item } from "@apisfactory/shared";
 import { get, newKey, post } from "../lib/api";
@@ -97,6 +98,7 @@ function ReceiptLine({ r }: { r: ReceiptRow }) {
       {open ? (
         <tr>
           <td colSpan={6}>
+            <CheckForm contextType="receipt_line" contextId={r.id} />
             <div className="row">
               <label className="field">Kabul<input value={acc} onChange={(e) => setAcc(e.target.value)} inputMode="decimal" /></label>
               <label className="field">Ret (karantina)<input value={rej} onChange={(e) => setRej(e.target.value)} inputMode="decimal" /></label>

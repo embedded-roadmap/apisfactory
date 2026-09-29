@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { CheckForm } from "../components/Checklist";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, newKey, post } from "../lib/api";
@@ -146,9 +147,13 @@ export function WorkOrderPage() {
                   ) : null}
                 </td>
               </tr>
-            ))}
+            )).flatMap((row: any, i: number) => {
+              const o = wo.operations[i];
+              return o.status === "in_progress" ? [row, <tr key={`${o.id}-chk`}><td colSpan={6}><CheckForm contextType="operation" contextId={o.id} /></td></tr>] : [row];
+            })}
           </tbody>
         </table>
+        {wo.status === "in_progress" ? <CheckForm contextType="work_order" contextId={wo.id} title="Son kontrol (stoğa bırakmadan önce)" /> : null}
       </section>
 
       <section className="card">

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CheckPlans } from "../components/Checklist";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, get, post } from "../lib/api";
 import { QualityTabs } from "./Station";
@@ -46,6 +47,7 @@ export function QualityPage() {
       <DryoutRecipes />
       <Capacity />
       <ShiftSettings />
+      <CheckPlans />
     </>
   );
 }

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { assertChecksPassed } from "../lib/checklists";
 import { z } from "zod";
 import type { Db } from "../db/pool";
 import { AppError, badRequest, conflict, notFound } from "../lib/errors";
@@ -450,6 +451,8 @@ export async function productionRoutes(app: FastifyInstance) {
           const missing = mats.filter((m) => !m.complete);
           if (missing.length) throw conflict("materials_incomplete", "Malzeme çıkışı tamamlanmadan hazırlık kapatılamaz", { missing: missing.map((m) => ({ item: m.itemCode, remaining: m.remaining })) });
         }
+        // Ara kontrol / paketleme listesi (varsa) güncel sürümüyle geçmeden operasyon kapanmaz.
+        await assertChecksPassed(db, { type: "operation", id: opId }, `Operasyon ${op.seq}. ${op.name}`);
         if (op.is_quality_gate) {
           const open = await db.query(
             `select count(*)::int as n from devices where work_order_id = $1 and status in ('in_process', 'test_failed', 'rework')`,
@@ -513,6 +516,7 @@ export async function productionRoutes(app: FastifyInstance) {
       if (!["in_progress"].includes(wo.status)) throw conflict("invalid_transition", "Yalnızca işlemdeki iş emri için serbest bırakma yapılır");
       const gate = await db.query(`select status from work_order_operations where work_order_id = $1 and is_quality_gate order by seq limit 1`, [id]);
       if (gate.rows[0]?.status !== "done") throw conflict("quality_gate", "Fonksiyon testi kalite kapısı tamamlanmadan serbest bırakma yapılamaz");
+      await assertChecksPassed(db, { type: "work_order", id }, "Son kalite");
       const passed = await db.query(`select id from devices where work_order_id = $1 and status = 'passed' for update`, [id]);
       if (passed.rowCount === 0) throw conflict("nothing_to_release", "Serbest bırakılacak testten geçmiş cihaz yok");
       const item = await db.query(`select p.item_id from product_revisions pr join products p on p.id = pr.product_id where pr.id = $1`, [wo.product_revision_id]);

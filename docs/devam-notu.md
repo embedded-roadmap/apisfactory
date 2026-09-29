@@ -1427,3 +1427,13 @@ Migration 060. `cost_policies.include_rd_share` (varsayılan kapalı — mevcut 
 aynı revizyonun diğer iş emirlerinin SON hesaplarındaki `totals.rdShare` toplamı düşülür, toplam aktarım plan tutarını aşmaz
 (aşan kısım aktarılmaz, notta yazılır). Web: politika formunda "Ar-Ge payı dahil", revizyon kartında plan, iş emri maliyetinde pay.
 `rd-amortization.test.ts` 3/3.
+
+## Oturum 41 devamı — kontrol listeleri (R16/R17/R18)
+
+Migration 061, `lib/checklists.ts`, `modules/checklists.ts`. Plan (`check_plans`): aşama giriş/ara/son/paketleme, bağlam kalem (giriş),
+iş merkezi (ara/paketleme), revizyon; maddeler onay/ölçüm (sınırlı)/metin; sürümlü ve değişmez, yalnız quality.plan.manage yazar
+(aşama değiştirilemez). Kayıt (`check_records`) değişmez; karar sunucuda (zorunlu eksik, sınır dışı, "uygun değil" → kaldı).
+Kapanış kuralı (`assertChecksPassed`): uyan her planın GÜNCEL sürümüne karşı son kayıt geçmiş olmalı — operasyon tamamlama (ara/
+paketleme), stoğa bırakma (son), mal kabul kararında kabul > 0 (giriş). Plan yoksa hiçbir şey değişmez. Web: Kalite → plan yönetimi;
+iş emri operasyon satırında, son kalitede ve mal kabul kararında form. Mobil: operasyon ve giriş kontrol kartında form.
+`checklists.test.ts` 4/4.
