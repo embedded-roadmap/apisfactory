@@ -1450,3 +1450,10 @@ Migration 063: `rfq_quotes.offered_item_id`; tekillik (rfq, tedarikçi, teklif e
 Teklif girişi `offeredItemId`: yalnız onaylı ve GENEL (product_id null) alternatif (`not_approved_alternate` / `alternate_scope`). Ödülde
 alternatif teklif gerekçe ister; PO satırı alternatif kalemle açılır (üretimde onaylı alternatif çıkışı zaten mümkün). Not: net ihtiyaç
 hesabı alternatif siparişi birincil kalemin arzı saymaz. `rfq-alternates.test.ts` 3/3.
+
+## Oturum 41 devamı — R32/R34 üretim aşaması ve ürün karmaşıklığı
+
+Migration 064: `work_orders.production_stage` (prototype/pilot/series, varsayılan series — mevcut kayıtlar seri), `products.complexity`
+(low/medium/high/boş). İş emri açılışında `productionStage`; `PUT /api/products/:id/complexity` (product.create, gerekçeli). `/api/metrics` ve
+kaynak kayıtlar isteğe bağlı `stage` filtresi (hurda, ilk testte başarı, yeniden işleme); `metricData` 6. parametre (varsayılan null —
+report-findings çağrıları değişmedi). Ekip raporu: `operationsByStage`, `operationsByComplexity`, `testsByStage`. `production-stage.test.ts` 3/3.

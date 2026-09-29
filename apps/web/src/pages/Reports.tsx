@@ -16,7 +16,8 @@ export function ReportsPage() {
   const [from, setFrom] = useState(firstOfMonth());
   const [to, setTo] = useState(iso(new Date()));
   const [open, setOpen] = useState<string | null>(null);
-  const m = useQuery({ queryKey: ["metrics", from, to], queryFn: () => get<any>(`/api/metrics?from=${from}&to=${to}`) });
+  const [stage, setStage] = useState("");
+  const m = useQuery({ queryKey: ["metrics", from, to, stage], queryFn: () => get<any>(`/api/metrics?from=${from}&to=${to}${stage ? `&stage=${stage}` : ""}`) });
   return (
     <>
       <PageHeader title="Maliyet & Metrikler" sub="Tanımlar sürümlüdür (metrik sözlüğü v1). Her değerin pay/paydası ve kaynak kayıtları açılabilir." />
@@ -24,6 +25,7 @@ export function ReportsPage() {
         <div className="row" role="group" aria-label="Dönem">
           <label className="field">Başlangıç<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
           <label className="field">Bitiş<input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+          <label className="field">Üretim aşaması<select aria-label="Metrik üretim aşaması" value={stage} onChange={(e) => setStage(e.target.value)}><option value="">Tümü</option><option value="series">Seri</option><option value="pilot">Pilot</option><option value="prototype">Prototip</option></select></label>
           <span className="muted" style={{ alignSelf: "flex-end", flex: 1 }}>Kapsam: {m.data?.scope}</span>
         </div>
       </section>

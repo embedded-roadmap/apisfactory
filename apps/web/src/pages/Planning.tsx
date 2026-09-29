@@ -516,7 +516,7 @@ export function TeamReportPage() {
               <tbody>{r.rows.map((x: any) => (
                 <tr key={x.userId}><td>{x.name}</td><td className="muted">{x.departments ?? "—"}</td><td className="num">{x.tasksClosed}</td><td className="num">{x.onTime}</td><td className="num">{x.lateInternal}</td>
                   <td className="num">{x.lateExternal}{x.blockedExternal ? <div className="muted">{x.blockedExternal} dış engelli açık</div> : null}</td><td className="num"><b>{pct(x.onTimeRate)}</b></td>
-                  <td className="num">{x.overdueOpen}</td><td className="num">{x.operationsCompleted}</td><td className="num">{x.testsRecorded}</td></tr>
+                  <td className="num">{x.overdueOpen}</td><td className="num">{x.operationsCompleted}{x.operationsCompleted ? <div className="muted" style={{ fontSize: 12 }}>{["series", "pilot", "prototype"].filter((k) => x.operationsByStage?.[k]).map((k) => `${({ prototype: "prototip", pilot: "pilot", series: "seri" } as Record<string, string>)[k]} ${x.operationsByStage[k]}`).join(" · ")}</div> : null}</td><td className="num">{x.testsRecorded}</td></tr>
               ))}</tbody>
             </table>
             <h3>{period === "week" ? "Haftalık" : "Aylık"} şirket geneli</h3>

@@ -344,10 +344,11 @@ export const METRICS = [
 
 type MetricKey = (typeof METRICS)[number]["key"];
 
-export async function metricData(db: Db, key: MetricKey, from: string, to: string, productId: string | null) {
-  const woScope = `w.created_at >= $1::date and w.created_at < ($2::date + 1) and ($3::uuid is null or p.id = $3)`;
+export async function metricData(db: Db, key: MetricKey, from: string, to: string, productId: string | null, stage: string | null = null) {
+  const woScope = `w.created_at >= $1::date and w.created_at < ($2::date + 1) and ($3::uuid is null or p.id = $3) and ($4::text is null or w.production_stage = $4)`;
   const woJoin = `from devices d join work_orders w on w.id = d.work_order_id join product_revisions pr on pr.id = w.product_revision_id join products p on p.id = pr.product_id`;
   const args = [from, to, productId];
+  const woArgs = [from, to, productId, stage];
   switch (key) {
     case "scrap_rate":
     case "rework_rate":
@@ -359,7 +360,7 @@ export async function metricData(db: Db, key: MetricKey, from: string, to: strin
                 exists (select 1 from nonconformances n where n.device_id = d.id and n.decision = 'rework') as reworked,
                 (d.status = 'scrapped' and d.finished_lot_id is null) as "scrappedInProduction"
            ${woJoin} where ${woScope} order by d.serial`,
-        args,
+        woArgs,
       )).rows;
       if (key === "scrap_rate") return { numerator: rows.filter((r) => r.scrappedInProduction).length, denominator: rows.length, rows };
       if (key === "rework_rate") return { numerator: rows.filter((r) => r.reworked).length, denominator: rows.length, rows };
@@ -686,11 +687,11 @@ export async function costingRoutes(app: FastifyInstance) {
   app.get("/api/metrics/definitions", async (req) => tenant(req, "report.view", async () => ({ version: 1, metrics: METRICS })));
 
   app.get("/api/metrics", async (req) => {
-    const q = z.object({ from: z.string().regex(DATE), to: z.string().regex(DATE), productId: z.string().uuid().optional() }).parse(req.query);
+    const q = z.object({ from: z.string().regex(DATE), to: z.string().regex(DATE), productId: z.string().uuid().optional(), stage: z.enum(["prototype", "pilot", "series"]).optional() }).parse(req.query);
     return tenant(req, "report.view", async (db) => {
       const out = [];
       for (const m of METRICS) {
-        const d = await metricData(db, m.key, q.from, q.to, q.productId ?? null);
+        const d = await metricData(db, m.key, q.from, q.to, q.productId ?? null, q.stage ?? null);
         const value = ratio(d.numerator, d.denominator);
         out.push({
           ...m, numerator: d.numerator, denominator: d.denominator, value,
@@ -698,18 +699,18 @@ export async function costingRoutes(app: FastifyInstance) {
           note: d.note ?? null,
         });
       }
-      return { version: 1, from: q.from, to: q.to, productId: q.productId ?? null, scope: "İş emri oluşturma tarihi (üretim metrikleri), taahhüt tarihi (zamanında teslim), sevk/iade açılış tarihi (iade oranı)", metrics: out };
+      return { version: 1, from: q.from, to: q.to, productId: q.productId ?? null, stage: q.stage ?? null, scope: `İş emri oluşturma tarihi (üretim metrikleri; aşama: ${q.stage ? { prototype: "prototip", pilot: "pilot", series: "seri" }[q.stage] : "tümü — prototip/pilot/seri birlikte"}), taahhüt tarihi (zamanında teslim), sevk/iade açılış tarihi (iade oranı)`, metrics: out };
     });
   });
 
   /** Metriğin kaynak kayıtları: her rakam açılabilir. */
   app.get("/api/metrics/:key/sources", async (req) => {
     const { key } = req.params as { key: string };
-    const q = z.object({ from: z.string().regex(DATE), to: z.string().regex(DATE), productId: z.string().uuid().optional() }).parse(req.query);
+    const q = z.object({ from: z.string().regex(DATE), to: z.string().regex(DATE), productId: z.string().uuid().optional(), stage: z.enum(["prototype", "pilot", "series"]).optional() }).parse(req.query);
     const def = METRICS.find((m) => m.key === key);
     if (!def) throw notFound("Metrik");
     return tenant(req, "report.view", async (db) => {
-      const d = await metricData(db, def.key, q.from, q.to, q.productId ?? null);
+      const d = await metricData(db, def.key, q.from, q.to, q.productId ?? null, q.stage ?? null);
       if (d.rows.length > 1000) throw conflict("too_many_rows", "Kapsam çok geniş; tarih aralığını daraltın");
       return { ...def, numerator: d.numerator, denominator: d.denominator, value: ratio(d.numerator, d.denominator), rows: d.rows };
     });

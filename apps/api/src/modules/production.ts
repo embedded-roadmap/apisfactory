@@ -80,7 +80,7 @@ async function deviceStats(db: Db, woId: string) {
 export async function loadWorkOrder(db: Db, id: string) {
   const w = await db.query(
     `select w.id, w.code, w.status, w.qty, w.due_date as "dueDate", w.bom_version_id as "bomVersionId", w.product_revision_id as "productRevisionId",
-            w.production_need_id as "productionNeedId", w.released_at as "releasedAt", w.completed_at as "completedAt",
+            w.production_need_id as "productionNeedId", w.production_stage as "productionStage", w.released_at as "releasedAt", w.completed_at as "completedAt",
             p.code as "productCode", p.name as "productName", pr.rev, b.version_no as "bomVersionNo",
             so.code as "salesOrderCode", w.hold_reason as "holdReason", w.firmware_version as "firmwareVersion",
             w.firmware_sha256 as "firmwareSha256", w.test_plan_id as "testPlanId", w.routing_id as "routingId", rt.version_no as "routingVersionNo",
@@ -258,7 +258,7 @@ export async function productionRoutes(app: FastifyInstance) {
   /** İş emri: yalnızca yayımlanmış revizyon için; BOM sürümü revizyondan sabitlenir. */
   app.post("/api/work-orders", async (req) => {
     const input = parse(
-      z.object({ productionNeedId: z.string().uuid().optional(), productRevisionId: z.string().uuid().optional(), qty: z.string().regex(/^\d+$/).optional(), dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }),
+      z.object({ productionNeedId: z.string().uuid().optional(), productRevisionId: z.string().uuid().optional(), qty: z.string().regex(/^\d+$/).optional(), dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), productionStage: z.enum(["prototype", "pilot", "series"]).default("series") }),
       req.body,
     );
     return tenant(req, "production.plan", async (db, actor) => {
@@ -283,9 +283,9 @@ export async function productionRoutes(app: FastifyInstance) {
       // Test planı ve firmware iş emri açıldığı andaki sürümle sabitlenir; sonradan yayımlanan sürüm açık işi değiştirmez.
       const testPlanId = await activeTestPlan(db, revisionId);
       const w = await db.query(
-        `insert into work_orders (company_id, code, production_need_id, product_revision_id, bom_version_id, qty, due_date, created_by, test_plan_id, firmware_version, firmware_sha256)
-         values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id`,
-        [code, input.productionNeedId ?? null, revisionId, bomVersionId, qty, input.dueDate ?? null, actor.userId, testPlanId, rev.rows[0].firmware_version, rev.rows[0].firmware_sha256],
+        `insert into work_orders (company_id, code, production_need_id, product_revision_id, bom_version_id, qty, due_date, created_by, test_plan_id, firmware_version, firmware_sha256, production_stage)
+         values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) returning id`,
+        [code, input.productionNeedId ?? null, revisionId, bomVersionId, qty, input.dueDate ?? null, actor.userId, testPlanId, rev.rows[0].firmware_version, rev.rows[0].firmware_sha256, input.productionStage],
       );
       if (input.productionNeedId) {
         await db.query(`update production_needs set status = 'released' where id = $1`, [input.productionNeedId]);

@@ -23,7 +23,7 @@ beforeAll(async () => {
   clearTokens();
   w = await setupWorld();
   A = w.a.companyId;
-  for (const [code, name] of [["RA-CAP", "Kondansatör 10uF 0603"], ["RA-CAP-B", "Kondansatör 10uF 0603 muadil"], ["RA-CAP-C", "Kondansatör 10uF 0603 ürüne özel"], ["RA-RES", "Direnç"]]) {
+  for (const [code, name] of [["RA-CAP", "Kondansatör 10uF 0603"], ["RA-CAP-B", "Kondansatör 10uF 0603 muadil"], ["RA-CAP-C", "Kondansatör 10uF 0603 ürüne özel"], ["RA-RES", "Direnç"]] as [string, string][]) {
     items[code] = expectOk(await call(w.app, "rd@a.test", A, "POST", "/api/items", { code, name, kind: "component" })).id;
   }
   const productId = expectOk(await call(w.app, "rd@a.test", A, "POST", "/api/products", { code: "RA-P", name: "Ürün" })).id;

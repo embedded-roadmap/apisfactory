@@ -522,11 +522,25 @@ export async function planningRoutes(app: FastifyInstance) {
           [u.id, q.from, q.to],
         )).rows[0].n;
         const tests = (await db.query(`select count(*)::int as n from test_runs where operator_id = $1 and created_at >= $2::date and created_at < ($3::date + 1)`, [u.id, q.from, q.to])).rows[0].n;
+        // Aşama ve ürün karmaşıklığı kırılımı (§18: prototip/pilot/seri ve karmaşıklık dikkate alınır; puan değildir).
+        const opsSplit = (await db.query(
+          `select w.production_stage as stage, coalesce(p.complexity, 'unknown') as complexity, count(*)::int as n
+             from events e join work_orders w on w.id = e.entity_id join product_revisions pr on pr.id = w.product_revision_id join products p on p.id = pr.product_id
+            where e.actor_user_id = $1 and e.event_type = 'operation.complete' and e.created_at >= $2::date and e.created_at < ($3::date + 1)
+            group by 1, 2`,
+          [u.id, q.from, q.to],
+        )).rows as { stage: string; complexity: string; n: number }[];
+        const testsByStage = Object.fromEntries((await db.query(
+          `select w.production_stage as stage, count(*)::int as n from test_runs t join devices d on d.id = t.device_id join work_orders w on w.id = d.work_order_id
+            where t.operator_id = $1 and t.created_at >= $2::date and t.created_at < ($3::date + 1) group by 1`,
+          [u.id, q.from, q.to],
+        )).rows.map((r) => [r.stage, r.n]));
+        const sumBy = (k: "stage" | "complexity") => opsSplit.reduce<Record<string, number>>((a, r) => ({ ...a, [r[k]]: (a[r[k]] ?? 0) + r.n }), {});
         const denominator = t.on_time + t.late_internal;
         rows.push({
           userId: u.id, name: u.name, departments: u.departments, tasksClosed: t.closed, onTime: t.on_time, lateInternal: t.late_internal, lateExternal: t.late_external,
           onTimeRate: denominator ? Number((t.on_time / denominator).toFixed(4)) : null, overdueOpen: t.overdue_open, blockedExternal: t.blocked_external,
-          operationsCompleted: ops, testsRecorded: tests,
+          operationsCompleted: ops, testsRecorded: tests, operationsByStage: sumBy("stage"), operationsByComplexity: sumBy("complexity"), testsByStage,
         });
       }
       // Dönem kovaları (şirket geneli): kapanan, zamanında, dış kaynaklı gecikme.

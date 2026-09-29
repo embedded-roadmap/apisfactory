@@ -117,10 +117,23 @@ export async function productRoutes(app: FastifyInstance) {
     });
   });
 
+  /** Ürün karmaşıklığı (ekip performansı ve metrik bağlamı için; puanlama değildir). */
+  app.put("/api/products/:id/complexity", async (req) => {
+    const { id } = req.params as { id: string };
+    const input = parse(z.object({ complexity: z.enum(["low", "medium", "high"]).nullable(), reason: z.string().min(3).max(500) }), req.body);
+    return tenant(req, "product.create", async (db, actor) => {
+      const p = (await db.query(`select complexity from products where id = $1 for update`, [id])).rows[0];
+      if (!p) throw notFound("Ürün");
+      await db.query(`update products set complexity = $2 where id = $1`, [id, input.complexity]);
+      await recordEvent(db, actor, { entityType: "product", entityId: id, eventType: "complexity.set", before: { complexity: p.complexity }, after: { complexity: input.complexity }, reason: input.reason });
+      return { id, complexity: input.complexity };
+    });
+  });
+
   app.get("/api/products/:id", async (req) => {
     const { id } = req.params as { id: string };
     return tenant(req, "product.view", async (db) => {
-      const p = await db.query(`select id, code, name, item_id as "itemId" from products where id = $1`, [id]);
+      const p = await db.query(`select id, code, name, item_id as "itemId", complexity from products where id = $1`, [id]);
       if (!p.rows[0]) throw notFound("Ürün");
       const revs = await db.query(`select id from product_revisions where product_id = $1 order by created_at`, [id]);
       const boms = await db.query(

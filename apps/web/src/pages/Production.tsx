@@ -14,8 +14,9 @@ export function ProductionPage() {
   const qc = useQueryClient();
   const needs = useQuery({ queryKey: ["needs"], queryFn: () => get<any[]>("/api/production-needs") });
   const wos = useQuery({ queryKey: ["wos"], queryFn: () => get<any[]>("/api/work-orders") });
+  const [stage, setStage] = useState("series");
   const create = useMutation({
-    mutationFn: (productionNeedId: string) => post<any>("/api/work-orders", { productionNeedId }),
+    mutationFn: (productionNeedId: string) => post<any>("/api/work-orders", { productionNeedId, productionStage: stage }),
     onSuccess: (wo) => { qc.invalidateQueries({ queryKey: ["needs"] }); nav(`/production/${wo.id}`); },
   });
   const open = needs.data?.filter((n) => n.status === "planned") ?? [];
@@ -24,7 +25,12 @@ export function ProductionPage() {
       <PageHeader title="Üretim" sub="İş emri yayımlanmış ürün sürümünü, BOM'u ve rotayı sabitler; sonraki revizyon veya rota sürümü açık işi değiştirmez." actions={<Link to="/production/routings">Rotalar & standart süreler</Link>} />
       <ErrorNotice error={create.error} />
       <section className="card">
-        <h2>Planlanacak üretim ihtiyaçları</h2>
+        <div className="row between">
+          <h2 style={{ margin: 0 }}>Planlanacak üretim ihtiyaçları</h2>
+          <label className="row" style={{ gap: 6 }}>Açılacak iş emri aşaması
+            <select aria-label="Üretim aşaması" value={stage} onChange={(e) => setStage(e.target.value)}><option value="series">Seri</option><option value="pilot">Pilot</option><option value="prototype">Prototip</option></select>
+          </label>
+        </div>
         {needs.isLoading ? <Loading /> : <ErrorNotice error={needs.error} />}
         {open.length === 0 ? <Empty>Bekleyen üretim ihtiyacı yok.</Empty> : null}
         {open.length > 0 ? (
@@ -85,6 +91,7 @@ export function WorkOrderPage() {
         actions={
           <div className="row">
             <StateBadge value={wo.status} prefix="wo" />
+            {wo.productionStage && wo.productionStage !== "series" ? <span className="badge warn">{({ prototype: "prototip", pilot: "pilot", series: "seri" } as Record<string, string>)[wo.productionStage]}</span> : null}
             {can("production.plan") && wo.status === "planned" ? <button className="primary" onClick={() => act.mutate(() => post(`/api/work-orders/${id}/release`))}>Yayımla (seri üret)</button> : null}
             {can("quality.final.release") && wo.status === "in_progress" && s.passed > 0 ? <button className="primary" onClick={() => act.mutate(() => post(`/api/work-orders/${id}/release-to-stock`))}>Son kalite: {s.passed} cihazı serbest bırak</button> : null}
             {can("production.plan") && wo.status === "in_progress" ? <button onClick={() => act.mutate(() => post(`/api/work-orders/${id}/complete`))}>İş emrini kapat</button> : null}

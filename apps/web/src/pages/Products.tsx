@@ -3,7 +3,7 @@ import { RevisionRdCost } from "../components/RdCost";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BomDiff, BomVersion, ProductSummary, RevisionDetail } from "@apisfactory/shared";
-import { get, post } from "../lib/api";
+import { get, post, api } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, fmtDate, useCan } from "../lib/ui";
 import { Discussion } from "../components/Discussion";
 import { BomSourcing } from "./Distributors";
@@ -58,7 +58,7 @@ export function ProductsPage() {
   );
 }
 
-type ProductDetail = { id: string; code: string; name: string; revisions: RevisionDetail[]; boms: { id: string; versionNo: number; status: string; lineCount: number; publishedAt: string | null }[] };
+type ProductDetail = { id: string; code: string; name: string; complexity?: string | null; revisions: RevisionDetail[]; boms: { id: string; versionNo: number; status: string; lineCount: number; publishedAt: string | null }[] };
 
 const AREA_LABEL = { rd: "Ar-Ge", production: "Üretim", quality: "Kalite" } as const;
 
@@ -83,7 +83,16 @@ export function ProductDetailPage() {
     <>
       <PageHeader
         title={`${p.code} — ${p.name}`}
-        actions={can("bom.import") ? <Link className="btn primary" to={`/products/${p.id}/bom-import`}>BOM içe aktar</Link> : null}
+        actions={
+          <div className="row">
+            {can("product.create") ? (
+              <select aria-label="Ürün karmaşıklığı" value={p.complexity ?? ""} onChange={(e) => act.mutate(() => api("PUT", `/api/products/${p.id}/complexity`, { complexity: e.target.value || null, reason: "Ürün kartından güncellendi" }))}>
+                <option value="">Karmaşıklık: tanımsız</option><option value="low">Karmaşıklık: düşük</option><option value="medium">Karmaşıklık: orta</option><option value="high">Karmaşıklık: yüksek</option>
+              </select>
+            ) : p.complexity ? <span className="badge">karmaşıklık: {p.complexity}</span> : null}
+            {can("bom.import") ? <Link className="btn primary" to={`/products/${p.id}/bom-import`}>BOM içe aktar</Link> : null}
+          </div>
+        }
       />
       <ErrorNotice error={act.error} />
 
