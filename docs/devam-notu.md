@@ -1443,3 +1443,10 @@ iş emri operasyon satırında, son kalitede ve mal kabul kararında form. Mobil
 Migration 062 (`change_requests.scenario_id`). Görev: mevcut `POST /api/tasks` artık `entityType: "scenario"` kabul eder. Değişiklik talebi:
 `POST /api/change-requests` isteğe bağlı `scenarioId` (revizyon verilmezse senaryonunki). `GET /api/scenarios/:id` `followUps` (görevler,
 talepler) döner. Web: Senaryolar → kayıtlı senaryoya tıkla → takip bölümü (görev / talep aç).
+
+## Oturum 41 devamı — R14 teklif talebinde onaylı alternatif
+
+Migration 063: `rfq_quotes.offered_item_id`; tekillik (rfq, tedarikçi, teklif edilen kalem). `GET /api/rfqs/:id` `approvedAlternates` döner.
+Teklif girişi `offeredItemId`: yalnız onaylı ve GENEL (product_id null) alternatif (`not_approved_alternate` / `alternate_scope`). Ödülde
+alternatif teklif gerekçe ister; PO satırı alternatif kalemle açılır (üretimde onaylı alternatif çıkışı zaten mümkün). Not: net ihtiyaç
+hesabı alternatif siparişi birincil kalemin arzı saymaz. `rfq-alternates.test.ts` 3/3.

@@ -450,7 +450,7 @@ export async function distributorRoutes(app: FastifyInstance) {
         await db.query(
           `insert into rfq_quotes (company_id, rfq_id, supplier_id, unit_price, currency, lead_time_days, moq, valid_until, note, source, entered_by)
            values (app_company_id(), $1, $2, $3, $4, $5, $6, $7::timestamptz::date, $8, 'test_connector', $9)
-           on conflict (rfq_id, supplier_id) do update set unit_price = excluded.unit_price, currency = excluded.currency, lead_time_days = excluded.lead_time_days, moq = excluded.moq,
+           on conflict (rfq_id, supplier_id, coalesce(offered_item_id, '00000000-0000-0000-0000-000000000000'::uuid)) do update set unit_price = excluded.unit_price, currency = excluded.currency, lead_time_days = excluded.lead_time_days, moq = excluded.moq,
              valid_until = excluded.valid_until, note = excluded.note, source = excluded.source, entered_by = excluded.entered_by, created_at = now()`,
           [id, x.supplierId, unit, x.currency, lead, x.moq && x.moq > 1 ? x.moq : null, x.expiresAt, note, actor.userId],
         );

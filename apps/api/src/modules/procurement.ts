@@ -48,8 +48,8 @@ async function loadRfq(db: Db, id: string, showPrice: boolean) {
   const q = await db.query(
     `select q.id, q.supplier_id as "supplierId", s.code as "supplierCode", s.name as "supplierName", s.status as "supplierStatus",
             q.unit_price as "unitPrice", q.currency, q.lead_time_days as "leadTimeDays", q.moq, q.valid_until::text as "validUntil", q.note, q.source,
-            q.created_at as "createdAt", u.name as "enteredBy"
-       from rfq_quotes q join suppliers s on s.id = q.supplier_id left join users u on u.id = q.entered_by where q.rfq_id = $1 order by q.unit_price, q.lead_time_days`,
+            q.created_at as "createdAt", u.name as "enteredBy", q.offered_item_id as "offeredItemId", oi.code as "offeredItemCode", oi.mpn as "offeredMpn"
+       from rfq_quotes q join suppliers s on s.id = q.supplier_id left join users u on u.id = q.entered_by left join items oi on oi.id = q.offered_item_id where q.rfq_id = $1 order by q.unit_price, q.lead_time_days`,
     [id],
   );
   const today = iso(new Date());
@@ -72,7 +72,16 @@ async function loadRfq(db: Db, id: string, showPrice: boolean) {
   const valid = quotes.filter((x) => !x.expired && x.supplierStatus === "active");
   const cheapest = valid.length ? valid.reduce((a, b) => (Number(a.total ?? a.unitPrice) <= Number(b.total ?? b.unitPrice) ? a : b)).id : null;
   const fastest = valid.length ? valid.reduce((a, b) => (a.leadTimeDays <= b.leadTimeDays ? a : b)).id : null;
-  return { ...rfq, lastCost: showPrice ? cost : null, quotes: quotes.map((x) => ({ ...x, cheapest: x.id === cheapest, fastest: x.id === fastest })) };
+  // R14: istenen kalemin onaylı alternatifleri otomatik listelenir (yalnız genel kapsamlılara teklif girilebilir).
+  const approvedAlternates = (await db.query(
+    `select a.alternate_item_id as "itemId", x.code, x.mpn, x.manufacturer, a.product_id is null as general, p.code as "productCode",
+            greatest(0, coalesce((select sum(b.qty) from stock_balances b join locations l on l.id = b.location_id where b.item_id = x.id and l.type = 'stock'), 0)
+                      - coalesce((select sum(qty) from reservations where item_id = x.id and status = 'active'), 0))::text as "freeQty"
+       from item_alternates a join items x on x.id = a.alternate_item_id left join products p on p.id = a.product_id
+      where a.item_id = $1 and a.status = 'approved' order by x.code`,
+    [rfq.itemId],
+  )).rows;
+  return { ...rfq, lastCost: showPrice ? cost : null, approvedAlternates, quotes: quotes.map((x) => ({ ...x, cheapest: x.id === cheapest, fastest: x.id === fastest })) };
 }
 
 async function loadPo(db: Db, id: string, showPrice: boolean) {
@@ -240,23 +249,29 @@ export async function procurementRoutes(app: FastifyInstance) {
   app.post("/api/rfqs/:id/quotes", async (req) => {
     const { id } = req.params as { id: string };
     const input = parse(
-      z.object({ supplierId: z.string().uuid(), unitPrice: Money, currency: Cur, leadTimeDays: z.number().int().min(0).max(365), moq: z.string().regex(/^\d+(\.\d+)?$/).optional(), validUntil: Day.optional(), note: z.string().max(1000).optional() }),
+      z.object({ supplierId: z.string().uuid(), unitPrice: Money, currency: Cur, leadTimeDays: z.number().int().min(0).max(365), moq: z.string().regex(/^\d+(\.\d+)?$/).optional(), validUntil: Day.optional(), note: z.string().max(1000).optional(), offeredItemId: z.string().uuid().optional() }),
       req.body,
     );
     return tenant(req, "purchase.order.manage", async (db, actor) => {
-      const r = (await db.query(`select status from rfqs where id = $1 for update`, [id])).rows[0];
+      const r = (await db.query(`select status, item_id from rfqs where id = $1 for update`, [id])).rows[0];
       if (!r) throw notFound("Teklif talebi");
       if (r.status !== "open") throw conflict("rfq_closed", "Teklif talebi kapalı");
+      const offered = input.offeredItemId && input.offeredItemId !== r.item_id ? input.offeredItemId : null;
+      if (offered) {
+        const alt = (await db.query(`select product_id from item_alternates where item_id = $1 and alternate_item_id = $2 and status = 'approved' order by (product_id is null) desc limit 1`, [r.item_id, offered])).rows[0];
+        if (!alt) throw conflict("not_approved_alternate", "Teklif edilen kalem bu kalemin onaylı alternatifi değil");
+        if (alt.product_id) throw conflict("alternate_scope", "Alternatif yalnız belirli bir ürün için onaylı; genel teklif talebinde kullanılamaz");
+      }
       const s = (await db.query(`select status from suppliers where id = $1`, [input.supplierId])).rows[0];
       if (!s) throw notFound("Tedarikçi");
       if (s.status !== "active") throw conflict("supplier_blocked", "Tedarikçi bloke; teklif alınamaz");
-      const prev = (await db.query(`select unit_price, currency, lead_time_days from rfq_quotes where rfq_id = $1 and supplier_id = $2`, [id, input.supplierId])).rows[0];
+      const prev = (await db.query(`select unit_price, currency, lead_time_days from rfq_quotes where rfq_id = $1 and supplier_id = $2 and offered_item_id is not distinct from $3::uuid`, [id, input.supplierId, offered])).rows[0];
       await db.query(
-        `insert into rfq_quotes (company_id, rfq_id, supplier_id, unit_price, currency, lead_time_days, moq, valid_until, note, entered_by)
-         values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9)
-         on conflict (rfq_id, supplier_id) do update set unit_price = excluded.unit_price, currency = excluded.currency, lead_time_days = excluded.lead_time_days,
+        `insert into rfq_quotes (company_id, rfq_id, supplier_id, unit_price, currency, lead_time_days, moq, valid_until, note, entered_by, offered_item_id)
+         values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         on conflict (rfq_id, supplier_id, coalesce(offered_item_id, '00000000-0000-0000-0000-000000000000'::uuid)) do update set unit_price = excluded.unit_price, currency = excluded.currency, lead_time_days = excluded.lead_time_days,
            moq = excluded.moq, valid_until = excluded.valid_until, note = excluded.note, entered_by = excluded.entered_by, source = 'manual', created_at = now()`,
-        [id, input.supplierId, input.unitPrice, input.currency, input.leadTimeDays, input.moq ?? null, input.validUntil ?? null, input.note ?? null, actor.userId],
+        [id, input.supplierId, input.unitPrice, input.currency, input.leadTimeDays, input.moq ?? null, input.validUntil ?? null, input.note ?? null, actor.userId, offered],
       );
       await recordEvent(db, actor, { entityType: "rfq", entityId: id, eventType: prev ? "quote.updated" : "quote.added", before: prev ?? undefined, after: input });
       return loadRfq(db, id, can(req, "field.cost.view"));
@@ -282,6 +297,7 @@ export async function procurementRoutes(app: FastifyInstance) {
         if (!q.cheapest) needs.push("en düşük toplam fiyatlı teklif değil");
         if (q.meetsNeedDate === false) needs.push(`ihtiyaç tarihini karşılamıyor (hazır ${q.readyDate})`);
         if (q.expired) needs.push("teklif geçerlilik süresi dolmuş");
+        if (q.offeredItemId) needs.push(`onaylı alternatif kalem (${q.offeredItemCode}) teklif edildi`);
         if (q.deviationPct !== null && Math.abs(q.deviationPct) >= PRICE_DEVIATION * 100) needs.push(`son lot maliyetinden %${q.deviationPct} sapma`);
         if (needs.length && (!input.reason || input.reason.trim().length < 10)) {
           throw conflict("award_reason_required", `Gerekçe gerekli: ${needs.join("; ")}`, { reasons: needs });
@@ -295,7 +311,7 @@ export async function procurementRoutes(app: FastifyInstance) {
         await db.query(
           `insert into purchase_order_lines (company_id, po_code, supplier_name, supplier_id, item_id, qty_ordered, po_id, unit_price, currency, requested_date, purchase_request_id, quote_id)
            values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-          [code, q.supplierName, q.supplierId, rfq.itemId, qty, po.rows[0].id, q.unitPrice, q.currency, rfq.needDate, rfq.purchaseRequestId, q.id],
+          [code, q.supplierName, q.supplierId, q.offeredItemId ?? rfq.itemId, qty, po.rows[0].id, q.unitPrice, q.currency, rfq.needDate, rfq.purchaseRequestId, q.id],
         );
         await db.query(`update rfqs set status = 'awarded', awarded_quote_id = $2, award_reason = $3 where id = $1`, [id, q.id, input.reason ?? null]);
         if (rfq.purchaseRequestId) {
