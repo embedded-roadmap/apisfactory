@@ -11,6 +11,28 @@ import { decryptSecret } from "../lib/secrets";
 import { assertLiveAllowed, credentialsSchema, saveConnectorCredentials } from "../lib/connector-credentials";
 import { DISTRIBUTOR_PROVIDERS, type DistributorEnvironment, type DistributorOffer } from "../lib/distributor-providers";
 
+/** W03 lisans matrisi izinleri (ana talimat §27). */
+export const LICENSE_PERMISSIONS = ["multi_tenant", "display", "cache", "history", "derived_analysis", "export", "account_pricing", "ai_processing"] as const;
+/** Canlı mod için "izinli" teyidi zorunlu olanlar; diğerleri ilgili özelliği açar/kapatır. */
+const LIVE_REQUIRED = ["multi_tenant", "display", "cache"] as const;
+const PERMISSION_LABEL: Record<string, string> = {
+  multi_tenant: "çok müşterili kullanım", display: "gösterim", cache: "önbellek", history: "tarihçe", derived_analysis: "türetilmiş analiz",
+  export: "dışa aktarım", account_pricing: "özel hesap fiyatı", ai_processing: "AI işleme",
+};
+
+async function currentLicense(db: Db, connectorId: string) {
+  return (await db.query(
+    `select l.id, l.version_no, l.permissions, l.cache_max_minutes from distributor_license_confirmations l
+       join distributor_connectors c on c.license_confirmation_id = l.id where c.id = $1`,
+    [connectorId],
+  )).rows[0] as { id: string; version_no: number; permissions: Record<string, string>; cache_max_minutes: number | null } | undefined;
+}
+
+function licenseGaps(lic: { permissions: Record<string, string> } | undefined) {
+  return LIVE_REQUIRED.filter((k) => lic?.permissions[k] !== "allowed").map((k) => PERMISSION_LABEL[k]);
+}
+
+
 /**
  * W17 — Distribütör fiyat/stok.
  *  - test: MPN'den deterministik sentetik teklif (TEST VERİSİ — gerçek fiyat/stok değildir; ekranda işaretli).
@@ -157,6 +179,8 @@ export async function distributorRoutes(app: FastifyInstance) {
         `select c.id, c.key, c.name, c.mode, c.supplier_id as "supplierId", s.name as "supplierName", c.cache_ttl_minutes as "cacheTtlMinutes", c.daily_call_limit as "dailyCallLimit",
                 c.currency, c.note, c.updated_at as "updatedAt", c.environment,
                 c.credentials_enc is not null as "hasCredentials", c.credentials_updated_at as "credentialsUpdatedAt",
+                (select json_build_object('versionNo', l.version_no, 'permissions', l.permissions, 'cacheMaxMinutes', l.cache_max_minutes, 'documentRef', l.document_ref, 'createdAt', l.created_at)
+                   from distributor_license_confirmations l where l.id = c.license_confirmation_id) as license,
                 (select count(*) from connector_calls k where k.connector_id = c.id and k.outcome in ('ok', 'not_found') and k.created_at >= date_trunc('day', now()))::int as "callsToday",
                 (select count(*) from connector_calls k where k.connector_id = c.id and k.outcome = 'cache_hit' and k.created_at >= date_trunc('day', now()))::int as "cacheHitsToday",
                 (select count(*) from part_offers o where o.connector_id = c.id)::int as offers,
@@ -189,17 +213,80 @@ export async function distributorRoutes(app: FastifyInstance) {
         )
       ).rows[0];
       if (!cur) throw notFound("Bağlayıcı");
-      if (input.mode === "live") assertLiveAllowed(cur, Boolean(DISTRIBUTOR_PROVIDERS[cur.key]));
+      let ttl = input.cacheTtlMinutes ?? null;
+      if (input.mode === "live") {
+        assertLiveAllowed(cur, Boolean(DISTRIBUTOR_PROVIDERS[cur.key]));
+        const lic = await currentLicense(db, id);
+        const missing = licenseGaps(lic);
+        if (missing.length) throw conflict("license_required", `Canlı mod için yazılı lisans teyidi gerekli: ${missing.join(", ")} izinli olarak teyit edilmeli (bkz. W03 matrisi)`);
+        // Önbellek süresi lisansla sınırlı (kullanıcı daha uzun istese de).
+        if (lic!.cache_max_minutes !== null) ttl = Math.min(ttl ?? cur.cache_ttl_minutes, lic!.cache_max_minutes);
+      }
       const before = { mode: cur.mode, supplier_id: cur.supplier_id, cache_ttl_minutes: cur.cache_ttl_minutes, daily_call_limit: cur.daily_call_limit, currency: cur.currency };
       await db.query(
         `update distributor_connectors set mode = $2, supplier_id = case when $3 then $4 else supplier_id end, cache_ttl_minutes = coalesce($5, cache_ttl_minutes),
                 daily_call_limit = coalesce($6, daily_call_limit), currency = coalesce($7, currency), updated_by = $8, updated_at = now() where id = $1`,
-        [id, input.mode, input.supplierId !== undefined, input.supplierId ?? null, input.cacheTtlMinutes ?? null, input.dailyCallLimit ?? null, input.currency ?? null, actor.userId],
+        [id, input.mode, input.supplierId !== undefined, input.supplierId ?? null, ttl, input.dailyCallLimit ?? null, input.currency ?? null, actor.userId],
       );
       await recordEvent(db, actor, { entityType: "distributor_connector", entityId: id, eventType: "updated", before, after: input, reason: input.reason });
       return { id, ...input };
     });
   });
+
+  app.get("/api/distributors/:id/license", async (req) => {
+    const { id } = req.params as { id: string };
+    return tenant(req, "purchase.view", async (db) =>
+      (await db.query(
+        `select l.id, l.version_no as "versionNo", l.permissions, l.cache_max_minutes as "cacheMaxMinutes", l.document_ref as "documentRef", l.note,
+                u.name as "confirmedBy", l.created_at as "createdAt", (c.license_confirmation_id = l.id) as current
+           from distributor_license_confirmations l join distributor_connectors c on c.id = l.connector_id left join users u on u.id = l.confirmed_by
+          where l.connector_id = $1 order by l.version_no desc`,
+        [id],
+      )).rows,
+    );
+  });
+
+  /**
+   * Yazılı lisans teyidi (yönetici): sekiz iznin durumu + belge referansı. Değişmez, sürümlü. Yeni teyit canlı mod
+   * şartlarını karşılamıyorsa bağlayıcı canlıdan çıkarılır; önbellek süresi yeni sınıra indirilir.
+   */
+  app.post("/api/distributors/:id/license", async (req) => {
+    const { id } = req.params as { id: string };
+    const Status = z.enum(["allowed", "denied", "unknown"]);
+    const input = parse(
+      z.object({
+        permissions: z.object(Object.fromEntries(LICENSE_PERMISSIONS.map((k) => [k, Status])) as Record<(typeof LICENSE_PERMISSIONS)[number], typeof Status>),
+        cacheMaxMinutes: z.number().int().min(5).max(43200).nullable().default(null),
+        documentRef: z.string().min(3).max(300),
+        note: z.string().max(1000).optional(),
+      }),
+      req.body,
+    );
+    return tenant(req, "workflow.manage", async (db, actor) => {
+      const cur = (await db.query(`select id, name, mode, cache_ttl_minutes from distributor_connectors where id = $1 for update`, [id])).rows[0];
+      if (!cur) throw notFound("Bağlayıcı");
+      const n = (await db.query(`select coalesce(max(version_no), 0) + 1 as n from distributor_license_confirmations where connector_id = $1`, [id])).rows[0].n;
+      const r = await db.query(
+        `insert into distributor_license_confirmations (company_id, connector_id, version_no, permissions, cache_max_minutes, document_ref, note, confirmed_by)
+         values (app_company_id(), $1, $2, $3, $4, $5, $6, $7) returning id`,
+        [id, n, JSON.stringify(input.permissions), input.cacheMaxMinutes, input.documentRef, input.note ?? null, actor.userId],
+      );
+      const gaps = licenseGaps({ permissions: input.permissions });
+      const leaveLive = cur.mode === "live" && gaps.length > 0;
+      const ttl = input.cacheMaxMinutes !== null ? Math.min(cur.cache_ttl_minutes, input.cacheMaxMinutes) : cur.cache_ttl_minutes;
+      await db.query(
+        `update distributor_connectors set license_confirmation_id = $2, mode = case when $3 then 'not_connected' else mode end,
+                cache_ttl_minutes = $4, updated_by = $5, updated_at = now() where id = $1`,
+        [id, r.rows[0].id, leaveLive, ttl, actor.userId],
+      );
+      await recordEvent(db, actor, {
+        entityType: "distributor_connector", entityId: id, eventType: "license.confirmed",
+        after: { versionNo: n, ...input, leftLiveMode: leaveLive, cacheTtlMinutes: ttl }, reason: input.documentRef,
+      });
+      return { versionNo: n, liveAllowed: gaps.length === 0, missingForLive: gaps, leftLiveMode: leaveLive, cacheTtlMinutes: ttl };
+    });
+  });
+
 
   /**
    * Fiyat listesi yükleme (distribütörden indirilen CSV). Sütunlar: mpn, manufacturer?, sku?, stock?, moq?, lead_time_days?, lifecycle?,

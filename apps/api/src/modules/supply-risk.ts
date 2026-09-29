@@ -56,7 +56,11 @@ async function latestByConnector(db: Db, itemId: string): Promise<Map<string, Of
     `select po.connector_id, dc.key as connector_key, dc.name as connector_name,
             po.stock, po.lead_time_days, po.lifecycle, po.currency, po.price_breaks, po.fetched_at
        from part_offers po join distributor_connectors dc on dc.id = po.connector_id
-      where po.item_id = $1 order by po.connector_id, po.fetched_at desc`,
+      where po.item_id = $1
+        -- W03: canlı bağlayıcıda tarihçe ve türetilmiş analiz lisansla izinli değilse teklif geçmişi risk taramasına girmez.
+        and not (dc.mode = 'live' and not coalesce((select l.permissions->>'history' = 'allowed' and l.permissions->>'derived_analysis' = 'allowed'
+                                                     from distributor_license_confirmations l where l.id = dc.license_confirmation_id), false))
+      order by po.connector_id, po.fetched_at desc`,
     [itemId],
   );
   const byConn = new Map<string, Offer[]>();

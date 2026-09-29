@@ -60,6 +60,9 @@ afterAll(async () => {
   await closePool();
 });
 
+const M = "manager@a.test";
+const LICENSE_OK = { multi_tenant: "allowed", display: "allowed", cache: "allowed", history: "allowed", derived_analysis: "allowed", export: "denied", account_pricing: "unknown", ai_processing: "unknown" };
+
 describe("Distribütör canlı API altyapısı (madde 4)", () => {
   it("adaptörü olmayan distribütör canlıya alınamaz; erişim bilgisi şifreli, değer hiçbir yanıtta yok", async () => {
     const mouser = await conn("mouser");
@@ -79,9 +82,18 @@ describe("Distribütör canlı API altyapısı (madde 4)", () => {
     expect((await call(w.app, P, A, "POST", `/api/distributors/${dk.id}`, { mode: "live", reason: "Canlı" })).body.error.code).toBe("credentials_missing");
     expect((await call(w.app, P, A, "POST", `/api/distributors/${dk.id}/credentials`, { environment: "sandbox", credentials: { clientId: "c" }, reason: "Eksik" })).status).toBe(400);
     expectOk(await call(w.app, P, A, "POST", `/api/distributors/${dk.id}/credentials`, { environment: "sandbox", credentials: { clientId: "c", clientSecret: SECRET }, reason: "Sandbox" }));
-    expectOk(await call(w.app, P, A, "POST", `/api/distributors/${dk.id}`, { mode: "live", dailyCallLimit: 2, reason: "Sandbox doğrulaması" }));
+    // W03: erişim bilgisi tamam ama yazılı lisans teyidi yok → canlı mod reddedilir.
+    expect((await call(w.app, P, A, "POST", `/api/distributors/${dk.id}`, { mode: "live", reason: "Canlı" })).body.error.code).toBe("license_required");
+    expect((await call(w.app, P, A, "POST", `/api/distributors/${dk.id}/license`, { permissions: LICENSE_OK, documentRef: "yetkisiz deneme" })).status).toBe(403);
+    const partial = expectOk(await call(w.app, M, A, "POST", `/api/distributors/${dk.id}/license`, { permissions: { ...LICENSE_OK, cache: "unknown" }, documentRef: "DigiKey e-posta 2026-09-30" }));
+    expect(partial).toMatchObject({ versionNo: 1, liveAllowed: false, missingForLive: ["önbellek"] });
+    expect((await call(w.app, P, A, "POST", `/api/distributors/${dk.id}`, { mode: "live", reason: "Canlı" })).body.error.message).toContain("önbellek");
+    expectOk(await call(w.app, M, A, "POST", `/api/distributors/${dk.id}/license`, { permissions: LICENSE_OK, cacheMaxMinutes: 60, documentRef: "DigiKey API sözleşmesi ek-2" }));
+    expectOk(await call(w.app, P, A, "POST", `/api/distributors/${dk.id}`, { mode: "live", dailyCallLimit: 2, cacheTtlMinutes: 1440, reason: "Sandbox doğrulaması" }));
+    expect(await conn("digikey")).toMatchObject({ mode: "live", cacheTtlMinutes: 60, license: { versionNo: 2, cacheMaxMinutes: 60 } }); // lisans sınırı
     const fa = await conn("farnell");
     expectOk(await call(w.app, P, A, "POST", `/api/distributors/${fa.id}/credentials`, { environment: "production", credentials: { apiKey: SECRET }, reason: "Üretim" }));
+    expectOk(await call(w.app, M, A, "POST", `/api/distributors/${fa.id}/license`, { permissions: LICENSE_OK, documentRef: "Farnell yazılı onay" }));
     expectOk(await call(w.app, P, A, "POST", `/api/distributors/${fa.id}`, { mode: "live", reason: "Canlı" }));
   });
 
@@ -127,7 +139,7 @@ describe("Distribütör canlı API altyapısı (madde 4)", () => {
     await w.owner.query("begin");
     try {
       await w.owner.query(`select set_config('app.company_id', $1, true)`, [A]);
-      await expect(w.owner.query(`update distributor_connectors set mode = 'live' where id = $1`, [lcsc.id])).rejects.toThrow(/distributor_connectors_live_ready/);
+      await expect(w.owner.query(`update distributor_connectors set mode = 'live' where id = $1`, [lcsc.id])).rejects.toThrow(/distributor_connectors_live_(ready|licensed)/);
     } finally {
       await w.owner.query("rollback");
     }
@@ -138,5 +150,18 @@ describe("Distribütör canlı API altyapısı (madde 4)", () => {
   it("RLS: başka şirket bu şirketin canlı bağlayıcılarını ve erişim bilgisini görmez", async () => {
     const other = expectOk(await call(w.app, "all@b.test", w.b.companyId, "GET", "/api/distributors"));
     expect(other.every((c: any) => c.mode === "not_connected" && !c.hasCredentials)).toBe(true);
+  });
+});
+
+describe("Lisans teyidi (W03)", () => {
+  it("teyit daraltılınca bağlayıcı canlıdan çıkar; teyit geçmişi sürümlü ve değişmez", async () => {
+    const fa = await conn("farnell");
+    const r = expectOk(await call(w.app, M, A, "POST", `/api/distributors/${fa.id}/license`, { permissions: { ...LICENSE_OK, cache: "denied" }, documentRef: "Farnell şartları: önbellek yasak" }));
+    expect(r).toMatchObject({ liveAllowed: false, leftLiveMode: true });
+    expect((await conn("farnell")).mode).toBe("not_connected");
+    const hist = expectOk(await call(w.app, P, A, "GET", `/api/distributors/${fa.id}/license`));
+    expect(hist.map((h: any) => [h.versionNo, h.current])).toEqual([[2, true], [1, false]]);
+    await w.owner.query("select set_config('app.company_id', $1, false)", [A]);
+    await expect(w.owner.query(`update distributor_license_confirmations set document_ref = 'x'`)).rejects.toThrow(/append/i);
   });
 });

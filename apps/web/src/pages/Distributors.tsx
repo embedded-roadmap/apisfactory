@@ -4,6 +4,7 @@ import { get, post } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, fmtDate, useCan } from "../lib/ui";
 import { PurchasingTabs } from "./Procurement";
 import { ConnectorCredentialsForm, ENV_LABEL } from "../components/Connectors";
+import { DistributorLicense, licenseSummary } from "../components/DistributorLicense";
 
 const MODE: Record<string, [string, string]> = { not_connected: ["BAĞLANMADI", ""], test: ["TEST", "warn"], price_file: ["FİYAT DOSYASI", "ok"], live: ["CANLI API", "ok"] };
 const num = (n: number | null | undefined, d = 4) => (n === null || n === undefined ? "—" : n.toLocaleString("tr-TR", { maximumFractionDigits: d }));
@@ -37,6 +38,7 @@ export function DistributorsPage() {
               <td>
                 {c.adapterAvailable ? <span className="badge ok">var</span> : <span className="muted">geliştirilmedi</span>}
                 <div className="muted" style={{ fontSize: 13 }}>{c.hasCredentials ? `erişim bilgisi kayıtlı · ${ENV_LABEL[c.environment] ?? c.environment}` : "erişim bilgisi yok"}</div>
+                <div className="muted" style={{ fontSize: 13 }}>{licenseSummary(c.license)}</div>
               </td>
               <td>{c.supplierName ?? <span className="muted">bağlı değil</span>}</td>
               <td className="num">{c.cacheTtlMinutes >= 60 ? `${Math.round(c.cacheTtlMinutes / 60)} sa` : `${c.cacheTtlMinutes} dk`}</td>
@@ -65,6 +67,7 @@ export function DistributorsPage() {
           </form>
           <ErrorNotice error={save.error} />
           <ConnectorCredentialsForm basePath="/api/distributors" connector={edit} onSaved={() => { setEdit(null); qc.invalidateQueries({ queryKey: ["distributors"] }); }} />
+          <DistributorLicense key={edit.id} connector={edit} onSaved={() => qc.invalidateQueries({ queryKey: ["distributors"] })} />
           <p className="muted" style={{ margin: 0 }}>Distribütörün geliştirici portalından alınan istemci kimliği/sırrı veya API anahtarı. Çoğu distribütör, sonuçların başka bir üründe gösterilmesi için ayrı ticari kullanım şartı koyar — şartları şirketiniz adına onaylayın.</p>
         </section>
       ) : null}

@@ -1400,3 +1400,13 @@ sha256). `POST /api/alternate-research/candidates/:id/propose` → `item_alterna
 onay görevleri; elenen aday reddedilir, dış aday için önce kalem kartı gerekir. Web: Alternatif parçalar → "AI'ya sor"
 (yalnız Ar-Ge / yetkili üretim görür). Serbest web araması bilinçli olarak yok (W03). Gerçek model çağrısı için
 ANTHROPIC_API_KEY gerekir; testler sahte yanıtla (`alternate-research.test.ts` 5/5).
+
+
+## Oturum 41 devamı — W03 lisans teyidi (açık engelin kapatılması)
+
+Migration 059. `POST /api/distributors/:id/license` (workflow.manage): sekiz izin (multi_tenant, display, cache, history,
+derived_analysis, export, account_pricing, ai_processing) × allowed/denied/unknown, belge referansı zorunlu, isteğe bağlı
+önbellek süresi sınırı; değişmez ve sürümlü. Canlı moda geçiş ilk üçü "allowed" değilse `license_required`; veri tabanında
+`distributor_connectors_live_licensed`. Teyit daraltılınca bağlayıcı `not_connected` olur (olay kaydında). Tedarik riski
+taraması canlı bağlayıcının geçmişini yalnız history + derived_analysis izinliyse kullanır. Web: Satın alma → Distribütörler
+→ Ayarla altında lisans teyidi. `distributor-live.test.ts` güncellendi (+1 test).

@@ -85,9 +85,11 @@ Her sağlayıcıya aynı soru listesi — cevaplar yazılı alınmalı ve bu bel
 - **Nexar:** parça başına ücretlendirme ve plan bazlı alan kısıtı var. Şart metni erişilemedi. Plan ve şartlar
   netleşmeden maliyet tahmini yapılamaz.
 - **LCSC:** başvuru ve onay süreci var. Kota ve şartlar kamuya açık değil.
-- **Kod tarafı (önerilen sonraki adım):** canlı mod açılırken bağlayıcıya "lisans teyidi" kaydı (kim, ne zaman, hangi
-  izinler, belge referansı) ve sağlayıcı bazında izin bayrakları eklenmeli. Canlı modu yalnız teyit varsa açan bir veri
-  tabanı kısıtı, mevcut `distributor_connectors_live_ready` kısıtının yanına eklenebilir.
+- **Kod tarafı (oturum 41'de yapıldı, migration 059):** bağlayıcı başına sürümlü ve değişmez lisans teyidi
+  (`distributor_license_confirmations`: sekiz izin izinli/yasak/bilinmiyor, belge referansı, önbellek süresi sınırı; yalnız
+  yönetici). Canlı mod çok müşterili kullanım + gösterim + önbellek "izinli" olmadan açılmaz (API ve veri tabanı kısıtı
+  `distributor_connectors_live_licensed`); teyit daraltılırsa bağlayıcı canlıdan çıkarılır; önbellek süresi sınırı
+  aşılamaz; tarihçe + türetilmiş analiz izni yoksa canlı bağlayıcının teklifleri tedarik riski taramasına girmez.
 
 
 ## Kaynaklar (2026-09-29 tarihinde okundu)

@@ -33,7 +33,7 @@ beforeAll(async () => {
     ["MOS-C", "N-MOSFET 30V SOT-23 farklı pin", "XX-C", "Other"],
     ["MCU-A", "MCU 32-bit QFN32", "STM-A", "ST"],
     ["MCU-B", "MCU 32-bit QFN32 muadil", "GD-B", "GigaDevice"],
-  ]) {
+  ] as [string, string, string, string][]) {
     items[code] = expectOk(await call(w.app, RD, A, "POST", "/api/items", { code, name, kind: "component", mpn, manufacturer: mfr })).id;
   }
   await w.owner.query("select set_config('app.company_id', $1, false)", [A]);
@@ -83,7 +83,7 @@ describe("AI ile alternatif araştırması (R12)", () => {
       category: "mosfet", application: "Yük anahtarı, 3,3 V lojik sürüş", temperature: "-40…85 °C",
       primaryDatasheet: PIN_TABLE, schematic: { title: "Güç kartı şeması", text: "Q1 IRLML-A: G=MCU PA1 üzerinden 100R, S=GND, D=yük." },
       candidateItemIds: [items["MOS-B"], items["MOS-C"]],
-      candidateDatasheets: { [items["MOS-B"]]: { title: "AO-B datasheet", text: "Pin 1 Gate, Pin 2 Source, Pin 3 Drain. SOT-23. Vds 30V." } },
+      candidateDatasheets: { [items["MOS-B"]!]: { title: "AO-B datasheet", text: "Pin 1 Gate, Pin 2 Source, Pin 3 Drain. SOT-23. Vds 30V." } },
     }));
     // Giden istek: şemalı çıktı, sunucu yedek modeli, belgeler kimlikli.
     expect(sent!.model).toBe(DEFAULT_AI_MODEL);
@@ -135,7 +135,7 @@ describe("AI ile alternatif araştırması (R12)", () => {
     const run = expectOk(await call(w.app, RD, A, "POST", `/api/items/${items["MCU-A"]}/alternate-research`, {
       category: "mcu", candidateItemIds: [items["MCU-B"]],
       primaryDatasheet: { title: "STM-A pin tablosu", text: "Pin 1 VDD, Pin 2 PA0 … QFN32 pinout tablosu, 64KB flash." },
-      candidateDatasheets: { [items["MCU-B"]]: { title: "GD-B pin tablosu", text: "Pin 1 VDD, Pin 2 PA0 … QFN32, 64KB flash." } },
+      candidateDatasheets: { [items["MCU-B"]!]: { title: "GD-B pin tablosu", text: "Pin 1 VDD, Pin 2 PA0 … QFN32, 64KB flash." } },
     }));
     const c = run.candidates[0];
     expect(c.verdict).toBe("insufficient_evidence");
