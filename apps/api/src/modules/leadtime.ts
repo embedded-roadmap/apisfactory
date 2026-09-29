@@ -7,6 +7,7 @@ import { recordEvent } from "../lib/records";
 import { fromMicro, max, min, mul, toMicro } from "../lib/decimal";
 import { parse, tenant } from "../http/context";
 import { routeFor } from "../lib/routing";
+import { loadCapacityCalendar, scheduleOnCalendar } from "../lib/capacity";
 
 const USABLE = USABLE_LOCATION_TYPES as readonly string[];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -57,7 +58,8 @@ type Estimate = {
  * Tahmini termin (prompt §12): malzeme hazır olma tarihi + iş merkezi yükü.
  *  - Serbest stok → bugün; teyitli açık alım → teyit tarihi; kalan → bugün + kalem temin süresi.
  *    Temin süresi tanımsızsa termin "hesaplanamadı" döner (tahmin uydurulmaz).
- *  - Her iş merkezi için hazırlık + adet × birim süre, günlük kapasiteye bölünür; operasyonlar sıralıdır.
+ *  - Her iş merkezi için hazırlık + adet × birim süre, merkezin kapasite takviminden (vardiya, istisna, tatil;
+ *    vardiya yoksa hafta içi günlük dakika) gün gün tüketilir; operasyonlar sıralıdır (lib/capacity.ts).
  *  - Aynı iş merkezlerindeki açık iş emirlerinin kalan yükü kuyruk olarak eklenir; sonuç aralık olarak verilir.
  * Tahmin müşteriye verilen tarihi değiştirmez; taahhüt ayrı kayıttır.
  */
@@ -187,9 +189,8 @@ export async function computeEstimate(db: Db, orderId: string, today = iso(new D
     }
   }
 
-  // Kapasite: kendi işimiz + aynı merkezlerdeki açık işlerin kalan yükü.
-  const wcs = await db.query(`select id, code, daily_minutes from work_centers`);
-  const byCode = new Map(wcs.rows.map((w) => [w.code as string, w]));
+  // Kapasite: kendi işimiz + aynı merkezlerdeki açık işlerin kalan yükü, iş merkezi kapasite takvimiyle.
+  const cal = await loadCapacityCalendar(db);
   const qtyNum = Number(fromMicro(produceQty));
   // Kuyruk: açık iş emirlerinin kalan operasyonları, iş emrine kopyalanan planlı sürelerle.
   const queue = await db.query(
@@ -203,23 +204,15 @@ export async function computeEstimate(db: Db, orderId: string, today = iso(new D
   let productionDays = 0;
   let queueDays = 0;
   let bottleneck: string | null = null;
+  const own: { code: string; minutes: number }[] = [];
   if (qtyNum > 0) {
-    for (const [code, own] of ownByWc) {
-      const wc = byCode.get(code);
-      if (!wc) {
+    for (const [code, minutes] of ownByWc) {
+      if (!cal.known(code)) {
         unknown = true;
         reasons.push(`İş merkezi tanımlı değil: ${code}`);
         continue;
       }
-      const q = queueBy.get(code) ?? 0;
-      const daily = Number(wc.daily_minutes);
-      productionDays += Math.max(1, Math.ceil(own / daily));
-      const qd = Math.ceil(q / daily);
-      if (qd > queueDays) {
-        queueDays = qd;
-        bottleneck = code;
-      }
-      workCenters.push({ code, ownMinutes: Math.round(own), queueMinutes: Math.round(q), dailyMinutes: daily });
+      own.push({ code, minutes });
     }
   }
 
@@ -227,8 +220,25 @@ export async function computeEstimate(db: Db, orderId: string, today = iso(new D
   let latest: string | null = null;
   if (!unknown) {
     const start = nextWorkingDay(materialReady, holidays);
-    earliest = qtyNum > 0 ? finishAfterWorkingDays(start, productionDays, holidays) : start;
-    latest = qtyNum > 0 ? finishAfterWorkingDays(start, productionDays + queueDays, holidays) : start;
+    if (qtyNum > 0) {
+      const s = scheduleOnCalendar(cal, start, own, queueBy);
+      if (s.earliest === null) {
+        unknown = true;
+        reasons.push(...s.reasons);
+      } else {
+        earliest = s.earliest;
+        latest = s.latest;
+      }
+      productionDays = s.productionDays;
+      queueDays = s.queueDays;
+      bottleneck = s.bottleneck;
+    } else {
+      earliest = start;
+      latest = start;
+    }
+    for (const o of own) {
+      workCenters.push({ code: o.code, ownMinutes: Math.round(o.minutes), queueMinutes: Math.round(queueBy.get(o.code) ?? 0), dailyMinutes: cal.on(o.code, start) });
+    }
   }
   return {
     computedAt: new Date().toISOString(),

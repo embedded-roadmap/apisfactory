@@ -5,6 +5,7 @@ import { get, post } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmtDate, useCan } from "../lib/ui";
 import { History } from "./Sales";
 import { Discussion } from "../components/Discussion";
+import { CapacityLoad } from "../components/Capacity";
 
 export const PRIORITY: Record<string, string> = { low: "Düşük", normal: "Normal", high: "Yüksek", critical: "Kritik" };
 export const TASK_STATUS: Record<string, string> = { open: "Açık", in_progress: "Sürüyor", blocked: "Engelli", done: "Tamamlandı", cancelled: "İptal" };
@@ -412,6 +413,7 @@ export function GanttPage() {
           </table>
         </details>
       </section>
+      {can("production.view") ? <CapacityLoad from={from} to={span > 120 ? addDays(from, 119) : to} /> : null}
     </>
   );
 }

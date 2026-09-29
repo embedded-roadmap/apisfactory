@@ -1371,3 +1371,19 @@ Migration 056.
 
 Web: Raporlar → kur tablosu ve politika azami kur yaşı, kâr raporunda iade maliyeti ve satır kuru, iş emri
 malzemesinde kur; iade detayında tamir saati/parça ve iade maliyeti paneli; Ar-Ge projesinde bütçe sürümleri.
+
+## Oturum 41 devamı — kalan işler 7c: kaynak kapasitesi ve vardiya (R29)
+
+Migration 057, `lib/capacity.ts`, `modules/capacity.ts`. Günlük kapasite: vardiya ataması olan merkezde o güne düşen
+vardiyaların net süresi (bitiş − başlangıç − mola; gece yarısını geçen vardiya başladığı güne) × istasyon; ataması
+hiç olmayan merkezde hafta içi `daily_minutes` (eski davranış); tatil 0; `capacity_exceptions` eklenir/düşülür (iş
+merkezi boşsa tüm merkezler). Not: vardiya ataması olan bir merkezde o gün geçerli atama yoksa kapasite 0'dır (varsayılana
+düşmez). `scheduleOnCalendar` termin (`leadtime.ts`) ve senaryo (`scenarios.ts`) hesabında her merkezi takviminden gün gün
+tüketir; vardiyasız merkezde sonuç eski formülle birebir (mevcut termin/senaryo testleri değişmeden geçti). Senaryodaki
+ek vardiya varsayımı kapasiteli günlere eklenir.
+
+Uçlar: `GET/POST /api/shift-patterns`, `GET/POST /api/work-center-shifts`, `POST /api/work-center-shifts/:id/end`
+(atama silinmez, bitiş tarihi verilir), `GET/POST /api/capacity-exceptions` (değişmez), `GET /api/capacity/load`
+(bugünden itibaren açık operasyonların kalan süresi teslim tarihi → oluşturma → sıra ile sonlu kapasiteye yüklenir;
+aralık en çok 120 gün). Yazma `capacity.manage`, okuma `production.view`. Web: Kalite → kapasite bölümünde vardiya/atama/
+istisna; Planlama → Gantt altında iş merkezi × gün yük tablosu. `capacity.test.ts` 5/5.

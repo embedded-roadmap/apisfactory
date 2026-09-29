@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { loadCapacityCalendar, scheduleOnCalendar } from "../lib/capacity";
 import { USABLE_LOCATION_TYPES } from "@apisfactory/shared";
 import { z } from "zod";
 import type { Db } from "../db/pool";
@@ -134,8 +135,7 @@ async function simulate(db: Db, revisionId: string, qty: string, overrides: Over
 
   // Kapasite: fason varsayımında iç kapasite kullanılmaz (dış firmanın kendi termini ayrıca değerlendirilmeli).
   const route = await routeFor(db, revisionId);
-  const wcs = await db.query(`select id, code, daily_minutes from work_centers`);
-  const byCode = new Map(wcs.rows.map((w) => [w.code as string, w]));
+  const cal = await loadCapacityCalendar(db);
   const ownByWc = new Map<string, number>();
   const qtyNum = Number(qty);
   if (!overrides.subcontract) {
@@ -152,21 +152,29 @@ async function simulate(db: Db, revisionId: string, qty: string, overrides: Over
   );
   const queueBy = new Map(queue.rows.map((q) => [q.code as string, Number(q.minutes)]));
   let productionDays = 0, queueDays = 0, bottleneck: string | null = null;
-  for (const [code, own] of ownByWc) {
-    const wc = byCode.get(code);
-    if (!wc) { unknown = true; reasons.push(`İş merkezi tanımlı değil: ${code}`); continue; }
-    const daily = Number(wc.daily_minutes) + (overrides.extraShiftMinutes ?? 0);
-    const q = queueBy.get(code) ?? 0;
-    productionDays += Math.max(1, Math.ceil(own / daily));
-    const qd = Math.ceil(q / daily);
-    if (qd > queueDays) { queueDays = qd; bottleneck = code; }
+  const own: { code: string; minutes: number }[] = [];
+  for (const [code, minutes] of ownByWc) {
+    if (!cal.known(code)) { unknown = true; reasons.push(`İş merkezi tanımlı değil: ${code}`); continue; }
+    own.push({ code, minutes });
   }
 
   let earliest: string | null = null, latest: string | null = null;
   if (!unknown) {
     const start = nextWorkingDay(materialReady, holidays);
-    earliest = qtyNum > 0 ? finishAfterWorkingDays(start, productionDays || 1, holidays) : start;
-    latest = qtyNum > 0 ? finishAfterWorkingDays(start, (productionDays || 1) + queueDays, holidays) : start;
+    if (qtyNum > 0 && own.length) {
+      // Ek vardiya varsayımı: kapasitesi olan her güne iş merkezi başına ek dakika.
+      const s = scheduleOnCalendar(cal, start, own, queueBy, overrides.extraShiftMinutes ?? 0);
+      if (s.earliest === null) { unknown = true; reasons.push(...s.reasons); }
+      else { earliest = s.earliest; latest = s.latest; }
+      productionDays = s.productionDays; queueDays = s.queueDays; bottleneck = s.bottleneck;
+    } else if (qtyNum > 0) {
+      // Fason varsayımı: iç kapasite kullanılmaz; eski davranış gibi en az bir iş günü.
+      earliest = finishAfterWorkingDays(start, 1, holidays);
+      latest = earliest;
+    } else {
+      earliest = start;
+      latest = start;
+    }
   }
 
   const assumptions = [

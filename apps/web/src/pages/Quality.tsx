@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, get, post } from "../lib/api";
 import { QualityTabs } from "./Station";
+import { ShiftSettings } from "../components/Capacity";
 import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmtDate, useCan } from "../lib/ui";
 
 const KIND: Record<string, string> = { test_station: "Test istasyonu", measuring: "Ölçüm cihazı", fixture: "Fikstür", programmer: "Programlayıcı", oven: "Kurutma fırını" };
@@ -44,6 +45,7 @@ export function QualityPage() {
       {affectedOf ? <Affected e={affectedOf} onClose={() => setAffectedOf(null)} /> : null}
       <DryoutRecipes />
       <Capacity />
+      <ShiftSettings />
     </>
   );
 }
