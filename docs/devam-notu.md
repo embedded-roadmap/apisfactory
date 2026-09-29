@@ -1259,3 +1259,17 @@ reddedilir, başkasının ön-yüklemesi çalınamaz, eski satır-içi ek deste�
 15. **R46 (yedek, geri yükleme ve kesintide talimat erişimi) oturum 40'ta tamamlandı** (bkz. yukarıda "Oturum 40 — R46"): hem Bölüm A (kesintide erişim) hem Bölüm B (şifreli yedekleme/geri yükleme, BYPASSRLS reddi sonrası RLS-saygılı yeniden tasarım, gerçek geri yükleme tatbikatı `GEÇTİ`) tamamen uygulandı, otomatik testleri geçti (279/279) ve gerçek dev sunucusunda doğrulandı.
 16. **R47 (şirketin tam veri/dosya çıkış paketi) aynı oturumda beklemeden çıkarılıp commit edildi** (commit `35279b1`) — kod zaten yazılmış ve test edilmişti, kullanıcı "R47'yi beklemeden çıkar" dedi. Tam paket **279/279**, `tsc --noEmit` temiz.
 17. Bu ikisiyle **kapsam izleme dokümanındaki dış bağımlılığı olmayan tüm somut adaylar tükendi.** Geriye kalan "planlandı" maddelerin tümü gerçek bir dış sağlayıcı/entegratör kararı ve erişimi bekliyor: R10/R11/R48 (e-fatura entegratörü + kargo firması, W36'nın TEST modundan sağlayıcı test ortamına geçişi), R12/R26 (gerçek AI/LLM sağlayıcısı, W30 yorum katmanı), W28 devamı (Google Calendar / Microsoft 365 OAuth uygulama kaydı), W42'nin ödeme sağlayıcısı entegrasyonu, distribütör API'leri (DigiKey/Mouser/Farnell/Nexar gerçek kimlik doğrulama). R05 ayrıca mühendislik-zamanı takibi altyapısı gerektiriyor (ayrı bir iş paketi, dış sağlayıcı değil). Kullanıcı bu dış-bağımlılık maddelerini **sırayla** ilerletmeyi istedi (2026-09-27) — her biri için hangi sağlayıcı seçileceği ve erişim bilgilerinin (API anahtarı, istemci kimliği vb.) nereden geleceği kullanıcıdan/platform işletmecisinden gelmesi gereken kararlar; kod tarafı (bağlayıcı çerçevesi) her birinde zaten TEST modunda hazır, yalnızca gerçek kimlik doğrulama/API erişimi ekleniyor.
+
+## Oturum 41 devamı — kalan işler 1: UBL-TR 1.2 e-fatura belgesi
+
+`lib/ubl-tr.ts` (`buildUblTr`): UBL 2.1 / CustomizationID TR1.2 fatura XML'i — UBL eleman sırası, VKN'li taraf
+`PartyName`, TCKN'li taraf `Person` (son kelime soyad), adres/vergi dairesi, KDV (`0015`) fatura ve satır düzeyinde
+(kuruş hassasiyetinde BigInt; yuvarlama farkı son satıra), `LegalMonetaryTotal`, döviz faturada `PricingExchangeRate`,
+KDV %0'da istisna kodu, GİB numara biçimi (`^[A-Z0-9]{3}20\d{2}\d{9}$`; yoksa uyarı — entegratör atar), ETTN (gönderilmişse
+kayıtlı ETTN, değilse fatura koduna göre deterministik UUID v4), tüm metin XML kaçışlı. Mali mühür (`UBLExtensions`
+içeriği) ve `cac:Signature` entegratör tarafından eklenir. Denetimler: satır toplamı = net, net + KDV = brüt (hata);
+KDV = oran × net (uyarı — `receivables.ts` KDV'yi float ile yuvarlıyor, x,xx5 sınırında 1 kuruş sapabilir).
+Uç: `GET /api/customer-invoices/:id/ubl` (kind, profile, number, exchangeRate, exemptionCode/Reason). Web: fatura
+sayfasında "UBL-TR önizle" + "XML indir". `ubl-tr.test.ts` 7/7 (sıra, iyi biçimlilik, tutarlar, yuvarlama, kaçış,
+TCKN kişi, denetimler, ETTN) + `einvoice-live.test.ts`'e gerçek faturadan uç testi. **Resmi GİB XSD/Schematron ile
+doğrulanmadı.**

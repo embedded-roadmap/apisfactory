@@ -124,6 +124,19 @@ describe("Şirket ve müşteri vergi kimliği", () => {
     expect(r).toMatchObject({ ready: true, issues: [] });
   });
 
+  it("UBL-TR önizlemesi: gerçek faturadan satıcı/alıcı kimliği ve tutarlarla belge üretilir; numara yoksa uyarı", async () => {
+    const u = expectOk(await call(w.app, M, A, "GET", `/api/customer-invoices/${invoiceId}/ubl?kind=e_fatura`));
+    expect(u).toMatchObject({ profile: "TEMELFATURA", valid: true });
+    expect(u.issues.map((i: any) => `${i.severity}:${i.field}`)).toContain("warning:number");
+    expect(u.xml).toContain(`<cbc:ID schemeID="VKN">${VKN}</cbc:ID>`);
+    expect(u.xml).toContain(`<cbc:ID schemeID="TCKN">${TCKN}</cbc:ID>`);
+    expect(u.xml).toContain("<cbc:FamilyName>Ltd.</cbc:FamilyName>"); // TCKN'li alıcı: son kelime soyad sayılır
+    expect(u.xml).toMatch(/<cbc:PayableAmount currencyID="TRY">\d+\.\d{2}<\/cbc:PayableAmount>/);
+    const bad = await call(w.app, M, A, "GET", `/api/customer-invoices/${invoiceId}/ubl?kind=e_fatura&number=MF-1`);
+    expect(expectOk(bad).valid).toBe(false);
+    expect((await call(w.app, "all@b.test", w.b.companyId, "GET", `/api/customer-invoices/${invoiceId}/ubl`)).status).toBe(404);
+  });
+
   it("RLS: başka şirket müşteri vergi kimliğini göremez", async () => {
     expect((await call(w.app, "all@b.test", w.b.companyId, "GET", `/api/customers/${customerId}/tax-identity`)).status).toBe(404);
   });

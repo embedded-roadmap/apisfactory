@@ -236,6 +236,7 @@ export function CustomerInvoicePage() {
   const einvoiceQ = useQuery({ queryKey: ["einvoiceConnectors"], queryFn: () => get<any[]>("/api/einvoice-connectors"), enabled: canSend });
   const readyQ = useQuery({ queryKey: ["einvoiceReadiness", id, kind], queryFn: () => get<any>(`/api/customer-invoices/${id}/einvoice-readiness?kind=${kind}`), enabled: canSend });
   const selected = einvoiceQ.data?.find((c: any) => c.id === connectorId);
+  const ubl = useMutation({ mutationFn: () => get<any>(`/api/customer-invoices/${id}/ubl?kind=${kind}`) });
   if (!i) return q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />;
   return (
     <>
@@ -277,7 +278,16 @@ export function CustomerInvoicePage() {
               </select>
             </label>
             <button className="primary" disabled={!connectorId || act.isPending} onClick={() => act.mutate(() => post(`/api/customer-invoices/${id}/send-einvoice`, { connectorId, kind }))}>Gönder</button>
+            <button disabled={!readyQ.data?.ready || ubl.isPending} onClick={() => ubl.mutate()}>UBL-TR önizle</button>
           </div>
+          {ubl.data ? (
+            <div className={`notice ${ubl.data.valid ? "info" : "warn"}`}>
+              UBL-TR 1.2 ({ubl.data.profile}, ETTN <span className="mono">{ubl.data.uuid}</span>) — {ubl.data.valid ? "yapısal/aritmetik denetimler geçti" : "hatalar var"}. Resmi GİB doğrulaması entegratörde yapılır.
+              {ubl.data.issues.length ? <ul style={{ margin: "4px 0 0" }}>{ubl.data.issues.map((x: any) => <li key={x.field}>{x.severity === "error" ? "Hata" : "Uyarı"}: {x.message}</li>)}</ul> : null}
+              <div><button onClick={() => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([ubl.data.xml], { type: "application/xml" })); a.download = `${i.code}-ubl-tr.xml`; a.click(); }}>XML indir</button></div>
+            </div>
+          ) : null}
+          <ErrorNotice error={ubl.error} />
         </section>
       ) : null}
       <ErrorNotice error={act.error} />

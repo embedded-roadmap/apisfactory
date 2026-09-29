@@ -31,6 +31,12 @@ hazırlık denetimi; `EINVOICE_PROVIDERS` adaptör kayıt defteri (bilerek boş 
 alınamaz); web'de vergi kimliği kartları ve yalnız-yazılır erişim bilgisi formu. Ayrıntı: `devam-notu.md` →
 "Oturum 41".
 
+**UBL-TR 1.2 belge üretimi (oturum 41 devamı):** `lib/ubl-tr.ts` + `GET /api/customer-invoices/:id/ubl` — entegratörlerin
+çoğunun istediği XML sağlayıcıdan bağımsız üretilir (TEMELFATURA/TICARIFATURA/EARSIVFATURA, VKN/TCKN taraf, KDV
+satır dağılımı kuruş hassasiyetinde, döviz kuru, KDV istisnası, deterministik ETTN) ve yapısal/aritmetik denetim
+sonuçlarıyla döner; fatura sayfasında "UBL-TR önizle / XML indir". Mali mühür ve `cac:Signature` entegratör ekler.
+Resmi GİB XSD/Schematron doğrulaması çevrimdışı yapılmadı — ilk entegratör test gönderiminde yapılacak.
+
 **Sizden/şirketten karar gerekenler:**
 1. Hangi sağlayıcı? (GİB Portalı ücretsiz ama manuel/sınırlı; Uyumsoft/Foriba/Logo/Paraşüt/Nesbilgi
    ticari özel entegratörler — hacim, fiyat, mevcut muhasebe yazılımıyla uyum kriterine göre şirketin

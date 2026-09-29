@@ -9,6 +9,7 @@ import { assertLiveAllowed, credentialsSchema, saveConnectorCredentials } from "
 import { EINVOICE_PROVIDERS, einvoiceReadiness, type EinvoiceEnvironment } from "../lib/einvoice-providers";
 import { CARGO_PROVIDERS, cargoReadiness, type CargoEnvironment } from "../lib/cargo-providers";
 import { newObjectKey, objectStorage } from "../lib/storage";
+import { buildUblTr } from "../lib/ubl-tr";
 import { parse, tenant } from "../http/context";
 
 /**
@@ -93,6 +94,39 @@ export async function dispatchRoutes(app: FastifyInstance) {
       const r = await einvoiceReadiness(db, id, q.kind);
       if (r.issues.some((i) => i.field === "invoice")) throw notFound("Müşteri faturası");
       return { id, kind: q.kind, ready: r.issues.length === 0, issues: r.issues };
+    });
+  });
+
+  /**
+   * UBL-TR 1.2 belge önizlemesi (sağlayıcıdan bağımsız). Entegratöre gidecek XML'i ve yapısal/aritmetik denetim
+   * sonuçlarını döner. Resmi GİB XSD/Schematron doğrulaması entegratör ortamında yapılır.
+   */
+  app.get("/api/customer-invoices/:id/ubl", async (req) => {
+    const { id } = req.params as { id: string };
+    const q = parse(
+      z.object({
+        kind: kindSchema.default("e_fatura"),
+        profile: z.enum(["TEMELFATURA", "TICARIFATURA", "EARSIVFATURA"]).optional(),
+        number: z.string().max(16).optional(),
+        exchangeRate: z.string().regex(/^\d+(\.\d{1,6})?$/).optional(),
+        exemptionCode: z.string().max(10).optional(),
+        exemptionReason: z.string().max(250).optional(),
+      }),
+      req.query,
+    );
+    return tenant(req, "receivable.view", async (db) => {
+      const ready = await einvoiceReadiness(db, id, q.kind);
+      if (ready.issues.some((i) => i.field === "invoice")) throw notFound("Müşteri faturası");
+      if (!ready.doc) throw conflict("einvoice_not_ready", "E-belge ön koşulları eksik", { issues: ready.issues });
+      const inv = (await db.query(`select einvoice_ettn from customer_invoices where id = $1`, [id])).rows[0];
+      const r = buildUblTr(ready.doc, {
+        profile: q.profile,
+        number: q.number ?? null,
+        uuid: inv?.einvoice_ettn && /^[0-9a-f-]{36}$/.test(inv.einvoice_ettn) ? inv.einvoice_ettn : undefined,
+        exchangeRate: q.exchangeRate ?? null,
+        taxExemption: q.exemptionCode && q.exemptionReason ? { code: q.exemptionCode, reason: q.exemptionReason } : null,
+      });
+      return { id, profile: r.profile, uuid: r.uuid, valid: !r.issues.some((i) => i.severity === "error"), issues: r.issues, xml: r.xml };
     });
   });
 
