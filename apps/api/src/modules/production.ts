@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { detectRecurrence } from "../lib/capa";
 import { assertChecksPassed } from "../lib/checklists";
 import { z } from "zod";
 import type { Db } from "../db/pool";
@@ -485,22 +486,24 @@ export async function productionRoutes(app: FastifyInstance) {
   /** Başarısız cihaz için kalite kararı: yeniden işleme (tekrar test gerekir) veya hurda. Gerekçe zorunlu. */
   app.post("/api/devices/:serial/disposition", async (req) => {
     const { serial } = req.params as { serial: string };
-    const input = parse(z.object({ decision: z.enum(["rework", "scrap"]), note: z.string().min(3).max(1000) }), req.body);
+    const input = parse(z.object({ decision: z.enum(["rework", "scrap"]), note: z.string().min(3).max(1000), defectCode: z.string().trim().toUpperCase().pipe(z.string().regex(/^[A-Z0-9-]{2,30}$/)).optional() }), req.body);
     return tenant(req, "quality.final.release", async (db, actor) => {
       const d = await db.query(`select * from devices where serial = $1 for update`, [serial]);
       const dev = d.rows[0];
       if (!dev) throw notFound("Cihaz");
       if (dev.status !== "test_failed") throw conflict("invalid_transition", "Karar yalnızca testi başarısız cihaz için verilir");
-      await db.query(
-        `update nonconformances set decision = $2, note = $3, decided_by = $4, decided_at = now()
-          where id = (select id from nonconformances where device_id = $1 and decision is null order by created_at desc limit 1)`,
-        [dev.id, input.decision, input.note, actor.userId],
+      const nc = await db.query(
+        `update nonconformances set decision = $2, note = $3, decided_by = $4, decided_at = now(), defect_code = $5
+          where id = (select id from nonconformances where device_id = $1 and decision is null order by created_at desc limit 1) returning id`,
+        [dev.id, input.decision, input.note, actor.userId, input.defectCode ?? null],
       );
+      // R18: hata kodluysa tekrar tespiti (eşik aşılırsa düzeltici faaliyet açılır / açık olana bağlanır).
+      const capa = nc.rows[0] && input.defectCode ? await detectRecurrence(db, actor, nc.rows[0].id) : null;
       const next = input.decision === "rework" ? "rework" : "scrapped";
       await db.query(`update devices set status = $2 where id = $1`, [dev.id, next]);
       await closeTasks(db, actor.companyId, "device_disposition", dev.id);
-      await recordEvent(db, actor, { entityType: "device", entityId: dev.id, eventType: `disposition.${input.decision}`, after: { serial }, reason: input.note });
-      return { serial, status: next };
+      await recordEvent(db, actor, { entityType: "device", entityId: dev.id, eventType: `disposition.${input.decision}`, after: { serial, defectCode: input.defectCode ?? null }, reason: input.note });
+      return { serial, status: next, capa };
     });
   });
 

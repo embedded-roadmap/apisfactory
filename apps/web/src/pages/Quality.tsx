@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CapaPanel } from "../components/Capa";
 import { CheckPlans } from "../components/Checklist";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, get, post } from "../lib/api";
@@ -48,6 +49,7 @@ export function QualityPage() {
       <Capacity />
       <ShiftSettings />
       <CheckPlans />
+      <CapaPanel />
     </>
   );
 }

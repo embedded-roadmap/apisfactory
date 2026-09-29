@@ -297,6 +297,7 @@ function DeviceRow({ d, plan, ctx, onDone }: { d: any; plan: any | null; ctx: Te
   const [vals, setVals] = useState<Record<string, string>>({});
   const act = useMutation({ mutationFn: (f: () => Promise<any>) => f(), onSuccess: onDone });
   const runs: any[] = d.runs ?? [];
+  const [defect, setDefect] = useState("");
   const limits: any[] = plan?.limits ?? [{ name: "3V3", unit: "V", low: 3.2, high: 3.4, required: false }];
   const measurements = () =>
     limits.filter((l) => vals[l.name] !== undefined && vals[l.name] !== "").map((l) => ({ name: l.name, value: Number(vals[l.name]), ...(plan ? {} : { unit: l.unit, low: l.low, high: l.high }) }));
@@ -325,8 +326,9 @@ function DeviceRow({ d, plan, ctx, onDone }: { d: any; plan: any | null; ctx: Te
           {can("quality.final.release") && d.status === "test_failed" ? (
             <>
               <input aria-label="Karar gerekçesi" placeholder="Gerekçe" value={note} onChange={(e) => setNote(e.target.value)} />
-              <button onClick={() => act.mutate(() => post(`/api/devices/${d.serial}/disposition`, { decision: "rework", note }))}>Yeniden işle</button>
-              <button className="danger" onClick={() => act.mutate(() => post(`/api/devices/${d.serial}/disposition`, { decision: "scrap", note }))}>Hurda</button>
+              <input aria-label="Hata kodu" placeholder="Hata kodu (ör. KISA-DEVRE)" title="Tekrarlayan hata takibi için; aynı kod eşiği aşınca düzeltici faaliyet açılır" value={defect} onChange={(e) => setDefect(e.target.value.toUpperCase())} style={{ width: 170 }} />
+              <button onClick={() => act.mutate(() => post(`/api/devices/${d.serial}/disposition`, { decision: "rework", note, defectCode: defect || undefined }))}>Yeniden işle</button>
+              <button className="danger" onClick={() => act.mutate(() => post(`/api/devices/${d.serial}/disposition`, { decision: "scrap", note, defectCode: defect || undefined }))}>Hurda</button>
             </>
           ) : null}
         </div>

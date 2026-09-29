@@ -1466,3 +1466,11 @@ gösterir (politika alt sorguları da RLS'e tabi olduğu için zincirleme). İst
 ayarlar, uygulama istekleri hiç ayarlamaz. Şirket dışa aktarımı dışa aktaranın yalnız kendi birebir konuşmalarını içerir. Uçlar:
 `POST/GET /api/direct-conversations`, `/people`; mesajlar genel `/api/threads/direct/:id` uçlarıyla (bahsetme reddedilir). Web: Mesajlar.
 Mobil ekran yok. `direct-messages.test.ts` 4/4 (veri tabanı düzeyi dahil).
+
+## Oturum 41 devamı — R18 düzeltici faaliyet (tekrarlayan hata)
+
+Migration 066: `nonconformances.defect_code/capa_id`, `capa_settings` (eşik, pencere), `corrective_actions` (ürün+kod başına tek açık DF).
+`POST /api/devices/:serial/disposition` isteğe bağlı `defectCode` → `lib/capa.ts detectRecurrence`: açık DF varsa bağla, yoksa pencere içindeki
+bağsız aynı ürün/kod kayıtları eşiğe ulaştıysa DF aç + kaliteye görev. `/api/capas`, `/:id/action` (kök neden varsayım + faaliyet +
+kontrol günü → capa_verify görevi), `/:id/verify` (giren doğrulayamaz; faaliyetten sonra tekrar varsa etkili için ≥20 karakter gerekçe;
+etkisiz → yeniden açılır), `/api/capa-settings`. Web: cihaz kararında hata kodu, Kalite → DF paneli. `capa.test.ts` 2/2.
