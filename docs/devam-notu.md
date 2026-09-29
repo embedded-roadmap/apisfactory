@@ -1273,3 +1273,15 @@ Uç: `GET /api/customer-invoices/:id/ubl` (kind, profile, number, exchangeRate, 
 sayfasında "UBL-TR önizle" + "XML indir". `ubl-tr.test.ts` 7/7 (sıra, iyi biçimlilik, tutarlar, yuvarlama, kaçış,
 TCKN kişi, denetimler, ETTN) + `einvoice-live.test.ts`'e gerçek faturadan uç testi. **Resmi GİB XSD/Schematron ile
 doğrulanmadı.**
+
+## Oturum 41 devamı — kalan işler 2: gerçekçi DEMO senaryo verisi
+
+`src/db/seed-scenario.ts` (`pnpm db:seed-scenario`, `db:seed`'den sonra): DEMO-ELK şirketinde GERÇEK API uçlarıyla bir iş
+akışı oynatır — ürün + BOM + üç alanlı devir, bitmiş ürün stoğu + lot maliyeti, satış → sevkiyat → 45 gün önce kesilmiş
+(vadesi geçmiş) fatura, bütçeli Ar-Ge projesi (5.000 TL) → proje talebi → teklif → ödül (6.250 TL, bütçe aşımı), satın alma
+siparişi → 8 gün önceye teyit → bugün mal kabul (geç teslim). Geçmiş tarihler yalnız API'nin kabul ettiği alanlarla
+(fatura tarihi, teyit tarihi) verilir; hiçbir tutar/durum SQL ile yazılmaz. Sonuç (bu ay): **tahsilat, proje bütçesi,
+tedarikçi performansı, kârlılık** alanları onay bekleyen bulgu üretir → AI yorumu (madde 3) anahtar gelince hemen
+denenebilir. Üretim hareketi gerektiren fire/yeniden işleme, kapasite, revizyon etkisi, stok açığı veri yetersiz kalır.
+Idempotent (DEMO-KART-01 varsa atlanır). `seed-scenario.test.ts` 2/2: boş şemada seed + senaryo → dört bulgu; ikinci
+çalıştırma atlanır. Yerel dev veritabanına da uygulandı ve rapor gerçek API'den okunarak doğrulandı.

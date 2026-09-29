@@ -8,6 +8,7 @@
     "dev:mobile": "pnpm --filter @apisfactory/mobile start",
     "db:migrate": "pnpm --filter @apisfactory/api migrate",
     "db:seed": "pnpm --filter @apisfactory/api seed",
+    "db:seed-scenario": "pnpm --filter @apisfactory/api seed:scenario",
     "test": "pnpm --filter @apisfactory/api test",
     "typecheck": "pnpm -r typecheck"
   }

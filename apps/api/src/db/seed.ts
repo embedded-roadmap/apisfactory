@@ -104,7 +104,7 @@ export async function createUser(
 export const DEMO_PASSWORD = "demo1234!";
 
 /** DEMO etiketli örnek elektronik şirketi ve yetki ayrımını göstermek için ikinci bir şirket (prompt §31). */
-async function seedDemo() {
+export async function seedDemo() {
   const client = new pg.Client({ connectionString: config.migrationDatabaseUrl });
   await client.connect();
   try {

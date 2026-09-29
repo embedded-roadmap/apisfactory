@@ -8,6 +8,7 @@
     "start": "tsx src/server.ts",
     "migrate": "tsx src/db/migrate.ts",
     "seed": "tsx src/db/seed.ts",
+    "seed:scenario": "tsx src/db/seed-scenario.ts",
     "outbox": "tsx src/worker/outbox.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
