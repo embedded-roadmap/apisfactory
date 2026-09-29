@@ -1290,19 +1290,21 @@ Idempotent (DEMO-KART-01 varsa atlanır). `seed-scenario.test.ts` 2/2: boş şem
 ## Oturum 41 devamı — kalan işler 3: canlı e-belge ve kargo çağrıları arka plana (outbox)
 
 **Önce:** canlı gönderimde sağlayıcı çağrısı istek içinde, fatura/sevkiyat satırı kilitliyken yapılıyordu. **Şimdi:** istek
-hazırlığı denetleyip kaydı  işaretler ve outbox'a  /  bırakır (hızlı döner). İşçi
- /  ile: (1) kısa işlemde queued → sending, (2) dış çağrı açık işlem yokken,
-(3) sonucu ayrı işlemde yazar. Migration 054: ,
- (eski kayıtlar sent/created olarak doldu).
+hazırlığı denetleyip kaydı `queued` işaretler ve outbox'a `einvoice.send` / `cargo.label` bırakır (hızlı döner). İşçi
+`processEinvoiceSend` / `processCargoLabel` ile: (1) kısa işlemde queued → sending, (2) dış çağrı açık işlem yokken,
+(3) sonucu ayrı işlemde yazar. Migration 054: `customer_invoices.einvoice_status/error/requested_*`,
+`shipments.cargo_request_status/error/requested_*` (eski kayıtlar sent/created olarak doldu).
 
-**Çift resmi belge / ücretli kayıt koruması:** adaptör  fırlatırsa → (sağlayıcı kesin reddetti, hiçbir şey oluşmadı; düzeltip yeniden gönderilebilir). Diğer her hata (zaman aşımı, ağ, 5xx) →
-: OTOMATİK TEKRAR YOK, yeniden gönderim engellenir (), kullanıcı sağlayıcı panelinden
-doğrulayıp  (gerçek ETTN ile sent / not_sent) veya  ile işaretler (gerekçe
-zorunlu, olay kaydı). İşçide işlem fonksiyonu beklenmedik hata fırlatırsa outbox işi de  olur (yeniden
-denenmez). Sağlayıcıya fatura kodundan sabit ETTN () gider — ikinci kez ulaşırsa sağlayıcı/GİB mükerrer
-olarak reddedebilir. Web: fatura ve sevkiyat sayfalarında kuyruk/red bildirimi ve belirsiz sonuç çözüm formu.
+**Çift resmi belge / ücretli kayıt koruması:** adaptör `ConnectorError(msg, { notSent: true })` fırlatırsa → `failed`
+(sağlayıcı kesin reddetti, hiçbir şey oluşmadı; düzeltip yeniden gönderilebilir). Diğer her hata (zaman aşımı, ağ, 5xx) →
+`unknown`: OTOMATİK TEKRAR YOK, yeniden gönderim engellenir (`send_outcome_unknown`), kullanıcı sağlayıcı panelinden
+doğrulayıp `POST /api/customer-invoices/:id/einvoice-resolve` (gerçek ETTN ile sent / not_sent) veya
+`POST /api/shipments/:id/cargo-resolve` ile işaretler (gerekçe zorunlu, olay kaydı). İşçide işlem fonksiyonu beklenmedik
+hata fırlatırsa outbox işi de `unknown` olur (yeniden denenmez). Sağlayıcıya fatura kodundan sabit ETTN (`doc.ettn`)
+gider — ikinci kez ulaşırsa sağlayıcı/GİB mükerrer olarak reddedebilir. Web: fatura ve sevkiyat sayfalarında
+kuyruk/red bildirimi ve belirsiz sonuç çözüm formu.
 
-**Doğrulama:**  canlı akış testi genişletildi (istek dış çağrı yapmaz, sürüyor reddi, kesin ret →
+**Doğrulama:** `einvoice-live.test.ts` canlı akış testi genişletildi (istek dış çağrı yapmaz, sürüyor reddi, kesin ret →
 failed, zaman aşımı → unknown, tekrar işleme sağlayıcıya gitmez, yeniden gönderim engeli, elle çözüm, başarılı gönderim,
-sabit ETTN, olay zinciri);  kuyruk + işleme + çözüm ucu. Tam paket 353/353 (49 dosya). Not: yerelde
-canlı gönderimin işlenmesi için outbox işçisinin çalışması gerekir ().
+sabit ETTN, olay zinciri); `cargo-live.test.ts` kuyruk + işleme + çözüm ucu. Tam paket 353/353 (49 dosya). Not: yerelde
+canlı gönderimin işlenmesi için outbox işçisinin çalışması gerekir (`pnpm --filter @apisfactory/api outbox`).
