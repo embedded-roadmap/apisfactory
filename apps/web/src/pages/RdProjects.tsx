@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, useCan } from "../lib/ui";
+import { RD_CATEGORY_LABEL, RdProjectCost } from "../components/RdCost";
 
 export function RdProjectsPage() {
   const can = useCan();
@@ -69,10 +70,10 @@ export function RdProjectPage() {
     mutationFn: () => post(`/api/rd-projects/${id}/close`, { reason: closeReason }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["rd-project", id] }); setCloseReason(""); },
   });
-  const [alloc, setAlloc] = useState({ amount: "", currency: "TRY", description: "", sourceRef: "", reason: "" });
+  const [alloc, setAlloc] = useState({ amount: "", currency: "TRY", description: "", sourceRef: "", reason: "", category: "other" });
   const addAlloc = useMutation({
     mutationFn: () => post(`/api/rd-projects/${id}/cost-allocations`, { ...alloc, sourceRef: alloc.sourceRef || undefined }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["rd-project", id] }); setAlloc({ amount: "", currency: "TRY", description: "", sourceRef: "", reason: "" }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["rd-project", id] }); qc.invalidateQueries({ queryKey: ["rd-cost", id] }); setAlloc({ amount: "", currency: "TRY", description: "", sourceRef: "", reason: "", category: "other" }); },
   });
   if (p.isLoading) return <Loading />;
   if (p.error) return <ErrorNotice error={p.error} />;
@@ -119,7 +120,7 @@ export function RdProjectPage() {
               </tbody>
             </table>
           )}
-          <div className="muted" style={{ marginTop: 6 }}>Yalnızca bu projeye bağlı satın alma siparişleri ve elle bölüştürülen ortak giderler. Henüz faturalanmamış tutarlar ve mühendislik zamanı dahil değil.</div>
+          <div className="muted" style={{ marginTop: 6 }}>Yalnızca bu projeye bağlı satın alma siparişleri ve elle bölüştürülen ortak giderler. Bütçe takibi içindir; fatura, tahakkuk ve mühendislik zamanını içeren Ar-Ge maliyeti aşağıda.</div>
         </div>
       </div>
 
@@ -150,11 +151,12 @@ export function RdProjectPage() {
         <div className="muted">Paylaşılan bir gideri (ör. ortak sarf, kargo) otomatik bölüştürmeyiz — muhasebe gerekçeyle elle, kalıcı bir kayıt olarak ekler.</div>
         {d.allocations.length > 0 ? (
           <table>
-            <thead><tr><th>Tutar</th><th>Açıklama</th><th>Kaynak</th><th>Gerekçe</th><th>Kim / ne zaman</th></tr></thead>
+            <thead><tr><th>Tutar</th><th>Kategori</th><th>Açıklama</th><th>Kaynak</th><th>Gerekçe</th><th>Kim / ne zaman</th></tr></thead>
             <tbody>
               {d.allocations.map((a: any) => (
                 <tr key={a.id}>
                   <td className="num">{fmt(a.amount)} {a.currency}</td>
+                  <td>{RD_CATEGORY_LABEL[a.category] ?? a.category}</td>
                   <td>{a.description}</td>
                   <td className="muted">{a.sourceRef ?? "—"}</td>
                   <td className="muted">{a.reason}</td>
@@ -168,6 +170,11 @@ export function RdProjectPage() {
           <form className="row" style={{ marginTop: 8 }} onSubmit={(e: FormEvent) => { e.preventDefault(); addAlloc.mutate(); }}>
             <label className="field" style={{ width: 110 }}>Tutar<input aria-label="Tutar" required inputMode="decimal" value={alloc.amount} onChange={(e) => setAlloc({ ...alloc, amount: e.target.value })} /></label>
             <label className="field" style={{ width: 90 }}>Para birimi<input aria-label="Para birimi" required maxLength={3} value={alloc.currency} onChange={(e) => setAlloc({ ...alloc, currency: e.target.value.toUpperCase() })} /></label>
+            <label className="field">Kategori
+              <select aria-label="Kategori" value={alloc.category} onChange={(e) => setAlloc({ ...alloc, category: e.target.value })}>
+                {Object.entries(RD_CATEGORY_LABEL).filter(([k]) => k !== "engineering_time").map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </label>
             <label className="field" style={{ flex: 1 }}>Açıklama<input aria-label="Açıklama" required minLength={3} value={alloc.description} onChange={(e) => setAlloc({ ...alloc, description: e.target.value })} /></label>
             <label className="field">Kaynak (ör. fatura no)<input value={alloc.sourceRef} onChange={(e) => setAlloc({ ...alloc, sourceRef: e.target.value })} /></label>
             <label className="field" style={{ flex: 1 }}>Gerekçe<input aria-label="Gerekçe" required minLength={3} value={alloc.reason} onChange={(e) => setAlloc({ ...alloc, reason: e.target.value })} /></label>
@@ -176,6 +183,8 @@ export function RdProjectPage() {
         ) : null}
         <ErrorNotice error={addAlloc.error} />
       </section>
+
+      <RdProjectCost projectId={id!} open={d.status === "open"} />
     </>
   );
 }

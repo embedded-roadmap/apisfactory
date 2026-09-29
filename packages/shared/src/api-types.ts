@@ -50,6 +50,7 @@ export type RevisionDetail = {
   missingApprovals: ("rd" | "production" | "quality")[];
   readiness?: HandoverReadiness | null;
   handoverChecklist?: (HandoverReadiness & { round: number; at: string }) | null;
+  rdProjectId?: string | null;
 };
 
 export type HandoverReadiness = {

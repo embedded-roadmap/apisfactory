@@ -16,6 +16,7 @@ import type { Db } from "../db/pool";
 import { AppError, conflict, forbidden, notFound } from "../lib/errors";
 import { RuleRejection, withRejectionLog } from "../lib/rejection";
 import { handoverReadiness } from "../lib/handover";
+import { writeRdCostReport } from "../lib/rd-cost";
 import { closeTasks, openTask, recordEvent, type Actor } from "../lib/records";
 import { can, parse, tenant } from "../http/context";
 
@@ -26,7 +27,7 @@ export async function loadRevision(db: Db, id: string): Promise<RevisionDetail> 
   const r = await db.query(
     `select pr.id, pr.product_id as "productId", pr.rev, pr.status, pr.bom_version_id as "bomVersionId",
             pr.released_at as "releasedAt", pr.firmware_version as "firmwareVersion", pr.firmware_sha256 as "firmwareSha256",
-            coalesce(h.current_round, 0) as round, pr.handover_checklist as "handoverChecklist"
+            coalesce(h.current_round, 0) as round, pr.handover_checklist as "handoverChecklist", pr.rd_project_id as "rdProjectId"
        from product_revisions pr left join handover_rounds h on h.revision_id = pr.id
       where pr.id = $1`,
     [id],
@@ -245,6 +246,9 @@ export async function productRoutes(app: FastifyInstance) {
           const checklist = await handoverReadiness(db, id);
           await db.query(`update product_revisions set handover_checklist = $2 where id = $1`, [id, JSON.stringify({ ...checklist, round, at: new Date().toISOString() })]);
           await setRevisionStatus(db, { ...actor, kind: "automation" }, id, rev.status, "released", "Ar-Ge, üretim ve kalite devir onayları tamamlandı");
+          // R05: revizyon bir Ar-Ge projesine bağlıysa devir anındaki Ar-Ge maliyeti sürüm 1 olarak dondurulur.
+          const link = (await db.query(`select rd_project_id from product_revisions where id = $1`, [id])).rows[0];
+          if (link?.rd_project_id) await writeRdCostReport(db, { ...actor, kind: "automation" }, id, link.rd_project_id, "handover", null);
         }
       }
       return loadRevision(db, id);

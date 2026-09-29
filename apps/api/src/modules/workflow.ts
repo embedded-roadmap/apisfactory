@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { RD_COST_CATEGORIES } from "../lib/rd-cost";
 import { DELEGABLE_PERMISSIONS, TASK_KIND_PERMISSION } from "@apisfactory/shared";
 import { z } from "zod";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors";
@@ -301,7 +302,8 @@ export async function workflowRoutes(app: FastifyInstance) {
         note: z.string().min(3).max(1000),
         projectId: z.string().uuid().optional(),
         costCenter: z.string().min(1).max(120).optional(),
-      }),
+        rdCostCategory: z.enum(RD_COST_CATEGORIES).optional(),
+      }).refine((v) => !v.rdCostCategory || v.projectId, { message: "Gider kategorisi yalnız projeye bağlı talepte verilir" }),
       req.body,
     );
     return tenant(req, "purchase.request.create", (db, actor) =>
@@ -341,9 +343,9 @@ export async function workflowRoutes(app: FastifyInstance) {
         const est = await estimatePurchase(db, input.itemId, netQty);
         const code = await nextCode(db, actor.companyId, "purchase_request", "SAT");
         const r = await db.query(
-          `insert into purchase_requests (company_id, code, item_id, qty, need_date, source_type, requested_by, note, estimated_amount, currency, amount_source, project_id, cost_center)
-           values (app_company_id(), $1, $2, $3, $4, 'manual', $5, $6, $7, $8, $9, $10, $11) returning id`,
-          [code, input.itemId, netQty, input.needDate ?? null, actor.userId, input.note, est.amount, est.currency, est.source, input.projectId ?? null, costCenter],
+          `insert into purchase_requests (company_id, code, item_id, qty, need_date, source_type, requested_by, note, estimated_amount, currency, amount_source, project_id, cost_center, rd_cost_category)
+           values (app_company_id(), $1, $2, $3, $4, 'manual', $5, $6, $7, $8, $9, $10, $11, $12) returning id`,
+          [code, input.itemId, netQty, input.needDate ?? null, actor.userId, input.note, est.amount, est.currency, est.source, input.projectId ?? null, costCenter, input.projectId ? (input.rdCostCategory ?? "prototype_material") : null],
         );
         const id = r.rows[0].id as string;
         await openTask(db, actor.companyId, { kind: "purchase_request_review", title: `Satın alma talebi ${code} — ${item.rows[0].code} × ${netQty}`, entityType: "purchase_request", entityId: id, assigneeRole: "purchasing" });

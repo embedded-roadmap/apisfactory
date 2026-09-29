@@ -1323,7 +1323,29 @@ Kökte tek flat config (`eslint.config.mjs`): `@eslint/js` + `typescript-eslint`
 web/mobil için `react-hooks` (rules-of-hooks hata, exhaustive-deps uyarı). `no-explicit-any` kapalı (pg satırları ve dış
 servis cevapları bilinçli `any`); `_` önekli değişkenler serbest. Komut: `pnpm lint` (`--max-warnings 0`), `pnpm lint:fix`.
 İlk çalıştırmada çıkan 25 hata düzeltildi: kullanılmayan içe aktarımlar, `prefer-const`, CSV'de regex içine gömülü görünmez
-BOM → `﻿`, `restore.mjs`'te hiç kullanılmayan `--target-app-url` parametresi kaldırıldı (geri yükleme baştan beri
+BOM → görünür U+FEFF kaçış dizisi, `restore.mjs`'te hiç kullanılmayan `--target-app-url` parametresi kaldırıldı (geri yükleme baştan beri
 yalnız migration bağlantısı + şirket başına `app.company_id` ile RLS içinden çalışıyor). Not: kök `typescript-eslint`
 typescript'i eş bağımlılık istediği için hoisted düzende mobilin typescript 6.0.3'ü köke taşındı; api/web kendi 5.9.3'ünü
 kullanır.
+
+## Oturum 41 devamı — kalan işler 6: W03 distribütör erişim matrisi
+
+`docs/w03-distributor-erisim-matrisi.md` — ayrıntı orada. Mouser/Farnell önbellek ve saklama yasağı açık engel.
+
+
+## Oturum 41 devamı — kalan işler 7a: R05 devirde Ar-Ge maliyeti
+
+Migration 055. Revizyon bir Ar-Ge projesine bağlanır (`PUT /api/revisions/:id/rd-project`, yayından sonra değişmez).
+Maliyet (`lib/rd-cost.ts` → `computeRdCost`, para BigInt kuruşla):
+- projeye bağlı talepten doğan her sipariş satırı bir kez: faturalanan tutar gerçek, teslim alınıp faturalanmamış
+  miktar sipariş fiyatıyla tahakkuk, teslim alınmamış açık miktar yalnız "taahhüt" (toplama girmez);
+- elle bölüştürülen giderler (kategori ile);
+- mühendislik zamanı (`rd_time_entries`) × çalışma tarihinde geçerli `rd_labor_rates` sürümü.
+
+Tahakkuk, açık sipariş, fiyatsız satır veya ücretsiz saat varsa rapor **geçici**. Devrin son onayında rapor sürüm 1
+olarak `rd_cost_reports`'a dondurulur; sonradan gelen fatura/gider/zaman için muhasebe gerekçeyle yeni sürüm hesaplar
+(`POST /api/revisions/:id/rd-cost-reports/recalculate`), fark olay defterine yazılır. Çift sayım: projenin sipariş
+satırlarına bağlı tedarikçi faturası (iç kod veya fatura no.) elle bölüştürmeye kaynak gösterilemez (`double_count`).
+Web: proje sayfasında anlık maliyet, zaman kaydı/ters çevirme, saat ücreti; ürün sayfasında revizyon proje bağı ve rapor
+sürümleri. Kalan: Ar-Ge payının ürün birim maliyetine aktarımı (amortisman) yok; stoktan karşılanan proje malzemesi
+stok çıkışı olmadığı için rapora girmez. `rd-cost.test.ts` 6/6.

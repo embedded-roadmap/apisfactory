@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { RevisionRdCost } from "../components/RdCost";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BomDiff, BomVersion, ProductSummary, RevisionDetail } from "@apisfactory/shared";
@@ -122,6 +123,7 @@ export function ProductDetailPage() {
             {r.status !== "released" && r.readiness ? <Readiness rev={r} data={r.readiness} onDone={refresh} /> : null}
             {r.status === "released" && r.handoverChecklist ? <Readiness rev={r} data={r.handoverChecklist} onDone={refresh} frozen /> : null}
             {r.status === "handover_review" ? <HandoverPanel rev={r} onDone={refresh} /> : null}
+            <RevisionRdCost rev={r} onDone={refresh} />
             {r.approvals.length > 0 ? (
               <table>
                 <thead><tr><th>Birim</th><th>Karar</th><th>Kim</th><th>Ne zaman</th><th>Not</th></tr></thead>
