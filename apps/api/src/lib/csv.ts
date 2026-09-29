@@ -6,7 +6,7 @@ export function sha256(content: string): string {
 }
 
 export function parseCsv(content: string): { headers: string[]; rows: Record<string, string>[] } {
-  const res = Papa.parse<Record<string, string>>(content.replace(/^﻿/, ""), {
+  const res = Papa.parse<Record<string, string>>(content.replace(/^\uFEFF/, ""), {
     header: true,
     skipEmptyLines: "greedy",
     delimitersToGuess: [",", ";", "\t"],

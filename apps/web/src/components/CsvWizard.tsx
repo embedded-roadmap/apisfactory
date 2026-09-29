@@ -28,7 +28,7 @@ export function CsvWizard(props: {
 
   async function onFile(f: File) {
     const content = await f.text();
-    const parsed = Papa.parse<Record<string, string>>(content.replace(/^﻿/, ""), { header: true, preview: 5, delimitersToGuess: [",", ";", "\t"] });
+    const parsed = Papa.parse<Record<string, string>>(content.replace(/^\uFEFF/, ""), { header: true, preview: 5, delimitersToGuess: [",", ";", "\t"] });
     const headers = (parsed.meta.fields ?? []).map((h) => h.trim());
     const auto: Record<string, string> = {};
     for (const fd of props.fields) {

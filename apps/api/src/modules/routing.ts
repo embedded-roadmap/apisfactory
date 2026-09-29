@@ -120,7 +120,7 @@ export async function routingRoutes(app: FastifyInstance) {
   app.put("/api/routings/:id", async (req) => {
     const { id } = req.params as { id: string };
     const input = parse(z.object({ note: z.string().max(500).optional(), operations: z.array(OpInput).max(60) }), req.body);
-    return tenant(req, "capacity.manage", async (db, actor) => {
+    return tenant(req, "capacity.manage", async (db) => {
       const r = (await db.query(`select status, product_revision_id from routings where id = $1 for update`, [id])).rows[0];
       if (!r) throw notFound("Rota");
       if (r.status !== "draft") throw conflict("routing_published", "Yayımlanmış rota değiştirilemez; yeni sürüm açın");

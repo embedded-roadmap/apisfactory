@@ -14,7 +14,7 @@ let A: string;
 const M = "manager@a.test";
 type Req = { method: string; url: string; headers: Headers; body: string };
 let log: Req[] = [];
-let routes: ((r: Req) => { status?: number; json?: unknown } | undefined)[] = [];
+const routes: ((r: Req) => { status?: number; json?: unknown } | undefined)[] = [];
 const realFetch = calendarDeps.fetch;
 const idToken = (email: string) => `x.${Buffer.from(JSON.stringify({ email })).toString("base64url")}.y`;
 

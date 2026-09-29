@@ -701,7 +701,7 @@ function Discussion({ entityType, entityId }: { entityType: string; entityId: st
   const count = q.data?.messages.length ?? 0;
   useEffect(() => {
     if (count > 0) api("POST", `/api/threads/${entityType}/${entityId}/read`, {}).then(() => qc.invalidateQueries({ queryKey: ["mentions"] })).catch(() => {});
-  }, [count, entityType, entityId]);
+  }, [count, entityType, entityId, qc]);
   const byId = new Map((q.data?.messages ?? []).map((m: any) => [m.id, m]));
   return (
     <View style={{ gap: 10, marginTop: 8 }}>
@@ -807,6 +807,8 @@ function AttachmentPreview({ preview, onClose }: { preview: { id: string; fileNa
     })
       .then((r) => setUri(r.uri))
       .catch(() => setErr("Dosya indirilemedi."));
+  // Yalnız farklı bir ek seçildiğinde yeniden indir; aynı ekin yeni nesnesi indirmeyi tetiklemesin.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preview?.id]);
   const [openErr, setOpenErr] = useState<string | null>(null);
   async function openExternally() {

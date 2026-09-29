@@ -48,7 +48,7 @@ afterAll(async () => {
 let sup: string;
 let poId: string;
 let lineId: string;
-let lots: string[] = [];
+const lots: string[] = [];
 
 describe("Tedarikçi faturası ve üç yönlü eşleştirme (W24)", () => {
   beforeAll(async () => {

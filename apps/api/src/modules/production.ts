@@ -186,7 +186,6 @@ export async function recordDeviceTest(db: Db, actor: Actor, serial: string, inp
 
   // Karar: planlı işte limitler plandan gelir, istemcinin gönderdiği limit dikkate alınmaz.
   let measurements = input.measurements;
-  let computed: "pass" | "fail";
   if (wo.test_plan_id) {
     const plan = await loadTestPlan(db, wo.test_plan_id);
     const byName = new Map(input.measurements.map((m) => [m.name, m]));
@@ -199,7 +198,7 @@ export async function recordDeviceTest(db: Db, actor: Actor, serial: string, inp
       }));
   }
   const outOfLimit = measurements.filter((m) => (m.low !== undefined && m.value < m.low) || (m.high !== undefined && m.value > m.high));
-  computed = outOfLimit.length ? "fail" : wo.test_plan_id ? "pass" : (input.result ?? "pass");
+  const computed: "pass" | "fail" = outOfLimit.length ? "fail" : wo.test_plan_id ? "pass" : (input.result ?? "pass");
   if (!wo.test_plan_id && !input.result) throw badRequest("Test planı olmayan iş emrinde sonuç (geçti/kaldı) girilmeli");
   if (input.result === "pass" && computed === "fail") {
     throw reject("measurement_out_of_limit", "Limit dışı ölçümle geçti sonucu kaydedilemez", { measurements: outOfLimit.map((m) => m.name) });

@@ -3,7 +3,7 @@
 //
 // GÜVENLİK: bu script yeni bir veritabanı OLUŞTURMAZ (apis_owner'ın CREATEDB yetkisi yok — bu bilinçli
 // bir sınırdır, gerçek dağıtımda veritabanı hazırlama bir DBA/altyapı kararıdır). Hedef veritabanı
-// ÖNCEDEN VAR olmalı (boş olabilir) ve `--target-migration-url` / `--target-app-url` bu hedefe işaret
+// ÖNCEDEN VAR olmalı (boş olabilir) ve `--target-migration-url` bu hedefe işaret
 // etmelidir. Hedef, çalışan MIGRATION_DATABASE_URL/DATABASE_URL ile AYNI olamaz — yanlışlıkla canlı
 // veritabanının üzerine yazılmasını önlemek için bu script bunu reddeder.
 //
@@ -19,7 +19,6 @@
 // Kullanım:
 //   BACKUP_ENCRYPTION_KEY=... node scripts/restore.mjs <yedek-dosyası.tar.gz.enc> \
 //     --target-migration-url postgres://apis_owner:...@host/hedef_db \
-//     --target-app-url postgres://apis_app:...@host/hedef_db \
 //     --target-storage-dir /path/to/restored-objects
 
 import { createHash } from "node:crypto";
@@ -72,7 +71,7 @@ function quoteIdent(name) {
   return `"${name}"`;
 }
 
-export async function runRestore({ backupFile, targetMigrationUrl, targetAppUrl, targetStorageDir, encryptionKey }) {
+export async function runRestore({ backupFile, targetMigrationUrl, targetStorageDir, encryptionKey }) {
   if (!encryptionKey) throw new Error("BACKUP_ENCRYPTION_KEY gerekli — yedek şifreli");
   if (!targetMigrationUrl) throw new Error("--target-migration-url gerekli");
   if (targetMigrationUrl === (process.env.MIGRATION_DATABASE_URL ?? "")) {
@@ -287,7 +286,6 @@ if (isMainModule(import.meta.url)) {
   runRestore({
     backupFile: args._[0],
     targetMigrationUrl: args["target-migration-url"],
-    targetAppUrl: args["target-app-url"],
     targetStorageDir: args["target-storage-dir"],
     encryptionKey: process.env.BACKUP_ENCRYPTION_KEY,
   })

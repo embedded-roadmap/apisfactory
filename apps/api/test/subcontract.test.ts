@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { call, clearTokens, expectOk, login, PASSWORD, setupWorld, type World } from "./helpers";
+import { call, clearTokens, expectOk, PASSWORD, setupWorld, type World } from "./helpers";
 import { createUser } from "../src/db/seed";
 import { closePool } from "../src/db/pool";
 

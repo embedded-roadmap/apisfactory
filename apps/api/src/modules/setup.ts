@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { CompanySetupInput, type Session } from "@apisfactory/shared";
 import { withUser, withTenant } from "../db/pool";
 import { config } from "../config";
-import { hashPassword, signToken } from "../lib/auth";
+import { signToken } from "../lib/auth";
 import { conflict } from "../lib/errors";
 import { ctxOf, parse, requireCompany } from "../http/context";
 import { createCompany, createUser } from "../db/seed";

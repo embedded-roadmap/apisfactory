@@ -11,7 +11,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { Db } from "../db/pool";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors";
-import { closeTasks, openTask, recordEvent, type Actor } from "../lib/records";
+import { closeTasks, openTask, recordEvent } from "../lib/records";
 import { parse, tenant } from "../http/context";
 import { computeArea, REPORT_AREAS, type ReportArea, type ReportScope } from "../lib/report-findings";
 import { aiConfig, generateNarratives } from "../lib/ai-narrative";

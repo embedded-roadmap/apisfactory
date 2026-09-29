@@ -127,13 +127,13 @@ describe("Tedarik riski (R37)", () => {
     await insertOffer(itemDrop, "RISK-3-MPN", { stock: 1000, fetchedAt: twoDaysAgo });
     // %20 düşüş — şirketin güncel eşiği %40 (bu testte önceki testte 40'a düşürülmüştü) → tetiklenmemeli.
     await insertOffer(itemDrop, "RISK-3-MPN", { stock: 800 });
-    let scan = expectOk(await call(w.app, "purchasing@a.test", A, "POST", "/api/supply-risks/scan"));
+    expectOk(await call(w.app, "purchasing@a.test", A, "POST", "/api/supply-risks/scan"));
     let list = expectOk(await call(w.app, "purchasing@a.test", A, "GET", "/api/supply-risks?status=open"));
     expect(list.find((x: any) => x.itemId === itemDrop && x.riskType === "stock_drop")).toBeUndefined();
 
     // Şimdi %90 düşüş → eşik üstü, tetiklenmeli.
     await insertOffer(itemDrop, "RISK-3-MPN", { stock: 80 });
-    scan = expectOk(await call(w.app, "purchasing@a.test", A, "POST", "/api/supply-risks/scan"));
+    expectOk(await call(w.app, "purchasing@a.test", A, "POST", "/api/supply-risks/scan"));
     list = expectOk(await call(w.app, "purchasing@a.test", A, "GET", "/api/supply-risks?status=open"));
     const r = list.find((x: any) => x.itemId === itemDrop && x.riskType === "stock_drop");
     expect(r).toBeTruthy();

@@ -16,8 +16,6 @@ const mapping = { refdes: "Designator", manufacturer: "Manufacturer", mpn: "MPN"
 const stockMapping = { itemCode: "kod", qty: "miktar", lotNo: "lot", locationCode: "konum", rev: "rev" };
 const FW = "1.4.2";
 const SHA = "a".repeat(64);
-let eqSt: string;
-let eqDmm: string;
 
 const today = new Date().toISOString().slice(0, 10);
 const addDays = (n: number) => {
@@ -25,10 +23,6 @@ const addDays = (n: number) => {
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 };
-
-async function lotId(lotNo: string): Promise<string> {
-  return expectOk(await call(w.app, "warehouse@a.test", A, "GET", `/api/lots/lookup?code=${lotNo}`))[0].id;
-}
 
 beforeAll(async () => {
   clearTokens();
@@ -53,8 +47,8 @@ beforeAll(async () => {
   for (const [u, area] of [["rd", "rd"], ["production", "production"], ["quality", "quality"]]) {
     expectOk(await call(w.app, `${u}@a.test`, A, "POST", `/api/revisions/${revA}/handover`, { area, decision: "approve" }));
   }
-  eqSt = expectOk(await call(w.app, "quality@a.test", A, "POST", "/api/equipment", { code: "ICT-1", name: "Fonksiyon test istasyonu", kind: "test_station", calibrationDue: addDays(90) })).id;
-  eqDmm = expectOk(await call(w.app, "quality@a.test", A, "POST", "/api/equipment", { code: "DMM-1", name: "Multimetre", kind: "measuring", calibrationDue: addDays(90) })).id;
+  expectOk(await call(w.app, "quality@a.test", A, "POST", "/api/equipment", { code: "ICT-1", name: "Fonksiyon test istasyonu", kind: "test_station", calibrationDue: addDays(90) }));
+  expectOk(await call(w.app, "quality@a.test", A, "POST", "/api/equipment", { code: "DMM-1", name: "Multimetre", kind: "measuring", calibrationDue: addDays(90) }));
 });
 
 afterAll(async () => {
@@ -64,7 +58,7 @@ afterAll(async () => {
 });
 
 
-let wcs: Record<string, string> = {};
+const wcs: Record<string, string> = {};
 let r1: string;
 const opsOf = (r: any) => r.operations.map((o: any) => ({ seq: o.seq, name: o.name, workCenterId: o.workCenterId, setupMinutes: o.setupMinutes, minutesPerUnit: o.minutesPerUnit, isQualityGate: o.isQualityGate, instructions: o.instructions }));
 

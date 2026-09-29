@@ -2,9 +2,9 @@ import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Db } from "../db/pool";
-import { badRequest, conflict, forbidden, notFound } from "../lib/errors";
+import { badRequest, conflict, notFound } from "../lib/errors";
 import { closeTasks, idempotent, nextCode, openTask, recordEvent, type Actor } from "../lib/records";
-import { can, ctxOf, idempotencyKey, parse, tenant } from "../http/context";
+import { ctxOf, idempotencyKey, parse, tenant } from "../http/context";
 
 /**
  * W24 — Tedarikçi faturası ve üç yönlü eşleştirme (sipariş – kalite kabulü – fatura).

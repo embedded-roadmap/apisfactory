@@ -18,7 +18,6 @@ const fmtDuration = (s: number | null | undefined) => (s == null ? "" : `${Math.
 export function SubcontractJobsPage() {
   const can = useCan();
   const manage = can("subcontract.manage");
-  const qc = useQueryClient();
   const [openId, setOpenId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [showPerf, setShowPerf] = useState(false);
@@ -147,7 +146,6 @@ function NewJobForm({ onDone }: { onDone: () => void }) {
 }
 
 function JobDetail({ id, manage, onClose }: { id: string; manage: boolean; onClose: () => void }) {
-  const can = useCan();
   const qc = useQueryClient();
   const job = useQuery({ queryKey: ["subJob", id], queryFn: () => get<any>(`/api/subcontract-jobs/${id}`) });
   const files = useQuery({ queryKey: ["subJobFiles", id], queryFn: () => get<any[]>(`/api/subcontract-jobs/${id}/files`) });

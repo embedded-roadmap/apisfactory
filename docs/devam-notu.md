@@ -1308,3 +1308,22 @@ kuyruk/red bildirimi ve belirsiz sonuç çözüm formu.
 failed, zaman aşımı → unknown, tekrar işleme sağlayıcıya gitmez, yeniden gönderim engeli, elle çözüm, başarılı gönderim,
 sabit ETTN, olay zinciri); `cargo-live.test.ts` kuyruk + işleme + çözüm ucu. Tam paket 353/353 (49 dosya). Not: yerelde
 canlı gönderimin işlenmesi için outbox işçisinin çalışması gerekir (`pnpm --filter @apisfactory/api outbox`).
+
+
+## Oturum 41 devamı — kalan işler 4: web rota bazlı kod bölme
+
+`App.tsx` 66 sayfayı `React.lazy` + tek `Suspense` ile yükler (`lazyNamed` yardımcısı adlı dışa aktarımları sarar).
+Ana paket 859 kB → 354 kB (gzip 225 → 105 kB), 500 kB uyarısı kalktı. Bilinçli olarak eager kalanlar: `OfflinePage`
+(bağlantı yokken yeni parça indirilemez) ve giriş öncesi `CompanySetupPage`/`OnboardingPage`.
+
+
+## Oturum 41 devamı — kalan işler 5: ESLint
+
+Kökte tek flat config (`eslint.config.mjs`): `@eslint/js` + `typescript-eslint` önerilenleri (tip bilgisiz, hızlı),
+web/mobil için `react-hooks` (rules-of-hooks hata, exhaustive-deps uyarı). `no-explicit-any` kapalı (pg satırları ve dış
+servis cevapları bilinçli `any`); `_` önekli değişkenler serbest. Komut: `pnpm lint` (`--max-warnings 0`), `pnpm lint:fix`.
+İlk çalıştırmada çıkan 25 hata düzeltildi: kullanılmayan içe aktarımlar, `prefer-const`, CSV'de regex içine gömülü görünmez
+BOM → `﻿`, `restore.mjs`'te hiç kullanılmayan `--target-app-url` parametresi kaldırıldı (geri yükleme baştan beri
+yalnız migration bağlantısı + şirket başına `app.company_id` ile RLS içinden çalışıyor). Not: kök `typescript-eslint`
+typescript'i eş bağımlılık istediği için hoisted düzende mobilin typescript 6.0.3'ü köke taşındı; api/web kendi 5.9.3'ünü
+kullanır.

@@ -10,6 +10,15 @@
     "db:seed": "pnpm --filter @apisfactory/api seed",
     "db:seed-scenario": "pnpm --filter @apisfactory/api seed:scenario",
     "test": "pnpm --filter @apisfactory/api test",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "typescript-eslint": "^8.71.0"
   }
 }

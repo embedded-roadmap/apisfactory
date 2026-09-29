@@ -293,7 +293,7 @@ export async function subcontractRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const input = parse(z.object({ itemId: z.string().uuid(), lotId: z.string().uuid(), qty: z.string().regex(/^\d+(\.\d+)?$/), kind: z.enum(["scrap", "unused"]) }), req.body);
     return tenant(req, "subcontract.manage", async (db, actor) => {
-      const job = await loadJob(db, id);
+      await loadJob(db, id); // iş yoksa 404
       const subLoc = await locationOf(db, "subcontractor");
       if (input.kind === "scrap") {
         await db.query(

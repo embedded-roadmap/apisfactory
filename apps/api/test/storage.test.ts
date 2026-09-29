@@ -9,7 +9,6 @@ import { closePool } from "../src/db/pool";
 let w: World;
 let A: string;
 let mslItemId: string;
-let plainItemId: string;
 
 async function lotId(lotNo: string): Promise<string> {
   return expectOk(await call(w.app, "warehouse@a.test", A, "GET", `/api/lots/lookup?code=${lotNo}`))[0].id;
@@ -22,9 +21,9 @@ beforeAll(async () => {
   mslItemId = expectOk(
     await call(w.app, "rd@a.test", A, "POST", "/api/items", { code: "CMP-MSL-IC1", name: "Nem hassas IC", kind: "component", manufacturer: "M", mpn: "MSL-IC1" }),
   ).id;
-  plainItemId = expectOk(
+  expectOk(
     await call(w.app, "rd@a.test", A, "POST", "/api/items", { code: "CMP-RES-MSL1", name: "Direnç 10k", kind: "component", manufacturer: "R", mpn: "RES-MSL1" }),
-  ).id;
+  );
   const stockMapping = { itemCode: "kod", qty: "miktar", lotNo: "lot", locationCode: "konum", rev: "rev" };
   const stock = "kod,miktar,lot,konum,rev\nCMP-MSL-IC1,100,MSL-LOT-1,STK,\nCMP-MSL-IC1,50,MSL-LOT-2,STK,";
   const sp = expectOk(await call(w.app, "warehouse@a.test", A, "POST", "/api/imports/stock/preview", { fileName: "s.csv", content: stock, mapping: stockMapping }));

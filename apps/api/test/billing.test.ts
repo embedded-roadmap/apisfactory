@@ -16,7 +16,7 @@ let A: string;
 const M = "manager@a.test";
 type Req = { method: string; url: string; headers: Headers; body: string };
 let log: Req[] = [];
-let routes: ((r: Req) => { status?: number; json?: unknown } | undefined)[] = [];
+const routes: ((r: Req) => { status?: number; json?: unknown } | undefined)[] = [];
 const realFetch = iyzicoDeps.fetch;
 const SANDBOX = "https://sandbox-api.iyzipay.com";
 const day = (n: number) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);

@@ -129,7 +129,6 @@ describe("R46: yedekleme ve geri yükleme tatbikatı (gerçek script'ler, gerçe
       const restoreResult = await runRestore({
         backupFile: backupResult.encPath,
         targetMigrationUrl: TARGET_MIGRATION_URL,
-        targetAppUrl: TARGET_APP_URL,
         targetStorageDir: storageDir,
         encryptionKey: "test-suite-yedek-anahtari",
       });

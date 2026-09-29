@@ -13,7 +13,6 @@ import { closePool } from "../src/db/pool";
 let w: World;
 let A: string;
 let productId: string;
-let revDraftA: string;
 let revReleasedA: string;
 
 beforeAll(async () => {
@@ -23,7 +22,7 @@ beforeAll(async () => {
 
   const p = expectOk(await call(w.app, "rd@a.test", A, "POST", "/api/products", { code: "SO-IMP-1", name: "İçe aktarım test ürünü" }));
   productId = p.id;
-  revDraftA = expectOk(await call(w.app, "rd@a.test", A, "POST", `/api/products/${productId}/revisions`, { rev: "A" })).id;
+  expectOk(await call(w.app, "rd@a.test", A, "POST", `/api/products/${productId}/revisions`, { rev: "A" }));
   revReleasedA = expectOk(await call(w.app, "rd@a.test", A, "POST", `/api/products/${productId}/revisions`, { rev: "B" })).id;
   // Handover akışını çalıştırmadan, yalnızca "yayımlanmış revizyon otomatik seçilir" testi için doğrudan işaretlendi.
   await w.owner.query("select set_config('app.company_id', $1, false)", [A]);

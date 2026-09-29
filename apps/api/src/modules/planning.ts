@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Db } from "../db/pool";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors";
-import { recordEvent, type Actor } from "../lib/records";
+import { recordEvent } from "../lib/records";
 import { can, ctxOf, parse, tenant } from "../http/context";
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
