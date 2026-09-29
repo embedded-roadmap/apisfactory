@@ -28,6 +28,7 @@ import { qualityRoutes } from "./modules/quality";
 import { changeRoutes } from "./modules/changes";
 import { leadTimeRoutes } from "./modules/leadtime";
 import { capacityRoutes } from "./modules/capacity";
+import { alternateResearchRoutes } from "./modules/alternate-research";
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import { ZodError } from "zod";
@@ -91,6 +92,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(changeRoutes);
   await app.register(leadTimeRoutes);
   await app.register(capacityRoutes);
+  await app.register(alternateResearchRoutes);
   await app.register(packagingRoutes);
   await app.register(returnRoutes);
   await app.register(costingRoutes);

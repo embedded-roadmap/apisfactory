@@ -1387,3 +1387,16 @@ Uçlar: `GET/POST /api/shift-patterns`, `GET/POST /api/work-center-shifts`, `POS
 (bugünden itibaren açık operasyonların kalan süresi teslim tarihi → oluşturma → sıra ile sonlu kapasiteye yüklenir;
 aralık en çok 120 gün). Yazma `capacity.manage`, okuma `production.view`. Web: Kalite → kapasite bölümünde vardiya/atama/
 istisna; Planlama → Gantt altında iş merkezi × gün yük tablosu. `capacity.test.ts` 5/5.
+
+## Oturum 41 devamı — kalan işler 7d: R12 AI ile alternatif araştırması
+
+Migration 058, `lib/alternate-research.ts`, `modules/alternate-research.ts`, ortak AI çağrısı `lib/ai-call.ts` (AI yorum
+katmanı da buna taşındı; `aiDeps`/`aiConfig` ai-narrative'den yeniden dışa aktarılır). `POST /api/items/:id/alternate-research`
+(Ar-Ge veya yetkili üretim): kategori, uygulama, sıcaklık, hedef, birincil datasheet alıntısı (D0), şema (S0), firmware
+kanıtı, kalem kartından adaylar (C1…, datasheet DC1…) ve dış adaylar (X1…, DX1…). AI yalnız bu belgelerle karşılaştırır;
+`applyRules` sürümlü kategori kurallarıyla kararı verir (aday / kanıt yetersiz / kuralla elendi / araştırma adayı).
+Önce onaylı alternatifler döner; aday seçilmezse `no_candidates`. Belge tam metni saklanmaz (kimlik, başlık, uzunluk,
+sha256). `POST /api/alternate-research/candidates/:id/propose` → `item_alternates` (origin `ai_research`) + Ar-Ge/üretim
+onay görevleri; elenen aday reddedilir, dış aday için önce kalem kartı gerekir. Web: Alternatif parçalar → "AI'ya sor"
+(yalnız Ar-Ge / yetkili üretim görür). Serbest web araması bilinçli olarak yok (W03). Gerçek model çağrısı için
+ANTHROPIC_API_KEY gerekir; testler sahte yanıtla (`alternate-research.test.ts` 5/5).

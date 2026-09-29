@@ -1,6 +1,9 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { AppError } from "./errors";
+import { callStructured } from "./ai-call";
+
+// Ortak yapılandırma ve test enjeksiyonu ai-call.ts'te; mevcut içe aktarmalar için yeniden dışa aktarılır.
+export { aiConfig, aiDeps, DEFAULT_AI_MODEL } from "./ai-call";
 
 /**
  * Dış bağımlılık maddesi 3 — yönetici raporu bulgularına AI yorum katmanı (Anthropic Claude).
@@ -8,12 +11,6 @@ import { AppError } from "./errors";
  * Anahtar: ANTHROPIC_API_KEY (platform düzeyi, apps/api/.env veya hosting secret store). Model: AI_MODEL (varsayılan claude-opus-5).
  * Sağlayıcı güvenlik sınıflandırıcısı isteği reddederse `fallbacks: "default"` ile sunucu tarafında önerilen modele yönlendirilir.
  */
-
-export const DEFAULT_AI_MODEL = "claude-opus-5";
-
-export function aiConfig() {
-  return { available: Boolean(process.env.ANTHROPIC_API_KEY), model: process.env.AI_MODEL || DEFAULT_AI_MODEL };
-}
 
 export type NarrativeInput = {
   id: string;
@@ -56,45 +53,13 @@ const OUTPUT_SCHEMA = {
 
 const Output = z.object({ narratives: z.array(z.object({ id: z.string(), narrative: z.string().min(1).max(4000) })) });
 
-type CreateFn = (params: Anthropic.Beta.MessageCreateParamsNonStreaming) => Promise<Anthropic.Beta.BetaMessage>;
-
-/** Testlerde gerçek API çağrılmasın diye değiştirilebilir. */
-export const aiDeps: { create: CreateFn | null } = { create: null };
-
-function defaultCreate(): CreateFn {
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  return (params) => client.beta.messages.create(params);
-}
-
-/** Bulgular için yorum üretir; id → yorum eşlemesi ve yanıtı gerçekte üreten model döner. */
 export async function generateNarratives(findings: NarrativeInput[]): Promise<{ model: string; narratives: Map<string, string> }> {
-  const cfg = aiConfig();
-  if (!cfg.available && !aiDeps.create) throw new AppError(503, "ai_not_configured", "AI sağlayıcısı yapılandırılmadı (ANTHROPIC_API_KEY tanımlı değil)");
-  const create = aiDeps.create ?? defaultCreate();
-
-  let res: Anthropic.Beta.BetaMessage;
-  try {
-    res = await create({
-      model: cfg.model,
-      max_tokens: 16000,
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-      system: SYSTEM,
-      output_config: { format: { type: "json_schema", schema: OUTPUT_SCHEMA } },
-      messages: [{ role: "user", content: `Bulgular (JSON):\n${JSON.stringify(findings, null, 2)}` }],
-    });
-  } catch (e) {
-    if (e instanceof Anthropic.AuthenticationError) throw new AppError(503, "ai_auth_failed", "AI sağlayıcısı anahtarı reddetti (ANTHROPIC_API_KEY geçersiz)");
-    if (e instanceof Anthropic.PermissionDeniedError) throw new AppError(503, "ai_permission_denied", "AI sağlayıcısı hesabı bu isteğe izin vermiyor (bakiye/izin kontrol edilmeli)");
-    if (e instanceof Anthropic.RateLimitError) throw new AppError(429, "ai_rate_limited", "AI sağlayıcısı istek sınırına ulaşıldı; biraz sonra tekrar deneyin");
-    if (e instanceof Anthropic.APIConnectionError) throw new AppError(502, "ai_unreachable", "AI sağlayıcısına ulaşılamadı");
-    if (e instanceof Anthropic.APIError) throw new AppError(502, "ai_error", `AI sağlayıcısı hatası (${e.status ?? "?"})`);
-    throw e;
-  }
-
-  if (res.stop_reason === "refusal") throw new AppError(502, "ai_refused", "AI sağlayıcısı bu isteği yanıtlamayı reddetti");
-  if (res.stop_reason === "max_tokens") throw new AppError(502, "ai_truncated", "AI yanıtı yarıda kesildi");
-  const text = res.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+  const res = await callStructured({
+    system: SYSTEM,
+    user: `Bulgular (JSON):\n${JSON.stringify(findings, null, 2)}`,
+    schema: OUTPUT_SCHEMA as unknown as Record<string, unknown>,
+  });
+  const text = res.text;
   let parsed: z.infer<typeof Output>;
   try {
     parsed = Output.parse(JSON.parse(text));
