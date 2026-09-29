@@ -4,7 +4,7 @@
 |---|---|---|---|---|---|
 | W01 | Kapsam sözlüğü, örnek veri, karar listesi | Başlangıç | Ürün sahibi | geliştiriliyor | Kapsam tabloları ve karar listesi docs/ altında |
 | W02 | apisfactory marka uygulaması, ürün terminolojisi ve tanıtım sitesi hizalaması (marka kararı verildi) | W01 | Ürün sahibi | geliştiriliyor | Marka apisfactory; site ve uygulama aynı token'lar |
-| W03 | API yetenek/lisans/kota ve erişim denemeleri | W01 | Teknik lider, satın alma | entegrasyon bekliyor | Hiçbir sağlayıcıyla erişim denenmedi |
+| W03 | API yetenek/lisans/kota ve erişim denemeleri | W01 | Teknik lider, satın alma | entegrasyon bekliyor | Yetenek/lisans matrisi yazıldı (`docs/w03-distributor-erisim-matrisi.md`, masa başı); hiçbir sağlayıcıyla erişim denenmedi, yazılı izin alınmadı |
 | W04 | Ekran haritası, rol yolculukları ve UX | W01 | Bütün birimler | planlandı | — |
 | W05 | Depo, ortamlar, dağıtım ve test hattı | W01 | Teknik lider | geliştiriliyor | pnpm monorepo, migration, docker-compose; CI hattı yok |
 | W06 | Şirket, tesis, kimlik, rol, alan izinleri, vekâlet | W05 | Yönetim | geliştiriliyor | Kullanıcı ekleme, rol atama, askıya alma, parola değiştirme, kendi yetkisini değiştirme engeli; vekâlet/MFA yok |
