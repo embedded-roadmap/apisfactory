@@ -1437,3 +1437,9 @@ Kapanış kuralı (`assertChecksPassed`): uyan her planın GÜNCEL sürümüne k
 paketleme), stoğa bırakma (son), mal kabul kararında kabul > 0 (giriş). Plan yoksa hiçbir şey değişmez. Web: Kalite → plan yönetimi;
 iş emri operasyon satırında, son kalitede ve mal kabul kararında form. Mobil: operasyon ve giriş kontrol kartında form.
 `checklists.test.ts` 4/4.
+
+## Oturum 41 devamı — R42 senaryodan göreve / değişiklik talebine
+
+Migration 062 (`change_requests.scenario_id`). Görev: mevcut `POST /api/tasks` artık `entityType: "scenario"` kabul eder. Değişiklik talebi:
+`POST /api/change-requests` isteğe bağlı `scenarioId` (revizyon verilmezse senaryonunki). `GET /api/scenarios/:id` `followUps` (görevler,
+talepler) döner. Web: Senaryolar → kayıtlı senaryoya tıkla → takip bölümü (görev / talep aç).

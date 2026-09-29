@@ -243,13 +243,19 @@ export async function scenarioRoutes(app: FastifyInstance) {
     return tenant(req, "report.view", async (db) => {
       const r = await db.query(
         `select s.id, s.name, s.qty, s.overrides, s.result, s.created_at as "createdAt", s.source_asof as "sourceAsof",
-                p.code as "productCode", p.name as "productName", pr.rev
+                p.code as "productCode", p.name as "productName", pr.rev, s.product_revision_id as "productRevisionId"
            from scenarios s join product_revisions pr on pr.id = s.product_revision_id join products p on p.id = pr.product_id
           where s.id = $1`,
         [id],
       );
       if (!r.rows[0]) throw notFound("Senaryo");
-      return r.rows[0];
+      // Senaryodan doğan görevler ve değişiklik talepleri (R42).
+      const tasks = (await db.query(
+        `select id, title, status, due_date::text as "dueDate", assignee_role as "assigneeRole" from tasks where entity_type = 'scenario' and entity_id = $1 order by created_at`,
+        [id],
+      )).rows;
+      const changeRequests = (await db.query(`select id, code, title, status from change_requests where scenario_id = $1 order by created_at`, [id])).rows;
+      return { ...r.rows[0], followUps: { tasks, changeRequests } };
     });
   });
 }

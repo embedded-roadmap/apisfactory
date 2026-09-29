@@ -116,3 +116,22 @@ describe("Senaryo karşılaştırma (W35)", () => {
     expect(r.body).toEqual([]);
   });
 });
+
+describe("Senaryodan göreve / değişiklik talebine (R42)", () => {
+  it("senaryodan görev ve değişiklik talebi açılır; senaryo detayında izlenir", async () => {
+    const sc = expectOk(await call(w.app, "manager@a.test", A, "POST", "/api/scenarios", { name: "Takip senaryosu", productRevisionId: revId, qty: "5" }));
+    const task = expectOk(await call(w.app, "manager@a.test", A, "POST", "/api/tasks", {
+      title: "Senaryodaki darboğazı değerlendir", assigneeRole: "production", entityType: "scenario", entityId: sc.id,
+    }));
+    expect(task).toMatchObject({ entityType: "scenario", entityId: sc.id });
+    expect((await call(w.app, "manager@a.test", A, "POST", "/api/tasks", { title: "Yok", assigneeRole: "production", entityType: "scenario", entityId: "00000000-0000-0000-0000-000000000000" })).status).toBe(404);
+    const cr = expectOk(await call(w.app, "rd@a.test", A, "POST", "/api/change-requests", {
+      scenarioId: sc.id, title: "Alternatif kondansatör", description: "Senaryo sonucu kritik parçanın alternatifinin revizyona eklenmesi öneriliyor.",
+    }));
+    expect(cr.code).toMatch(/^DT-/);
+    const d = expectOk(await call(w.app, "manager@a.test", A, "GET", `/api/scenarios/${sc.id}`));
+    expect(d.followUps.tasks.map((t: any) => t.title)).toEqual(["Senaryodaki darboğazı değerlendir"]);
+    expect(d.followUps.changeRequests.map((c: any) => c.code)).toEqual([cr.code]);
+    expect((await call(w.app, "rd@a.test", A, "POST", "/api/change-requests", { scenarioId: "00000000-0000-0000-0000-000000000000", title: "Yok", description: "Olmayan senaryo denemesi yapılıyor." })).status).toBe(404);
+  });
+});

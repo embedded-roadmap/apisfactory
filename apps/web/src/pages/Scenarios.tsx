@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ScenarioFollowUps } from "../components/ScenarioFollowUps";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { get, post } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, fmtDate, useCan } from "../lib/ui";
@@ -18,6 +19,7 @@ export function ScenariosPage() {
   const [subcontract, setSubcontract] = useState(false);
   const [extraShift, setExtraShift] = useState("");
   const [result, setResult] = useState<any | null>(null);
+  const [sel, setSel] = useState<string | null>(null);
 
   const list = useQuery({ queryKey: ["scenarios", revision?.id], queryFn: () => get<any[]>(`/api/scenarios?productRevisionId=${revision!.id}`), enabled: !!revision });
 
@@ -86,6 +88,7 @@ export function ScenariosPage() {
         </form>
       ) : null}
       {result ? <ScenarioResult r={result} /> : null}
+      {result && !sel ? <ScenarioFollowUps id={result.id} /> : null}
       {revision ? (
         <section className="card">
           <h2>Kayıtlı senaryolar</h2>
@@ -96,7 +99,7 @@ export function ScenariosPage() {
               <thead><tr><th>Ad</th><th className="num">Adet</th><th>Baz termin</th><th>Senaryo termin</th><th className="num">Δ gün</th><th className="num">Δ maliyet</th><th>Oluşturuldu</th></tr></thead>
               <tbody>
                 {list.data.map((s) => (
-                  <tr key={s.id}>
+                  <tr key={s.id} className="click" onClick={() => setSel(s.id)}>
                     <td>{s.name}</td>
                     <td className="num">{s.qty}</td>
                     <td className="muted">{s.baselineLatest ?? "—"}</td>
@@ -111,6 +114,7 @@ export function ScenariosPage() {
           ) : null}
         </section>
       ) : null}
+      {sel ? <ScenarioFollowUps key={sel} id={sel} /> : null}
     </>
   );
 }

@@ -87,6 +87,7 @@ export async function changeRoutes(app: FastifyInstance) {
         description: z.string().min(10).max(5000),
         urgency: z.enum(["low", "normal", "high", "critical"]).default("normal"),
         stopProduction: z.boolean().default(false),
+        scenarioId: z.string().uuid().optional(),
       }),
       req.body,
     );
@@ -97,12 +98,18 @@ export async function changeRoutes(app: FastifyInstance) {
         if (!w.rows[0]) throw notFound("İş emri");
         revisionId = w.rows[0].product_revision_id;
       }
+      if (input.scenarioId) {
+        // Senaryodan doğan talep: revizyon verilmemişse senaryonun revizyonu kullanılır.
+        const sc = await db.query(`select product_revision_id from scenarios where id = $1`, [input.scenarioId]);
+        if (!sc.rows[0]) throw notFound("Senaryo");
+        revisionId = revisionId ?? sc.rows[0].product_revision_id;
+      }
       if (!revisionId) throw conflict("revision_required", "Ürün revizyonu veya iş emri seçilmeli");
       const code = await nextCode(db, actor.companyId, "change_request", "DT");
       const r = await db.query(
-        `insert into change_requests (company_id, code, product_revision_id, work_order_id, device_serial, title, description, urgency, stop_production, opened_by)
-         values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9) returning id`,
-        [code, revisionId, input.workOrderId ?? null, input.deviceSerial ?? null, input.title, input.description, input.urgency, input.stopProduction, actor.userId],
+        `insert into change_requests (company_id, code, product_revision_id, work_order_id, device_serial, title, description, urgency, stop_production, opened_by, scenario_id)
+         values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id`,
+        [code, revisionId, input.workOrderId ?? null, input.deviceSerial ?? null, input.title, input.description, input.urgency, input.stopProduction, actor.userId, input.scenarioId ?? null],
       );
       const id = r.rows[0].id as string;
       await recordEvent(db, actor, { entityType: "change_request", entityId: id, eventType: "created", after: { code, ...input, productRevisionId: revisionId } });

@@ -13,6 +13,7 @@ const OPEN = ["open", "in_progress", "blocked"];
 const ENTITY_TABLE: Record<string, string> = {
   product: "products", product_revision: "product_revisions", sales_order: "sales_orders", work_order: "work_orders",
   change_request: "change_requests", rma: "rmas", shipment: "shipments", purchase_request: "purchase_requests",
+  scenario: "scenarios",
 };
 
 const addDays = (d: string, n: number) => {
