@@ -130,7 +130,7 @@ function Policies() {
   const can = useCan();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["costPolicies"], queryFn: () => get<any[]>("/api/cost-policies") });
-  const [f, setF] = useState({ validFrom: iso(new Date()), currency: "TRY", laborRatePerHour: "", overheadPerLaborHour: "0", overheadPctOfMaterial: "0", fxMaxAgeDays: "7", note: "" });
+  const [f, setF] = useState({ validFrom: iso(new Date()), currency: "TRY", laborRatePerHour: "", overheadPerLaborHour: "0", overheadPctOfMaterial: "0", fxMaxAgeDays: "7", includeRdShare: false, note: "" });
   const add = useMutation({ mutationFn: () => post("/api/cost-policies", { ...f, fxMaxAgeDays: Number(f.fxMaxAgeDays) }), onSuccess: () => { qc.invalidateQueries({ queryKey: ["costPolicies"] }); setF({ ...f, note: "" }); } });
   return (
     <section className="card">
@@ -139,8 +139,8 @@ function Policies() {
       {q.data?.length === 0 ? <div className="notice warn">Politika yok: işçilik ve genel gider hesaplanamaz, maliyet hesapları "eksik" kalır.</div> : null}
       {q.data?.length ? (
         <table>
-          <thead><tr><th>Sürüm</th><th>Geçerlilik</th><th className="num">İşçilik / saat</th><th className="num">Genel gider / saat</th><th className="num">Genel gider % malzeme</th><th className="num">Azami kur yaşı</th><th>Not</th><th>Kaydeden</th></tr></thead>
-          <tbody>{q.data.map((p) => <tr key={p.id}><td>v{p.versionNo}</td><td>{p.validFrom}</td><td className="num">{fmt(p.laborRatePerHour)} {p.currency}</td><td className="num">{fmt(p.overheadPerLaborHour)}</td><td className="num">%{fmt(p.overheadPctOfMaterial)}</td><td className="num">{p.fxMaxAgeDays} gün</td><td>{p.note}</td><td className="muted">{p.createdBy} · {fmtDate(p.createdAt)}</td></tr>)}</tbody>
+          <thead><tr><th>Sürüm</th><th>Geçerlilik</th><th className="num">İşçilik / saat</th><th className="num">Genel gider / saat</th><th className="num">Genel gider % malzeme</th><th className="num">Azami kur yaşı</th><th>Ar-Ge payı</th><th>Not</th><th>Kaydeden</th></tr></thead>
+          <tbody>{q.data.map((p) => <tr key={p.id}><td>v{p.versionNo}</td><td>{p.validFrom}</td><td className="num">{fmt(p.laborRatePerHour)} {p.currency}</td><td className="num">{fmt(p.overheadPerLaborHour)}</td><td className="num">%{fmt(p.overheadPctOfMaterial)}</td><td className="num">{p.fxMaxAgeDays} gün</td><td>{p.includeRdShare ? "dahil" : "hariç"}</td><td>{p.note}</td><td className="muted">{p.createdBy} · {fmtDate(p.createdAt)}</td></tr>)}</tbody>
         </table>
       ) : null}
       {can("cost.manage") ? (
@@ -151,6 +151,7 @@ function Policies() {
           <label className="field" style={{ width: 120 }}>Genel gider/saat<input inputMode="decimal" value={f.overheadPerLaborHour} onChange={(e) => setF({ ...f, overheadPerLaborHour: e.target.value })} /></label>
           <label className="field" style={{ width: 120 }}>% malzeme<input inputMode="decimal" value={f.overheadPctOfMaterial} onChange={(e) => setF({ ...f, overheadPctOfMaterial: e.target.value })} /></label>
           <label className="field" style={{ width: 110 }}>Azami kur yaşı (gün)<input aria-label="Azami kur yaşı" inputMode="numeric" value={f.fxMaxAgeDays} onChange={(e) => setF({ ...f, fxMaxAgeDays: e.target.value })} /></label>
+          <label className="row" style={{ gap: 6, alignSelf: "flex-end" }}><input type="checkbox" aria-label="Ar-Ge payını ürün maliyetine dahil et" checked={f.includeRdShare} onChange={(e) => setF({ ...f, includeRdShare: e.target.checked })} /> Ar-Ge payı dahil</label>
           <label className="field" style={{ flex: 1 }}>Gerekçe / not<input required minLength={3} value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></label>
           <button className="primary" style={{ alignSelf: "flex-end" }} disabled={add.isPending}>Yeni sürüm</button>
         </form>
@@ -224,7 +225,7 @@ export function WorkOrderCost({ woId }: { woId: string }) {
       {!r ? <Empty>Henüz maliyet hesabı yok.</Empty> : (
         <>
           <div className="kpis">
-            <div className="kpi"><small>Toplam {r.currency ?? ""}</small><b>{fmt(r.totals.total)}</b><span className="muted">malzeme {fmt(r.totals.material)} · işçilik {fmt(r.totals.labor)} · genel {fmt(r.totals.overhead)} · dış hizmet {fmt(r.totals.external)}</span></div>
+            <div className="kpi"><small>Toplam {r.currency ?? ""}</small><b>{fmt(r.totals.total)}</b><span className="muted">malzeme {fmt(r.totals.material)} · işçilik {fmt(r.totals.labor)} · genel {fmt(r.totals.overhead)} · dış hizmet {fmt(r.totals.external)}{r.totals.rdShare !== undefined ? ` · Ar-Ge payı ${fmt(r.totals.rdShare)}` : ""}</span>{r.rdShareNote ? <span className="muted">{r.rdShareNote}</span> : null}</div>
             <div className="kpi"><small>Birim maliyet</small><b>{r.unitCost === null ? "Hesaplanamaz" : fmt(r.unitCost)}</b><span className="muted">{r.unitCostNote}</span></div>
             <div className="kpi"><small>Sağlam / hurda / başlanan</small><b>{r.devices.good} / {r.devices.scrapped} / {r.devices.started}</b><span className="muted">işçilik {fmt(r.laborHours)} saat · rota planı {fmt(r.plannedLaborHours)} saat</span></div>
             <div className="kpi"><small>Durum</small><b>{r.complete ? "Tamam" : "Eksik"}</b><span className="muted">v{cur.versionNo} · politika {r.policy ? `v${r.policy.versionNo}` : "yok"}</span></div>

@@ -1418,3 +1418,12 @@ Projeye bağlı talep (kısmen) stoktan karşılanınca depoya `rd_material_issu
 fazlası iade edilemez); hareketler `stock_moves` ref_type rd_project. Ar-Ge maliyeti (`computeRdCost`) net çıkışı lotun güncel
 maliyetiyle prototip malzemesine ekler (`stockIssued`); lot maliyeti yoksa rapor geçici. Depo bütçe/harcama görmez: dar liste
 `GET /api/rd-projects/open-for-issue` (yalnız kod/ad). Web: Depo sayfasında "Ar-Ge projesine malzeme çıkışı / iadesi".
+
+## Oturum 41 devamı — Ar-Ge payının ürün maliyetine aktarımı
+
+Migration 060. `cost_policies.include_rd_share` (varsayılan kapalı — mevcut hesaplar ve parmak izleri değişmez).
+`POST /api/revisions/:id/rd-amortization` (cost.manage): en son devir raporunun toplamı politika para birimine bugünkü kurla
+çevrilir (kur yoksa reddedilir) ÷ planlanan adet; değişmez, sürümlü. İş emri maliyeti (politika açıksa): sağlam adet × birim pay;
+aynı revizyonun diğer iş emirlerinin SON hesaplarındaki `totals.rdShare` toplamı düşülür, toplam aktarım plan tutarını aşmaz
+(aşan kısım aktarılmaz, notta yazılır). Web: politika formunda "Ar-Ge payı dahil", revizyon kartında plan, iş emri maliyetinde pay.
+`rd-amortization.test.ts` 3/3.

@@ -44,12 +44,12 @@ async function activePolicy(db: Db, onDate: string) {
   const r = await db.query(
     `select id, version_no as "versionNo", valid_from::text as "validFrom", currency, labor_rate_per_hour as "laborRatePerHour",
             overhead_per_labor_hour as "overheadPerLaborHour", overhead_pct_of_material as "overheadPctOfMaterial", valuation, scrap_treatment as "scrapTreatment", note,
-            fx_max_age_days as "fxMaxAgeDays"
+            fx_max_age_days as "fxMaxAgeDays", include_rd_share as "includeRdShare"
        from cost_policies where valid_from <= $1 order by valid_from desc, version_no desc limit 1`,
     [onDate],
   );
   return r.rows[0] as
-    | { id: string; versionNo: number; validFrom: string; currency: string; laborRatePerHour: string; overheadPerLaborHour: string; overheadPctOfMaterial: string; valuation: string; scrapTreatment: string; fxMaxAgeDays: number }
+    | { id: string; versionNo: number; validFrom: string; currency: string; laborRatePerHour: string; overheadPerLaborHour: string; overheadPctOfMaterial: string; valuation: string; scrapTreatment: string; fxMaxAgeDays: number; includeRdShare: boolean }
     | undefined;
 }
 
@@ -152,7 +152,7 @@ export async function computeWorkOrderCost(db: Db, woId: string, today = new Dat
     external += cost;
     externals.push({ jobCode: s.code, status: s.status, price: money(cost), currency: s.currency, cost: money(cost), fx: null, note: null });
   }
-  const total = material + labor + overhead + external;
+  let total = material + labor + overhead + external;
 
   const d = await db.query(
     `select count(*)::int as started,
@@ -163,6 +163,33 @@ export async function computeWorkOrderCost(db: Db, woId: string, today = new Dat
     [woId],
   );
   const dev = d.rows[0];
+  // Ar-Ge payı (politika açıksa): plan birim payı × sağlam adet; aynı revizyonun diğer iş emirlerinin SON hesaplarında
+  // aktarılan pay düşülür, toplam aktarım plan tutarını aşmaz (aynı gider iki kez sayılmaz).
+  let rdShare = 0n;
+  let rdShareNote: string | null = null;
+  if (policy?.includeRdShare && !wo.migrated) {
+    const plan = (await db.query(
+      `select version_no, amount, currency, planned_units from rd_amortization_plans where revision_id = $1 order by version_no desc limit 1`,
+      [wo.product_revision_id],
+    )).rows[0];
+    if (!plan) rdShareNote = "Ar-Ge payı politikada açık ama bu revizyon için amortisman planı yok (pay eklenmedi)";
+    else if (plan.currency !== currency) gaps.push(`Ar-Ge amortisman planı ${plan.currency}, politika ${currency}: pay hesaplanamadı`);
+    else {
+      const perUnit = divM(toMicro(plan.amount), toMicro(String(plan.planned_units)));
+      const want = mulM(perUnit, toMicro(String(dev.good)));
+      const absorbed = toMicro((await db.query(
+        `select coalesce(sum((x.result->'totals'->>'rdShare')::numeric), 0)::text as s
+           from (select distinct on (cr.ref_id) cr.result from cost_runs cr join work_orders w2 on w2.id = cr.ref_id
+                  where cr.scope = 'work_order' and w2.product_revision_id = $1 and w2.id <> $2
+                  order by cr.ref_id, cr.version_no desc) x`,
+        [wo.product_revision_id, woId],
+      )).rows[0].s);
+      const remaining = toMicro(plan.amount) - absorbed > 0n ? toMicro(plan.amount) - absorbed : 0n;
+      rdShare = want < remaining ? want : remaining;
+      total += rdShare;
+      rdShareNote = `Plan v${plan.version_no}: birim ${money(perUnit)} × ${dev.good} sağlam = ${money(want)}; diğer iş emirlerinde aktarılan ${money(absorbed)}, kalan ${money(remaining)}${rdShare < want ? " — plan tutarı doldu, fazlası aktarılmadı" : ""}`;
+    }
+  }
   if (wo.status !== "completed") gaps.push(`İş emri "${wo.status}": ara maliyet (henüz tamamlanmadı)`);
   // Tarihsel geçişle eklenen iş emrinde malzeme/işçilik/genel gider bu motorla ayrıştırılmadı (bkz. imports.ts) —
   // bu motorun sıfır girdilerden ürettiği bir birim maliyet, gerçek maliyetin sıfır olduğu anlamına gelmez;
@@ -177,7 +204,8 @@ export async function computeWorkOrderCost(db: Db, woId: string, today = new Dat
     operations: ops.rows.map((o) => ({ seq: o.seq, name: o.name, workCenter: o.work_center, status: o.status, hours: (Number(o.worked_seconds) / 3600).toFixed(6).replace(/\.?0+$/, ""), plannedHours: (Number(o.planned_minutes) / 60).toFixed(2) })),
     laborHours: money(hours),
     plannedLaborHours: (ops.rows.reduce((a, o) => a + Number(o.planned_minutes), 0) / 60).toFixed(2),
-    totals: { material: money(material), labor: money(labor), overhead: money(overhead), external: money(external), total: money(total) },
+    totals: { material: money(material), labor: money(labor), overhead: money(overhead), external: money(external), ...(policy?.includeRdShare ? { rdShare: money(rdShare) } : {}), total: money(total) },
+    ...(policy?.includeRdShare ? { rdShareNote } : {}),
     externals,
     externalNote: subJobs.rows.length ? null : "Bu iş emrine bağlı fason iş yok",
     devices: dev,
@@ -480,7 +508,7 @@ export async function costingRoutes(app: FastifyInstance) {
       const r = await db.query(
         `select cp.id, cp.version_no as "versionNo", cp.valid_from::text as "validFrom", cp.currency, cp.labor_rate_per_hour as "laborRatePerHour",
                 cp.overhead_per_labor_hour as "overheadPerLaborHour", cp.overhead_pct_of_material as "overheadPctOfMaterial", cp.valuation,
-                cp.scrap_treatment as "scrapTreatment", cp.fx_max_age_days as "fxMaxAgeDays", cp.note, cp.created_at as "createdAt", u.name as "createdBy"
+                cp.scrap_treatment as "scrapTreatment", cp.fx_max_age_days as "fxMaxAgeDays", cp.include_rd_share as "includeRdShare", cp.note, cp.created_at as "createdAt", u.name as "createdBy"
            from cost_policies cp left join users u on u.id = cp.created_by order by cp.version_no desc`,
       );
       return r.rows;
@@ -491,7 +519,7 @@ export async function costingRoutes(app: FastifyInstance) {
     const input = parse(
       z.object({
         validFrom: z.string().regex(DATE), currency: Currency, laborRatePerHour: Money, overheadPerLaborHour: Money.default("0"),
-        overheadPctOfMaterial: Money.default("0"), fxMaxAgeDays: z.number().int().min(0).max(31).default(7), note: z.string().min(3).max(1000),
+        overheadPctOfMaterial: Money.default("0"), fxMaxAgeDays: z.number().int().min(0).max(31).default(7), includeRdShare: z.boolean().default(false), note: z.string().min(3).max(1000),
       }),
       req.body,
     );
@@ -499,9 +527,9 @@ export async function costingRoutes(app: FastifyInstance) {
       await db.query(`select pg_advisory_xact_lock(hashtext('cost_policy:' || app_company_id()::text))`);
       const n = (await db.query(`select coalesce(max(version_no), 0) + 1 as n from cost_policies`)).rows[0].n;
       const r = await db.query(
-        `insert into cost_policies (company_id, version_no, valid_from, currency, labor_rate_per_hour, overhead_per_labor_hour, overhead_pct_of_material, note, created_by, fx_max_age_days)
-         values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9) returning id`,
-        [n, input.validFrom, input.currency, input.laborRatePerHour, input.overheadPerLaborHour, input.overheadPctOfMaterial, input.note, actor.userId, input.fxMaxAgeDays],
+        `insert into cost_policies (company_id, version_no, valid_from, currency, labor_rate_per_hour, overhead_per_labor_hour, overhead_pct_of_material, note, created_by, fx_max_age_days, include_rd_share)
+         values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id`,
+        [n, input.validFrom, input.currency, input.laborRatePerHour, input.overheadPerLaborHour, input.overheadPctOfMaterial, input.note, actor.userId, input.fxMaxAgeDays, input.includeRdShare],
       );
       await recordEvent(db, actor, { entityType: "cost_policy", entityId: r.rows[0].id, eventType: "created", after: { versionNo: n, ...input } });
       return { id: r.rows[0].id, versionNo: n, ...input };
@@ -546,6 +574,55 @@ export async function costingRoutes(app: FastifyInstance) {
       );
       await recordEvent(db, actor, { entityType: "exchange_rate", entityId: r.rows[0].id, eventType: prev ? "corrected" : "created", before: prev, after: input });
       return { id: r.rows[0].id as string, corrected: !!prev };
+    });
+  });
+
+  // ---- Ar-Ge payı amortisman planı ---------------------------------------------------
+  app.get("/api/revisions/:id/rd-amortization", async (req) => {
+    const { id } = req.params as { id: string };
+    return tenant(req, "field.cost.view", async (db) =>
+      (await db.query(
+        `select p.version_no as "versionNo", p.amount, p.currency, p.planned_units as "plannedUnits", round(p.amount / p.planned_units, 6)::text as "perUnit",
+                p.basis, p.reason, u.name as "createdBy", p.created_at as "createdAt"
+           from rd_amortization_plans p left join users u on u.id = p.created_by where p.revision_id = $1 order by p.version_no desc`,
+        [id],
+      )).rows,
+    );
+  });
+
+  /** Plan: en son devir maliyet raporu toplamı (politika para birimine bugünkü kurla) ÷ planlanan adet. Değişmez, sürümlü. */
+  app.post("/api/revisions/:id/rd-amortization", async (req) => {
+    const { id } = req.params as { id: string };
+    const input = parse(z.object({ plannedUnits: z.number().int().min(1).max(10_000_000), reason: z.string().min(3).max(500) }), req.body);
+    return tenant(req, "cost.manage", async (db, actor) => {
+      const today = new Date().toISOString().slice(0, 10);
+      const report = (await db.query(
+        `select id, version_no, status, report from rd_cost_reports where revision_id = $1 order by version_no desc limit 1`,
+        [id],
+      )).rows[0];
+      if (!report) throw conflict("no_rd_report", "Bu revizyon için devir Ar-Ge maliyet raporu yok");
+      const policy = await activePolicy(db, today);
+      if (!policy) throw conflict("no_policy", "Geçerli maliyet politikası yok");
+      let amount = 0n;
+      const fx: string[] = [];
+      for (const c of report.report.byCurrency as { currency: string; total: string }[]) {
+        const q = await findRate(db, c.currency, policy.currency, today, policy.fxMaxAgeDays);
+        if ("error" in q) throw conflict("fx_missing", q.error);
+        amount += convertMicro(toMicro(c.total), q);
+        if (c.currency !== policy.currency) fx.push(describeRate(q));
+      }
+      const cents = (amount + 5000n) / 10000n; // 2 ondalık
+      const amountStr = `${cents / 100n}.${String(cents % 100n).padStart(2, "0")}`;
+      await db.query(`select pg_advisory_xact_lock(hashtext('rd_amort:' || $1::text))`, [id]);
+      const n = (await db.query(`select coalesce(max(version_no), 0) + 1 as n from rd_amortization_plans where revision_id = $1`, [id])).rows[0].n;
+      const basis = { reportVersion: report.version_no, reportStatus: report.status, totals: report.report.byCurrency.map((c: { currency: string; total: string }) => ({ currency: c.currency, total: c.total })), fx };
+      await db.query(
+        `insert into rd_amortization_plans (company_id, revision_id, version_no, report_id, amount, currency, planned_units, basis, reason, created_by)
+         values (app_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [id, n, report.id, amountStr, policy.currency, input.plannedUnits, JSON.stringify(basis), input.reason, actor.userId],
+      );
+      await recordEvent(db, actor, { entityType: "product_revision", entityId: id, eventType: "rd_amortization.planned", after: { versionNo: n, amount: amountStr, currency: policy.currency, plannedUnits: input.plannedUnits, basis }, reason: input.reason });
+      return { versionNo: n, amount: amountStr, currency: policy.currency, plannedUnits: input.plannedUnits, reportStatus: report.status, basis };
     });
   });
 

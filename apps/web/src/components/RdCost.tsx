@@ -227,9 +227,40 @@ export function RevisionRdCost({ rev, onDone }: { rev: { id: string; status: str
               </form>
             ) : null}
             <ErrorNotice error={recalc.error} />
+            <RdAmortization revisionId={rev.id} />
           </div>
         ) : <div className="muted">Bu revizyon için Ar-Ge maliyet raporu yok (devir anında projeye bağlı değildi).</div>
       ) : null}
+    </div>
+  );
+}
+
+/** Ar-Ge payı amortisman planı: devir raporu ÷ planlanan adet; politika açıksa iş emri maliyetine eklenir, toplamı aşmaz. */
+function RdAmortization({ revisionId }: { revisionId: string }) {
+  const can = useCan();
+  const qc = useQueryClient();
+  const plans = useQuery({ queryKey: ["rdAmort", revisionId], queryFn: () => get<any[]>(`/api/revisions/${revisionId}/rd-amortization`), enabled: can("field.cost.view") });
+  const [f, setF] = useState({ plannedUnits: "", reason: "" });
+  const save = useMutation({
+    mutationFn: () => post(`/api/revisions/${revisionId}/rd-amortization`, { plannedUnits: Number(f.plannedUnits), reason: f.reason }),
+    onSuccess: () => { setF({ plannedUnits: "", reason: "" }); qc.invalidateQueries({ queryKey: ["rdAmort", revisionId] }); },
+  });
+  if (!can("field.cost.view")) return null;
+  const cur = plans.data?.[0];
+  return (
+    <div style={{ marginTop: 8 }}>
+      <b>Ürün maliyetine Ar-Ge payı</b>
+      {cur ? (
+        <div>Plan v{cur.versionNo}: {fmt(cur.amount)} {cur.currency} ÷ {cur.plannedUnits} adet = <b>{fmt(cur.perUnit)} {cur.currency}/adet</b> <span className="muted">(rapor v{cur.basis.reportVersion}, {cur.basis.reportStatus === "final" ? "kesin" : "geçici"}; {cur.reason})</span></div>
+      ) : <div className="muted">Plan yok — maliyet politikası "Ar-Ge payı dahil" olsa da iş emri maliyetine pay eklenmez.</div>}
+      {can("cost.manage") ? (
+        <form className="row" onSubmit={(e: FormEvent) => { e.preventDefault(); save.mutate(); }}>
+          <label className="field" style={{ width: 140 }}>Planlanan adet<input aria-label="Planlanan adet" required inputMode="numeric" value={f.plannedUnits} onChange={(e) => setF({ ...f, plannedUnits: e.target.value })} /></label>
+          <label className="field" style={{ flex: 1 }}>Gerekçe<input aria-label="Amortisman gerekçesi" required minLength={3} value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} /></label>
+          <button style={{ alignSelf: "flex-end" }} disabled={save.isPending}>{cur ? "Yeni plan sürümü" : "Plan oluştur"}</button>
+        </form>
+      ) : null}
+      <ErrorNotice error={save.error} />
     </div>
   );
 }
