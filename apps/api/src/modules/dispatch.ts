@@ -1,15 +1,15 @@
 import type { FastifyInstance } from "fastify";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
-import type { Db } from "../db/pool";
+import { withTenant, type Db } from "../db/pool";
 import { badRequest, conflict, notFound } from "../lib/errors";
-import { recordEvent, type Actor } from "../lib/records";
+import { enqueue, recordEvent, type Actor } from "../lib/records";
 import { decryptSecret } from "../lib/secrets";
-import { assertLiveAllowed, credentialsSchema, saveConnectorCredentials } from "../lib/connector-credentials";
+import { assertLiveAllowed, ConnectorError, credentialsSchema, saveConnectorCredentials } from "../lib/connector-credentials";
 import { EINVOICE_PROVIDERS, einvoiceReadiness, type EinvoiceEnvironment } from "../lib/einvoice-providers";
 import { CARGO_PROVIDERS, cargoReadiness, type CargoEnvironment } from "../lib/cargo-providers";
 import { newObjectKey, objectStorage } from "../lib/storage";
-import { buildUblTr } from "../lib/ubl-tr";
+import { buildUblTr, deterministicUuid } from "../lib/ubl-tr";
 import { parse, tenant } from "../http/context";
 
 /**
@@ -131,29 +131,21 @@ export async function dispatchRoutes(app: FastifyInstance) {
   });
 
   /**
-   * Canlı gönderim: hazırlık denetimi zorunlu; adaptör sağlayıcıya gönderir, dönen GERÇEK ETTN kaydedilir.
-   * Not: çağrı fatura satırı kilitliyken yapılır (çift gönderimi engeller); yüksek hacimde outbox'a taşınmalı.
+   * Canlı gönderim isteği: hazırlık denetlenir, fatura 'queued' işaretlenir ve outbox'a "einvoice.send" bırakılır.
+   * Dış çağrı burada YAPILMAZ (bkz. processEinvoiceSend) — istek hızlı döner, fatura satırı uzun süre kilitli kalmaz.
    */
-  async function sendLive(
-    db: Db,
-    actor: TenantActor,
-    id: string,
-    code: string,
-    input: { connectorId: string; kind: "e_fatura" | "e_arsiv" },
-    c: { key: string; name: string; environment: EinvoiceEnvironment; credentials_enc: string },
-  ) {
-    const provider = EINVOICE_PROVIDERS[c.key];
-    if (!provider) throw conflict("adapter_not_available", `${c.name} için gerçek bağlantı geliştirilmedi`);
+  async function queueLive(db: Db, actor: TenantActor, id: string, code: string, input: { connectorId: string; kind: "e_fatura" | "e_arsiv" }, c: { key: string; name: string }) {
+    if (!EINVOICE_PROVIDERS[c.key]) throw conflict("adapter_not_available", `${c.name} için gerçek bağlantı geliştirilmedi`);
     const ready = await einvoiceReadiness(db, id, input.kind);
     if (!ready.doc) throw conflict("einvoice_not_ready", "E-belge ön koşulları eksik", { issues: ready.issues });
-    const res = await provider.send(ready.doc, decryptSecret<Record<string, string>>(c.credentials_enc), c.environment);
     await db.query(
-      `update customer_invoices set document_mode = 'live', einvoice_connector_id = $2, einvoice_kind = $3, einvoice_ettn = $4, einvoice_sent_by = $5, einvoice_sent_at = now() where id = $1`,
-      [id, input.connectorId, input.kind, res.ettn, actor.userId],
+      `update customer_invoices set einvoice_status = 'queued', einvoice_error = null, einvoice_connector_id = $2, einvoice_kind = $3,
+              einvoice_requested_by = $4, einvoice_requested_at = now() where id = $1`,
+      [id, input.connectorId, input.kind, actor.userId],
     );
-    await db.query(`insert into document_dispatches (company_id, kind, connector_id, entity_type, entity_id, ref, dispatched_by) values (app_company_id(), 'einvoice', $1, 'customer_invoice', $2, $3, $4)`, [input.connectorId, id, res.ettn, actor.userId]);
-    await recordEvent(db, actor, { entityType: "customer_invoice", entityId: id, eventType: "einvoice.sent", after: { connector: c.name, kind: input.kind, ettn: res.ettn, providerRef: res.providerRef ?? null, environment: c.environment } });
-    return { id, code, documentMode: "live", einvoiceKind: input.kind, einvoiceEttn: res.ettn, connector: c.name, environment: c.environment, testData: false };
+    await enqueue(db, actor.companyId, "einvoice.send", { invoiceId: id });
+    await recordEvent(db, actor, { entityType: "customer_invoice", entityId: id, eventType: "einvoice.queued", after: { connector: c.name, kind: input.kind } });
+    return { id, code, einvoiceStatus: "queued", einvoiceKind: input.kind, connector: c.name, testData: false };
   }
 
   /** Kesilmiş müşteri faturası için e-belge: TEST'te sentetik ETTN (GİB'e iletilmez), CANLI'da adaptör. Bir kez gönderilir. */
@@ -161,17 +153,19 @@ export async function dispatchRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const input = parse(z.object({ connectorId: z.string().uuid(), kind: kindSchema }), req.body);
     return tenant(req, "receivable.manage", async (db, actor) => {
-      const inv = (await db.query(`select status, code, einvoice_sent_at from customer_invoices where id = $1 for update`, [id])).rows[0];
+      const inv = (await db.query(`select status, code, einvoice_sent_at, einvoice_status from customer_invoices where id = $1 for update`, [id])).rows[0];
       if (!inv) throw notFound("Müşteri faturası");
       if (inv.status !== "issued") throw conflict("not_issued", "Yalnız kesilmiş fatura e-belge olarak gönderilir");
       if (inv.einvoice_sent_at) throw conflict("already_sent", "Bu fatura için e-belge zaten gönderildi");
-      const c = (await db.query(`select key, name, mode, environment, credentials_enc from einvoice_connectors where id = $1`, [input.connectorId])).rows[0];
+      if (["queued", "sending"].includes(inv.einvoice_status)) throw conflict("send_in_progress", "Bu faturanın e-belge gönderimi sürüyor");
+      if (inv.einvoice_status === "unknown") throw conflict("send_outcome_unknown", "Önceki gönderimin sonucu belirsiz — sağlayıcı panelinden doğrulayıp sonucu işaretleyin");
+      const c = (await db.query(`select key, name, mode from einvoice_connectors where id = $1`, [input.connectorId])).rows[0];
       if (!c) throw notFound("Bağlayıcı");
-      if (c.mode === "live") return sendLive(db, actor, id, inv.code, input, c);
+      if (c.mode === "live") return queueLive(db, actor, id, inv.code, input, c);
       if (c.mode !== "test") throw conflict("connector_not_ready", `${c.name} bağlı değil (sağlayıcı seçimi bekleniyor); yalnız TEST modunda gönderim yapılabilir`);
       const ettn = syntheticEttn();
       await db.query(
-        `update customer_invoices set document_mode = 'test', einvoice_connector_id = $2, einvoice_kind = $3, einvoice_ettn = $4, einvoice_sent_by = $5, einvoice_sent_at = now() where id = $1`,
+        `update customer_invoices set document_mode = 'test', einvoice_status = 'sent', einvoice_connector_id = $2, einvoice_kind = $3, einvoice_ettn = $4, einvoice_sent_by = $5, einvoice_sent_at = now() where id = $1`,
         [id, input.connectorId, input.kind, ettn, actor.userId],
       );
       await db.query(`insert into document_dispatches (company_id, kind, connector_id, entity_type, entity_id, ref, dispatched_by) values (app_company_id(), 'einvoice', $1, 'customer_invoice', $2, $3, $4)`, [input.connectorId, id, ettn, actor.userId]);
@@ -252,36 +246,18 @@ export async function dispatchRoutes(app: FastifyInstance) {
     });
   });
 
-  /**
-   * Canlı kargo kaydı: hazırlık denetimi zorunlu; adaptör firmaya gönderir, GERÇEK takip no kaydedilir, etiket dosyası
-   * (varsa) nesne depolamaya yazılır. Not: çağrı sevkiyat satırı kilitliyken yapılır (çift kaydı engeller).
-   */
-  async function labelLive(
-    db: Db,
-    actor: TenantActor,
-    id: string,
-    connectorId: string,
-    c: { key: string; name: string; environment: CargoEnvironment; credentials_enc: string; settings: Record<string, string> },
-  ) {
-    const provider = CARGO_PROVIDERS[c.key];
-    if (!provider) throw conflict("adapter_not_available", `${c.name} için gerçek bağlantı geliştirilmedi`);
+  /** Canlı kargo kaydı isteği: hazırlık denetlenir, sevkiyat 'queued' işaretlenir, outbox'a "cargo.label" bırakılır (bkz. processCargoLabel). */
+  async function queueLabel(db: Db, actor: TenantActor, id: string, connectorId: string, c: { key: string; name: string }) {
+    if (!CARGO_PROVIDERS[c.key]) throw conflict("adapter_not_available", `${c.name} için gerçek bağlantı geliştirilmedi`);
     const ready = await cargoReadiness(db, id);
     if (!ready.req) throw conflict("cargo_not_ready", "Kargo kaydı ön koşulları eksik", { issues: ready.issues });
-    const res = await provider.createShipment(ready.req, { credentials: decryptSecret<Record<string, string>>(c.credentials_enc), settings: c.settings, environment: c.environment });
-    let labelKey: string | null = null;
-    if (res.label) {
-      labelKey = newObjectKey(actor.companyId, "cargo-labels", `${ready.req.shipmentCode}.${res.label.contentType === "application/pdf" ? "pdf" : res.label.contentType === "image/png" ? "png" : "zpl"}`);
-      await objectStorage().put(labelKey, res.label.data);
-    }
-    const labelRef = res.labelRef ?? `${c.key.toUpperCase()}-${res.trackingNo}`;
     await db.query(
-      `update shipments set cargo_connector_id = $2, carrier = $3, tracking_no = $4, label_ref = $5, cargo_label_mode = 'live',
-              label_object_key = $6, label_content_type = $7, cargo_status = 'created', cargo_status_at = now() where id = $1`,
-      [id, connectorId, c.name, res.trackingNo, labelRef, labelKey, res.label?.contentType ?? null],
+      `update shipments set cargo_request_status = 'queued', cargo_request_error = null, cargo_connector_id = $2, cargo_requested_by = $3, cargo_requested_at = now() where id = $1`,
+      [id, connectorId, actor.userId],
     );
-    await db.query(`insert into document_dispatches (company_id, kind, connector_id, entity_type, entity_id, ref, dispatched_by) values (app_company_id(), 'cargo_label', $1, 'shipment', $2, $3, $4)`, [connectorId, id, labelRef, actor.userId]);
-    await recordEvent(db, actor, { entityType: "shipment", entityId: id, eventType: "cargo_label.created", after: { connector: c.name, trackingNo: res.trackingNo, labelRef, environment: c.environment, hasLabelFile: Boolean(labelKey) } });
-    return { id, carrier: c.name, trackingNo: res.trackingNo, labelRef, labelMode: "live", hasLabelFile: Boolean(labelKey), environment: c.environment, testData: false };
+    await enqueue(db, actor.companyId, "cargo.label", { shipmentId: id });
+    await recordEvent(db, actor, { entityType: "shipment", entityId: id, eventType: "cargo_label.queued", after: { connector: c.name } });
+    return { id, carrier: c.name, cargoRequestStatus: "queued", labelMode: "live", testData: false };
   }
 
   /** Paketlenmiş sevkiyat için kargo etiketi/takip no: TEST'te sentetik (firmaya iletilmez), CANLI'da adaptör. */
@@ -289,17 +265,19 @@ export async function dispatchRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const input = parse(z.object({ connectorId: z.string().uuid() }), req.body);
     return tenant(req, "shipment.create", async (db, actor) => {
-      const s = (await db.query(`select status, code, carrier, tracking_no as "trackingNo" from shipments where id = $1 for update`, [id])).rows[0];
+      const s = (await db.query(`select status, code, carrier, tracking_no as "trackingNo", cargo_request_status as crs from shipments where id = $1 for update`, [id])).rows[0];
       if (!s) throw notFound("Sevkiyat");
       if (!["preparing", "packed"].includes(s.status)) throw conflict("invalid_transition", "Etiket yalnız sevk edilmeden önce üretilir");
       if (s.trackingNo) throw conflict("already_labeled", "Bu sevkiyat için zaten takip no var");
-      const c = (await db.query(`select key, name, mode, environment, credentials_enc, settings from cargo_connectors where id = $1`, [input.connectorId])).rows[0];
+      if (["queued", "sending"].includes(s.crs)) throw conflict("label_in_progress", "Bu sevkiyatın kargo kaydı sürüyor");
+      if (s.crs === "unknown") throw conflict("label_outcome_unknown", "Önceki kargo kaydının sonucu belirsiz — firma panelinden doğrulayıp sonucu işaretleyin");
+      const c = (await db.query(`select key, name, mode from cargo_connectors where id = $1`, [input.connectorId])).rows[0];
       if (!c) throw notFound("Bağlayıcı");
-      if (c.mode === "live") return labelLive(db, actor, id, input.connectorId, c);
+      if (c.mode === "live") return queueLabel(db, actor, id, input.connectorId, c);
       if (c.mode !== "test") throw conflict("connector_not_ready", `${c.name} bağlı değil (sağlayıcı seçimi bekleniyor); yalnız TEST modunda etiket üretilebilir`);
       const trackingNo = syntheticTrackingNo(c.key, s.code);
       const labelRef = `${c.key.toUpperCase()}-${trackingNo}`;
-      await db.query(`update shipments set cargo_connector_id = $2, carrier = $3, tracking_no = $4, label_ref = $5, cargo_label_mode = 'test' where id = $1`, [id, input.connectorId, c.name, trackingNo, labelRef]);
+      await db.query(`update shipments set cargo_connector_id = $2, carrier = $3, tracking_no = $4, label_ref = $5, cargo_label_mode = 'test', cargo_request_status = 'created' where id = $1`, [id, input.connectorId, c.name, trackingNo, labelRef]);
       await db.query(`insert into document_dispatches (company_id, kind, connector_id, entity_type, entity_id, ref, dispatched_by) values (app_company_id(), 'cargo_label', $1, 'shipment', $2, $3, $4)`, [input.connectorId, id, labelRef, actor.userId]);
       await recordEvent(db, actor, { entityType: "shipment", entityId: id, eventType: "cargo_label.created", after: { connector: c.name, trackingNo, labelRef, note: "TEST — kargo firmasına iletilmedi" } });
       return { id, carrier: c.name, trackingNo, labelRef, labelMode: "test", testData: true };
@@ -344,4 +322,159 @@ export async function dispatchRoutes(app: FastifyInstance) {
       return { id, cargoStatus: t.status, cargoStatusRaw: t.raw, cargoStatusAt: t.at };
     });
   });
+
+  /**
+   * Sonucu belirsiz ('unknown') gönderimin elle çözümü: kullanıcı sağlayıcı panelinden doğrular. Belge oluşmuşsa gerçek
+   * ETTN ile 'sent' işaretlenir; oluşmamışsa 'failed' yapılır ve yeniden gönderilebilir. Gerekçe zorunlu, olay kaydına yazılır.
+   */
+  app.post("/api/customer-invoices/:id/einvoice-resolve", async (req) => {
+    const { id } = req.params as { id: string };
+    const input = parse(
+      z.discriminatedUnion("outcome", [
+        z.object({ outcome: z.literal("sent"), ettn: z.string().regex(/^[0-9a-fA-F-]{36}$/), reason: z.string().min(3).max(500) }),
+        z.object({ outcome: z.literal("not_sent"), reason: z.string().min(3).max(500) }),
+      ]),
+      req.body,
+    );
+    return tenant(req, "receivable.manage", async (db, actor) => {
+      const inv = (await db.query(`select einvoice_status, einvoice_connector_id as cid from customer_invoices where id = $1 for update`, [id])).rows[0];
+      if (!inv) throw notFound("Müşteri faturası");
+      if (inv.einvoice_status !== "unknown") throw conflict("not_unknown", "Yalnız sonucu belirsiz gönderim elle çözülür");
+      if (input.outcome === "sent") {
+        await db.query(`update customer_invoices set einvoice_status = 'sent', einvoice_error = null, document_mode = 'live', einvoice_ettn = $2, einvoice_sent_by = $3, einvoice_sent_at = now() where id = $1`, [id, input.ettn.toLowerCase(), actor.userId]);
+        await db.query(`insert into document_dispatches (company_id, kind, connector_id, entity_type, entity_id, ref, dispatched_by) values (app_company_id(), 'einvoice', $1, 'customer_invoice', $2, $3, $4)`, [inv.cid, id, input.ettn.toLowerCase(), actor.userId]);
+      } else {
+        await db.query(`update customer_invoices set einvoice_status = 'failed', einvoice_error = $2 where id = $1`, [id, `Elle doğrulandı: gönderilmemiş — ${input.reason}`]);
+      }
+      await recordEvent(db, actor, { entityType: "customer_invoice", entityId: id, eventType: "einvoice.resolved", after: { outcome: input.outcome }, reason: input.reason });
+      return { id, einvoiceStatus: input.outcome === "sent" ? "sent" : "failed" };
+    });
+  });
+
+  app.post("/api/shipments/:id/cargo-resolve", async (req) => {
+    const { id } = req.params as { id: string };
+    const input = parse(
+      z.discriminatedUnion("outcome", [
+        z.object({ outcome: z.literal("created"), trackingNo: z.string().min(3).max(80), reason: z.string().min(3).max(500) }),
+        z.object({ outcome: z.literal("not_created"), reason: z.string().min(3).max(500) }),
+      ]),
+      req.body,
+    );
+    return tenant(req, "shipment.create", async (db, actor) => {
+      const s = (await db.query(`select cargo_request_status as crs, cargo_connector_id as cid from shipments where id = $1 for update`, [id])).rows[0];
+      if (!s) throw notFound("Sevkiyat");
+      if (s.crs !== "unknown") throw conflict("not_unknown", "Yalnız sonucu belirsiz kargo kaydı elle çözülür");
+      if (input.outcome === "created") {
+        const c = (await db.query(`select key, name from cargo_connectors where id = $1`, [s.cid])).rows[0];
+        const labelRef = `${String(c?.key ?? "CG").toUpperCase()}-${input.trackingNo}`;
+        await db.query(`update shipments set cargo_request_status = 'created', cargo_request_error = null, carrier = $2, tracking_no = $3, label_ref = $4, cargo_label_mode = 'live', cargo_status = 'created', cargo_status_at = now() where id = $1`, [id, c?.name ?? null, input.trackingNo, labelRef]);
+        await db.query(`insert into document_dispatches (company_id, kind, connector_id, entity_type, entity_id, ref, dispatched_by) values (app_company_id(), 'cargo_label', $1, 'shipment', $2, $3, $4)`, [s.cid, id, labelRef, actor.userId]);
+      } else {
+        await db.query(`update shipments set cargo_request_status = 'failed', cargo_request_error = $2 where id = $1`, [id, `Elle doğrulandı: oluşmamış — ${input.reason}`]);
+      }
+      await recordEvent(db, actor, { entityType: "shipment", entityId: id, eventType: "cargo_label.resolved", after: { outcome: input.outcome }, reason: input.reason });
+      return { id, cargoRequestStatus: input.outcome === "created" ? "created" : "failed" };
+    });
+  });
+}
+
+// ---- Arka plan gönderimi (outbox işçisi) -------------------------------------------------------------------------
+// İşçi "einvoice.send" / "cargo.label" işlerini buraya yönlendirir. Akış: (1) kısa işlemde queued → sending (başka bir
+// deneme artık başlayamaz), (2) dış çağrı hiçbir işlem açık değilken, (3) sonuç ayrı işlemde yazılır. Sağlayıcı kesin
+// reddettiyse (ConnectorError notSent) 'failed' — yeniden gönderilebilir; diğer her hata 'unknown' — otomatik tekrar yok.
+
+const SYSTEM_USER = "00000000-0000-0000-0000-000000000000";
+export type SendOutcome = { status: "sent" | "created" | "failed" | "unknown" | "skipped"; reason?: string };
+
+function classify(e: unknown): { status: "failed" | "unknown"; message: string } {
+  if (e instanceof ConnectorError && e.opts.notSent) return { status: "failed", message: e.message.slice(0, 500) };
+  return { status: "unknown", message: `Sonucu belirsiz: ${String((e as Error)?.message ?? "bilinmeyen hata").slice(0, 300)}` };
+}
+
+export async function processEinvoiceSend(companyId: string, invoiceId: string): Promise<SendOutcome> {
+  const job = await withTenant({ companyId, userId: SYSTEM_USER }, async (db) => {
+    const inv = (await db.query(`select code, einvoice_status, einvoice_kind as kind, einvoice_connector_id as cid, einvoice_requested_by as rb from customer_invoices where id = $1 for update`, [invoiceId])).rows[0];
+    if (!inv || inv.einvoice_status !== "queued") return null;
+    const c = (await db.query(`select key, name, mode, environment, credentials_enc from einvoice_connectors where id = $1`, [inv.cid])).rows[0];
+    const ready = await einvoiceReadiness(db, invoiceId, inv.kind);
+    await db.query(`update customer_invoices set einvoice_status = 'sending' where id = $1`, [invoiceId]);
+    return { inv, c, doc: ready.doc, issues: ready.issues };
+  });
+  if (!job) return { status: "skipped", reason: "not_queued" };
+  const { inv, c } = job;
+  const actor: Actor & { userId: string } = { companyId, userId: inv.rb ?? SYSTEM_USER, kind: "automation" };
+  const fail = async (status: "failed" | "unknown", message: string): Promise<SendOutcome> => {
+    await withTenant({ companyId, userId: actor.userId }, async (db) => {
+      await db.query(`update customer_invoices set einvoice_status = $2, einvoice_error = $3 where id = $1`, [invoiceId, status, message]);
+      await recordEvent(db, actor, { entityType: "customer_invoice", entityId: invoiceId, eventType: status === "failed" ? "einvoice.failed" : "einvoice.outcome_unknown", after: { connector: c?.name, error: message } });
+    });
+    return { status, reason: message };
+  };
+  const provider = c ? EINVOICE_PROVIDERS[c.key] : undefined;
+  if (!c || c.mode !== "live" || !provider || !c.credentials_enc) return fail("failed", "Bağlayıcı artık canlı değil veya erişim bilgisi yok — hiçbir şey gönderilmedi");
+  if (!job.doc) return fail("failed", `E-belge ön koşulları eksik: ${job.issues.map((i) => i.message).join("; ")}`);
+  let res: { ettn: string; providerRef?: string };
+  try {
+    // Sabit ETTN: aynı belge ikinci kez ulaşırsa sağlayıcı/GİB mükerrer olarak reddedebilir.
+    res = await provider.send({ ...job.doc, ettn: deterministicUuid(inv.code) }, decryptSecret<Record<string, string>>(c.credentials_enc), c.environment as EinvoiceEnvironment);
+  } catch (e) {
+    const k = classify(e);
+    return fail(k.status, k.message);
+  }
+  await withTenant({ companyId, userId: actor.userId }, async (db) => {
+    await db.query(
+      `update customer_invoices set einvoice_status = 'sent', einvoice_error = null, document_mode = 'live', einvoice_ettn = $2, einvoice_sent_by = $3, einvoice_sent_at = now() where id = $1`,
+      [invoiceId, res.ettn, inv.rb],
+    );
+    await db.query(`insert into document_dispatches (company_id, kind, connector_id, entity_type, entity_id, ref, dispatched_by) values (app_company_id(), 'einvoice', $1, 'customer_invoice', $2, $3, $4)`, [inv.cid, invoiceId, res.ettn, inv.rb]);
+    await recordEvent(db, actor, { entityType: "customer_invoice", entityId: invoiceId, eventType: "einvoice.sent", after: { connector: c.name, kind: inv.kind, ettn: res.ettn, providerRef: res.providerRef ?? null, environment: c.environment } });
+  });
+  return { status: "sent" };
+}
+
+export async function processCargoLabel(companyId: string, shipmentId: string): Promise<SendOutcome> {
+  const job = await withTenant({ companyId, userId: SYSTEM_USER }, async (db) => {
+    const s = (await db.query(`select code, cargo_request_status as crs, cargo_connector_id as cid, cargo_requested_by as rb from shipments where id = $1 for update`, [shipmentId])).rows[0];
+    if (!s || s.crs !== "queued") return null;
+    const c = (await db.query(`select key, name, mode, environment, credentials_enc, settings from cargo_connectors where id = $1`, [s.cid])).rows[0];
+    const ready = await cargoReadiness(db, shipmentId);
+    await db.query(`update shipments set cargo_request_status = 'sending' where id = $1`, [shipmentId]);
+    return { s, c, req: ready.req, issues: ready.issues };
+  });
+  if (!job) return { status: "skipped", reason: "not_queued" };
+  const { s, c } = job;
+  const actor: Actor & { userId: string } = { companyId, userId: s.rb ?? SYSTEM_USER, kind: "automation" };
+  const fail = async (status: "failed" | "unknown", message: string): Promise<SendOutcome> => {
+    await withTenant({ companyId, userId: actor.userId }, async (db) => {
+      await db.query(`update shipments set cargo_request_status = $2, cargo_request_error = $3 where id = $1`, [shipmentId, status, message]);
+      await recordEvent(db, actor, { entityType: "shipment", entityId: shipmentId, eventType: status === "failed" ? "cargo_label.failed" : "cargo_label.outcome_unknown", after: { connector: c?.name, error: message } });
+    });
+    return { status, reason: message };
+  };
+  const provider = c ? CARGO_PROVIDERS[c.key] : undefined;
+  if (!c || c.mode !== "live" || !provider || !c.credentials_enc) return fail("failed", "Bağlayıcı artık canlı değil veya erişim bilgisi yok — hiçbir şey gönderilmedi");
+  if (!job.req) return fail("failed", `Kargo kaydı ön koşulları eksik: ${job.issues.map((i) => i.message).join("; ")}`);
+  let res: Awaited<ReturnType<typeof provider.createShipment>>;
+  try {
+    res = await provider.createShipment(job.req, { credentials: decryptSecret<Record<string, string>>(c.credentials_enc), settings: c.settings, environment: c.environment as CargoEnvironment });
+  } catch (e) {
+    const k = classify(e);
+    return fail(k.status, k.message);
+  }
+  let labelKey: string | null = null;
+  if (res.label) {
+    labelKey = newObjectKey(companyId, "cargo-labels", `${s.code}.${res.label.contentType === "application/pdf" ? "pdf" : res.label.contentType === "image/png" ? "png" : "zpl"}`);
+    await objectStorage().put(labelKey, res.label.data);
+  }
+  const labelRef = res.labelRef ?? `${c.key.toUpperCase()}-${res.trackingNo}`;
+  await withTenant({ companyId, userId: actor.userId }, async (db) => {
+    await db.query(
+      `update shipments set cargo_request_status = 'created', cargo_request_error = null, carrier = $2, tracking_no = $3, label_ref = $4, cargo_label_mode = 'live',
+              label_object_key = $5, label_content_type = $6, cargo_status = 'created', cargo_status_at = now() where id = $1`,
+      [shipmentId, c.name, res.trackingNo, labelRef, labelKey, res.label?.contentType ?? null],
+    );
+    await db.query(`insert into document_dispatches (company_id, kind, connector_id, entity_type, entity_id, ref, dispatched_by) values (app_company_id(), 'cargo_label', $1, 'shipment', $2, $3, $4)`, [s.cid, shipmentId, labelRef, s.rb]);
+    await recordEvent(db, actor, { entityType: "shipment", entityId: shipmentId, eventType: "cargo_label.created", after: { connector: c.name, trackingNo: res.trackingNo, labelRef, environment: c.environment, hasLabelFile: Boolean(labelKey) } });
+  });
+  return { status: "created" };
 }

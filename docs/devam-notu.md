@@ -1285,3 +1285,24 @@ tedarikçi performansı, kârlılık** alanları onay bekleyen bulgu üretir →
 denenebilir. Üretim hareketi gerektiren fire/yeniden işleme, kapasite, revizyon etkisi, stok açığı veri yetersiz kalır.
 Idempotent (DEMO-KART-01 varsa atlanır). `seed-scenario.test.ts` 2/2: boş şemada seed + senaryo → dört bulgu; ikinci
 çalıştırma atlanır. Yerel dev veritabanına da uygulandı ve rapor gerçek API'den okunarak doğrulandı.
+
+
+## Oturum 41 devamı — kalan işler 3: canlı e-belge ve kargo çağrıları arka plana (outbox)
+
+**Önce:** canlı gönderimde sağlayıcı çağrısı istek içinde, fatura/sevkiyat satırı kilitliyken yapılıyordu. **Şimdi:** istek
+hazırlığı denetleyip kaydı  işaretler ve outbox'a  /  bırakır (hızlı döner). İşçi
+ /  ile: (1) kısa işlemde queued → sending, (2) dış çağrı açık işlem yokken,
+(3) sonucu ayrı işlemde yazar. Migration 054: ,
+ (eski kayıtlar sent/created olarak doldu).
+
+**Çift resmi belge / ücretli kayıt koruması:** adaptör  fırlatırsa → (sağlayıcı kesin reddetti, hiçbir şey oluşmadı; düzeltip yeniden gönderilebilir). Diğer her hata (zaman aşımı, ağ, 5xx) →
+: OTOMATİK TEKRAR YOK, yeniden gönderim engellenir (), kullanıcı sağlayıcı panelinden
+doğrulayıp  (gerçek ETTN ile sent / not_sent) veya  ile işaretler (gerekçe
+zorunlu, olay kaydı). İşçide işlem fonksiyonu beklenmedik hata fırlatırsa outbox işi de  olur (yeniden
+denenmez). Sağlayıcıya fatura kodundan sabit ETTN () gider — ikinci kez ulaşırsa sağlayıcı/GİB mükerrer
+olarak reddedebilir. Web: fatura ve sevkiyat sayfalarında kuyruk/red bildirimi ve belirsiz sonuç çözüm formu.
+
+**Doğrulama:**  canlı akış testi genişletildi (istek dış çağrı yapmaz, sürüyor reddi, kesin ret →
+failed, zaman aşımı → unknown, tekrar işleme sağlayıcıya gitmez, yeniden gönderim engeli, elle çözüm, başarılı gönderim,
+sabit ETTN, olay zinciri);  kuyruk + işleme + çözüm ucu. Tam paket 353/353 (49 dosya). Not: yerelde
+canlı gönderimin işlenmesi için outbox işçisinin çalışması gerekir ().

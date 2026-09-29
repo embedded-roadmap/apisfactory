@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { call, clearTokens, expectOk, login, setupWorld, type World } from "./helpers";
 import { closePool } from "../src/db/pool";
 import { CARGO_PROVIDERS, type CargoShipmentRequest } from "../src/lib/cargo-providers";
+import { processCargoLabel } from "../src/modules/dispatch";
 
 let w: World;
 let A: string;
@@ -149,7 +150,10 @@ describe("Farklı firmalara uyarlanabilirlik (iki SAHTE adaptör)", () => {
   it("firma 1 (PDF): canlı etiket gerçek takip no ile kaydedilir, adaptöre aynı ortak istek gider, etiket indirilir", async () => {
     const aras = await cargo("aras");
     const r = expectOk(await call(w.app, W, A, "POST", `/api/shipments/${shipA}/cargo-label`, { connectorId: aras.id }));
-    expect(r).toMatchObject({ trackingNo: "AR-REAL-0001", labelMode: "live", hasLabelFile: true, environment: "sandbox", testData: false });
+    expect(r).toMatchObject({ cargoRequestStatus: "queued", labelMode: "live", testData: false });
+    expect(seen.aras!.req).toBeUndefined(); // istek içinde dış çağrı yok
+    expect((await call(w.app, W, A, "POST", `/api/shipments/${shipA}/cargo-label`, { connectorId: aras.id })).body.error.code).toBe("label_in_progress");
+    expect(await processCargoLabel(A, shipA)).toEqual({ status: "created" });
     expect(seen.aras!.creds).toEqual({ customerCode: "C1", password: SECRET });
     expect(seen.aras!.settings).toEqual({ serviceType: "hizli" });
     expect(seen.aras!.req).toMatchObject({
@@ -165,14 +169,17 @@ describe("Farklı firmalara uyarlanabilirlik (iki SAHTE adaptör)", () => {
     const sh = expectOk(await call(w.app, W, A, "GET", `/api/shipments/${shipA}`));
     expect(sh).toMatchObject({ trackingNo: "AR-REAL-0001", carrier: "Aras Kargo", cargoLabelMode: "live", hasLabelFile: true, cargoStatus: "created" });
     expect((await call(w.app, W, A, "POST", `/api/shipments/${shipA}/cargo-track`)).body.error.code).toBe("tracking_not_supported");
+    // Elle çözüm yalnız sonucu belirsiz kayıt için
+    expect((await call(w.app, W, A, "POST", `/api/shipments/${shipA}/cargo-resolve`, { outcome: "not_created", reason: "deneme" })).body.error.code).toBe("not_unknown");
     // Etiketli sevkiyat, taşıyıcı girilmeden sevk edilir (mevcut akış korunur).
     expect(expectOk(await call(w.app, W, A, "POST", `/api/shipments/${shipA}/ship`, {}))).toMatchObject({ status: "shipped", carrier: "Aras Kargo", trackingNo: "AR-REAL-0001" });
   });
 
   it("firma 2 (ZPL + takip): farklı etiket biçimi ve firma durum kodu normalize edilir; değişiklik olay kaydına yazılır", async () => {
     const mng = await cargo("mng");
-    const r = expectOk(await call(w.app, W, A, "POST", `/api/shipments/${shipB}/cargo-label`, { connectorId: mng.id }));
-    expect(r).toMatchObject({ trackingNo: "MNG-777", labelRef: "MNG-BARKOD-777", environment: "production" });
+    expectOk(await call(w.app, W, A, "POST", `/api/shipments/${shipB}/cargo-label`, { connectorId: mng.id }));
+    expect(await processCargoLabel(A, shipB)).toEqual({ status: "created" });
+    expect(expectOk(await call(w.app, W, A, "GET", `/api/shipments/${shipB}`))).toMatchObject({ trackingNo: "MNG-777", labelRef: "MNG-BARKOD-777" });
     expect(seen.mng!.req?.totalWeightKg).toBe("2.250");
     const token = await login(w.app, W);
     const f = await w.app.inject({ method: "GET", url: `/api/shipments/${shipB}/cargo-label-file`, headers: { authorization: `Bearer ${token}`, "x-company-id": A } });

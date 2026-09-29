@@ -262,6 +262,29 @@ function CargoSettingsForm({ connector: c, onSaved }: { connector: any; onSaved:
   );
 }
 
+/** Sonucu belirsiz kargo kaydı: otomatik tekrar yok (çift ücretli kayıt riski); kullanıcı firma panelinden doğrular. */
+function CargoResolve({ id, error, manage, onDone }: { id: string; error: string | null; manage: boolean; onDone: () => void }) {
+  const [trackingNo, setTrackingNo] = useState("");
+  const [reason, setReason] = useState("");
+  const m = useMutation({ mutationFn: (body: object) => post(`/api/shipments/${id}/cargo-resolve`, body), onSuccess: onDone });
+  return (
+    <section className="card">
+      <div className="notice warn" style={{ margin: 0 }}>
+        Kargo kaydının sonucu <b>belirsiz</b> ({error}). Kayıt firmada oluşmuş olabilir; çift ücretli kayıt riski nedeniyle sistem otomatik yeniden denemez. Firma panelinden kontrol edip sonucu işaretleyin.
+      </div>
+      {manage ? (
+        <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
+          <label className="field" style={{ flex: 1, minWidth: 220 }}>Gerekçe / kontrol notu<input aria-label="Kargo çözüm gerekçesi" value={reason} onChange={(e) => setReason(e.target.value)} /></label>
+          <label className="field" style={{ width: 200 }}>Panelde görülen takip no<input aria-label="Takip no" value={trackingNo} onChange={(e) => setTrackingNo(e.target.value.trim())} /></label>
+          <button disabled={reason.trim().length < 3 || trackingNo.length < 3 || m.isPending} onClick={() => m.mutate({ outcome: "created", trackingNo, reason })}>Kayıt oluşmuş</button>
+          <button disabled={reason.trim().length < 3 || m.isPending} onClick={() => m.mutate({ outcome: "not_created", reason })}>Kayıt oluşmamış</button>
+        </div>
+      ) : null}
+      <ErrorNotice error={m.error} />
+    </section>
+  );
+}
+
 const CARGO_STATUS_LABEL: Record<string, string> = { created: "kayıt açıldı", in_transit: "yolda", out_for_delivery: "dağıtımda", delivered: "teslim edildi", returned: "iade", problem: "sorun", unknown: "bilinmiyor" };
 const LABEL_EXT: Record<string, string> = { "application/pdf": "pdf", "application/zpl": "zpl", "image/png": "png" };
 
@@ -278,7 +301,7 @@ export function ShipmentPage() {
   const [problem, setProblem] = useState({ kind: "damage", note: "" });
   const [tracking, setTracking] = useState("");
   const [cargoConnectorId, setCargoConnectorId] = useState("");
-  const needsLabel = can("shipment.create") && !q.data?.trackingNo && ["preparing", "packed"].includes(q.data?.status);
+  const needsLabel = can("shipment.create") && !q.data?.trackingNo && ["preparing", "packed"].includes(q.data?.status) && !["queued", "sending", "unknown"].includes(q.data?.cargoRequestStatus);
   const cargoQ = useQuery({ queryKey: ["cargoConnectors"], queryFn: () => get<any[]>("/api/cargo-connectors"), enabled: needsLabel });
   const readyQ = useQuery({ queryKey: ["cargoReadiness", id, q.data?.status, q.data?.packages?.length], queryFn: () => get<any>(`/api/shipments/${id}/cargo-readiness`), enabled: needsLabel });
   const selectedCargo = cargoQ.data?.find((c: any) => c.id === cargoConnectorId);
@@ -329,6 +352,10 @@ export function ShipmentPage() {
         </div>
         {s.packages.map((p: any) => <PackageCard key={p.id} p={p} edit={edit} onDone={refresh} />)}
       </section>
+
+      {["queued", "sending"].includes(s.cargoRequestStatus) ? <div className="notice info">Kargo kaydı arka planda açılıyor ({s.cargoConnector}) — firma yanıtı gelince takip no ve etiket burada görünür.</div> : null}
+      {s.cargoRequestStatus === "failed" && !s.trackingNo ? <div className="notice bad">Son kargo kaydı firma tarafından reddedildi (kayıt oluşmadı): {s.cargoRequestError}. Düzeltip yeniden deneyebilirsiniz.</div> : null}
+      {s.cargoRequestStatus === "unknown" ? <CargoResolve id={id!} error={s.cargoRequestError} manage={can("shipment.create")} onDone={refresh} /> : null}
 
       {needsLabel ? (
         <section className="card">

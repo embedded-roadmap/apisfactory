@@ -232,7 +232,7 @@ export function CustomerInvoicePage() {
   const [kind, setKind] = useState<"e_fatura" | "e_arsiv">("e_arsiv");
   const i = q.data;
   const manage = can("receivable.manage");
-  const canSend = manage && i?.status === "issued" && !i?.einvoiceSentAt;
+  const canSend = manage && i?.status === "issued" && !i?.einvoiceSentAt && !["queued", "sending", "unknown"].includes(i?.einvoiceStatus);
   const einvoiceQ = useQuery({ queryKey: ["einvoiceConnectors"], queryFn: () => get<any[]>("/api/einvoice-connectors"), enabled: canSend });
   const readyQ = useQuery({ queryKey: ["einvoiceReadiness", id, kind], queryFn: () => get<any>(`/api/customer-invoices/${id}/einvoice-readiness?kind=${kind}`), enabled: canSend });
   const selected = einvoiceQ.data?.find((c: any) => c.id === connectorId);
@@ -247,6 +247,11 @@ export function CustomerInvoicePage() {
           Bu fatura tarihsel geçişle (W39 devamı) eklendi — sipariş/sevkiyat bağlantısı olmadığından bir sipariş/sevkiyat kaydına bağlanmadı; fatura doğrudan {i.status === "paid" ? "tahsil edildi" : "kesildi"} olarak kaydedildi.
         </div>
       ) : null}
+      {["queued", "sending"].includes(i.einvoiceStatus) ? (
+        <div className="notice info">E-belge gönderimi arka planda sürüyor ({i.einvoiceConnector}) — sağlayıcı yanıtı gelince bu sayfa güncellenir.</div>
+      ) : null}
+      {i.einvoiceStatus === "failed" && !i.einvoiceSentAt ? <div className="notice bad">Son e-belge gönderimi sağlayıcı tarafından reddedildi (hiçbir belge oluşmadı): {i.einvoiceError}. Düzeltip yeniden gönderebilirsiniz.</div> : null}
+      {i.einvoiceStatus === "unknown" ? <EinvoiceResolve id={id!} error={i.einvoiceError} manage={manage} onDone={() => { qc.invalidateQueries({ queryKey: ["cinvoice", id] }); qc.invalidateQueries({ queryKey: ["history"] }); }} /> : null}
       {i.documentMode === "live" ? (
         <div className="notice info">Belge modu <span className="badge mode ok">CANLI</span>: {i.einvoiceKind === "e_fatura" ? "e-Fatura" : "e-Arşiv"} olarak {i.einvoiceConnector} üzerinden gönderildi (ETTN {i.einvoiceEttn}).</div>
       ) : i.documentMode === "test" ? (
@@ -339,6 +344,33 @@ export function CustomerInvoicePage() {
       <Discussion entityType="customer_invoice" entityId={i.id} />
       <History entityType="customer_invoice" id={i.id} />
     </>
+  );
+}
+
+/**
+ * Sonucu belirsiz e-belge gönderimi (zaman aşımı/ağ hatası): sistem otomatik tekrar etmez — çift resmi belge riski.
+ * Kullanıcı entegratör panelinden kontrol eder: belge oluşmuşsa gerçek ETTN ile, oluşmamışsa "gönderilmedi" olarak işaretler.
+ */
+function EinvoiceResolve({ id, error, manage, onDone }: { id: string; error: string | null; manage: boolean; onDone: () => void }) {
+  const [ettn, setEttn] = useState("");
+  const [reason, setReason] = useState("");
+  const m = useMutation({ mutationFn: (body: object) => post(`/api/customer-invoices/${id}/einvoice-resolve`, body), onSuccess: onDone });
+  return (
+    <section className="card">
+      <div className="notice warn" style={{ margin: 0 }}>
+        E-belge gönderiminin sonucu <b>belirsiz</b> ({error}). Belge sağlayıcıda oluşmuş olabilir; çift resmi belge riski nedeniyle sistem otomatik yeniden denemez.
+        Entegratör panelinden kontrol edip sonucu işaretleyin.
+      </div>
+      {manage ? (
+        <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
+          <label className="field" style={{ flex: 1, minWidth: 220 }}>Gerekçe / kontrol notu<input aria-label="Çözüm gerekçesi" value={reason} onChange={(e) => setReason(e.target.value)} /></label>
+          <label className="field" style={{ width: 330 }}>Panelde görülen ETTN<input aria-label="ETTN" className="mono" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value={ettn} onChange={(e) => setEttn(e.target.value.trim())} /></label>
+          <button disabled={reason.trim().length < 3 || !/^[0-9a-fA-F-]{36}$/.test(ettn) || m.isPending} onClick={() => m.mutate({ outcome: "sent", ettn, reason })}>Gönderilmiş</button>
+          <button disabled={reason.trim().length < 3 || m.isPending} onClick={() => m.mutate({ outcome: "not_sent", reason })}>Gönderilmemiş</button>
+        </div>
+      ) : null}
+      <ErrorNotice error={m.error} />
+    </section>
   );
 }
 

@@ -32,6 +32,8 @@ export type EinvoiceDocument = {
   seller: EinvoiceParty;
   buyer: EinvoiceParty;
   lines: { lineNo: number; description: string; qty: string; unitPrice: string; amount: string }[];
+  /** ETTN (UUID) — gönderimde sabit tutulur; aynı belge ikinci kez ulaşırsa sağlayıcı mükerrer olarak reddedebilir. */
+  ettn?: string;
 };
 
 export interface EinvoiceProvider {

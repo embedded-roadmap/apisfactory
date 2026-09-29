@@ -12,6 +12,17 @@ import { encryptSecret } from "./secrets";
 const TABLES = { einvoice: "einvoice_connectors", cargo: "cargo_connectors", distributor: "distributor_connectors" } as const;
 export type ConnectorKind = keyof typeof TABLES;
 
+/**
+ * Adaptörlerin fırlatması beklenen hata. `notSent: true` → sağlayıcı isteği kesin olarak reddetti, hiçbir belge/kayıt
+ * oluşmadı (ör. doğrulama hatası, 4xx) — güvenle yeniden denenebilir. Bu sınıftan olmayan veya `notSent` belirtmeyen her
+ * hata (zaman aşımı, ağ, 5xx) "sonucu belirsiz" sayılır ve OTOMATİK tekrar edilmez (çift resmi belge / ücretli kayıt riski).
+ */
+export class ConnectorError extends Error {
+  constructor(message: string, public readonly opts: { notSent: boolean } = { notSent: false }) {
+    super(message);
+  }
+}
+
 /** 'live' moda geçiş kapısı — tüm bağlayıcı türleri için aynı kural (DB'de ayrıca *_live_ready kısıtı var). */
 export function assertLiveAllowed(cur: { name: string; hasCredentials: boolean; environment: string | null }, hasAdapter: boolean) {
   if (!hasAdapter) throw conflict("adapter_not_available", `${cur.name} için gerçek bağlantı henüz geliştirilmedi; canlı moda alınamaz`);

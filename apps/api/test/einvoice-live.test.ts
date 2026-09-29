@@ -14,6 +14,8 @@ import { closePool } from "../src/db/pool";
 import { isValidTaxNo, isValidTckn, isValidVkn } from "../src/lib/tax-id";
 import { decryptSecret, encryptSecret } from "../src/lib/secrets";
 import { EINVOICE_PROVIDERS, type EinvoiceDocument } from "../src/lib/einvoice-providers";
+import { ConnectorError } from "../src/lib/connector-credentials";
+import { processEinvoiceSend } from "../src/modules/dispatch";
 
 let w: World;
 let A: string;
@@ -181,12 +183,16 @@ describe("Canlı mod kapısı ve şifreli erişim bilgisi", () => {
     }
   });
 
-  it("canlı gönderim (SAHTE test adaptörü): hazırlık denetlenir, adaptöre çözülmüş erişim bilgisi gider, dönen ETTN kaydedilir", async () => {
-    const received: { doc?: EinvoiceDocument; creds?: Record<string, string>; env?: string } = {};
+  it("canlı gönderim (SAHTE test adaptörü) arka planda: kuyruk → ret → belirsiz → elle çözüm → gönderildi; otomatik tekrar yok", async () => {
+    const received: { doc?: EinvoiceDocument; creds?: Record<string, string>; env?: string; calls: number } = { calls: 0 };
+    let behavior: "reject" | "timeout" | "ok" = "reject";
     EINVOICE_PROVIDERS.parasut = {
       credentialFields: ["client_id", "client_secret"],
       async send(doc, creds, env) {
+        received.calls++;
         Object.assign(received, { doc, creds, env });
+        if (behavior === "reject") throw new ConnectorError("Alıcı e-fatura mükellefi değil", { notSent: true });
+        if (behavior === "timeout") throw new Error("socket hang up");
         return { ettn: "11111111-2222-3333-4444-555555555555", providerRef: "FAKE-1" };
       },
     };
@@ -199,8 +205,43 @@ describe("Canlı mod kapısı ve şifreli erişim bilgisi", () => {
     expectOk(await call(w.app, M, A, "POST", `/api/einvoice-connectors/${c.id}/credentials`, { environment: "sandbox", credentials: { client_id: "id", client_secret: SECRET }, reason: "Sandbox" }));
     expectOk(await call(w.app, M, A, "POST", `/api/einvoice-connectors/${c.id}`, { mode: "live", reason: "Sandbox doğrulaması" }));
 
-    const sent = expectOk(await call(w.app, M, A, "POST", `/api/customer-invoices/${invoiceId}/send-einvoice`, { connectorId: c.id, kind: "e_fatura" }));
-    expect(sent).toMatchObject({ documentMode: "live", einvoiceEttn: "11111111-2222-3333-4444-555555555555", environment: "sandbox", testData: false });
+    const send = () => call(w.app, M, A, "POST", `/api/customer-invoices/${invoiceId}/send-einvoice`, { connectorId: c.id, kind: "e_fatura" });
+    const status = async () => (await w.owner.query(`select einvoice_status as s, einvoice_error as e from customer_invoices where id = $1`, [invoiceId])).rows[0];
+    const ownerCtx = async <T>(fn: () => Promise<T>) => {
+      await w.owner.query(`select set_config('app.company_id', $1, false)`, [A]);
+      return fn();
+    };
+
+    // 1) istek hızlı döner: dış çağrı yapılmaz, kuyruk işi bırakılır; ikinci istek "sürüyor" ile reddedilir
+    expect(expectOk(await send())).toMatchObject({ einvoiceStatus: "queued", testData: false });
+    expect(received.calls).toBe(0);
+    expect((await send()).body.error.code).toBe("send_in_progress");
+    const jobs = await ownerCtx(async () => (await w.owner.query(`select count(*)::int as n from outbox where topic = 'einvoice.send' and payload->>'invoiceId' = $1`, [invoiceId])).rows[0].n);
+    expect(jobs).toBe(1);
+
+    // 2) sağlayıcı kesin reddetti → failed (hiçbir şey oluşmadı), yeniden gönderilebilir
+    expect(await processEinvoiceSend(A, invoiceId)).toMatchObject({ status: "failed" });
+    expect(await ownerCtx(status)).toMatchObject({ s: "failed", e: "Alıcı e-fatura mükellefi değil" });
+
+    // 3) zaman aşımı → unknown; otomatik/elle yeniden gönderim engellenir; işlem tekrar çağrılsa da sağlayıcıya gitmez
+    behavior = "timeout";
+    expectOk(await send());
+    expect(await processEinvoiceSend(A, invoiceId)).toMatchObject({ status: "unknown" });
+    expect(await processEinvoiceSend(A, invoiceId)).toMatchObject({ status: "skipped" });
+    expect(received.calls).toBe(2);
+    expect((await send()).body.error.code).toBe("send_outcome_unknown");
+
+    // 4) kullanıcı sağlayıcı panelinden doğruladı: gönderilmemiş → yeniden gönderilebilir
+    expect((await call(w.app, M, A, "POST", `/api/customer-invoices/${invoiceId}/einvoice-resolve`, { outcome: "not_sent", reason: "Panelde belge yok" })).status).toBe(200);
+    behavior = "ok";
+    expectOk(await send());
+    expect(await processEinvoiceSend(A, invoiceId)).toEqual({ status: "sent" });
+    const full = expectOk(await call(w.app, M, A, "GET", `/api/customer-invoices/${invoiceId}`));
+    expect(full).toMatchObject({ documentMode: "live", einvoiceEttn: "11111111-2222-3333-4444-555555555555" });
+    expect(await ownerCtx(status)).toMatchObject({ s: "sent", e: null });
+    expect(received.doc?.ettn).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4/); // sağlayıcıya sabit ETTN gider
+    const hist = JSON.stringify(expectOk(await call(w.app, M, A, "GET", `/api/history/customer_invoice/${invoiceId}`)));
+    for (const ev of ["einvoice.queued", "einvoice.failed", "einvoice.outcome_unknown", "einvoice.resolved", "einvoice.sent"]) expect(hist).toContain(ev);
     expect(received.creds).toEqual({ client_id: "id", client_secret: SECRET });
     expect(received.env).toBe("sandbox");
     expect(received.doc).toMatchObject({

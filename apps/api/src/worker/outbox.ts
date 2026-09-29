@@ -7,6 +7,7 @@ import { runCollectionReminders } from "../modules/collections";
 import { runSupplyRiskScan } from "../modules/supply-risk";
 import { pushMeeting, runCalendarPull } from "../modules/calendar";
 import { reconcileBilling, runSubscriptionLifecycle } from "../modules/billing";
+import { processCargoLabel, processEinvoiceSend } from "../modules/dispatch";
 
 /**
  * Çıkış kutusu işleyicisi (test bağlayıcısı). Bu fazda dış sisteme hiçbir şey gönderilmez;
@@ -20,6 +21,18 @@ async function tick(client: pg.Client) {
       where status = 'pending' and available_at <= now() order by id limit 20 for update skip locked`,
   );
   for (const job of r.rows) {
+    // Resmi belge / ücretli kargo kaydı: işlem fonksiyonu kendi durumunu yönetir; beklenmeyen hata (ör. sonuç yazılırken
+    // veri tabanı hatası) OTOMATİK TEKRAR EDİLMEZ — dış kayıt oluşmuş olabilir → outbox 'unknown'.
+    if (job.topic === "einvoice.send" || job.topic === "cargo.label") {
+      try {
+        const res = job.topic === "einvoice.send" ? await processEinvoiceSend(job.company_id, job.payload.invoiceId) : await processCargoLabel(job.company_id, job.payload.shipmentId);
+        console.log(`[${job.topic}] ${JSON.stringify(job.payload)}: ${res.status}${res.reason ? ` (${res.reason})` : ""}`);
+        await client.query(`update outbox set status = 'done', attempts = attempts + 1 where id = $1`, [job.id]);
+      } catch (e) {
+        await client.query(`update outbox set status = 'unknown', attempts = attempts + 1, last_error = $2 where id = $1`, [job.id, (e as Error).message]);
+      }
+      continue;
+    }
     try {
       if (job.topic === "calendar.push") {
         // Gerçek dış çağrı (takvim sağlayıcısı): bağlantı yoksa atlanır; hata olursa aşağıdaki geri çekilmeyle yeniden denenir.
