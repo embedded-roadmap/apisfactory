@@ -38,7 +38,7 @@
 // crypto ile `openssl enc -aes-256-cbc -pbkdf2 -salt` ile BİREBİR aynı dosya biçiminde yapılır — önceki
 // yedekler bu betiklerle, bu betiklerin yedekleri openssl ile açılabilir.
 
-import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes, createHash } from "node:crypto";
 import { createReadStream, createWriteStream, existsSync } from "node:fs";
 import { cp, mkdir, mkdtemp, open, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -46,6 +46,7 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import copyStreams from "pg-copy-streams";
 import * as tar from "tar";
 
@@ -156,6 +157,44 @@ export async function foreignKeysOn(client, tables) {
     [tables],
   );
   return r.rows;
+}
+
+/** Nesne tutan tablolar: anahtar, depolama ve (varsa) özet sütunları (yedek ve scripts/migrate-storage.mjs ortak). */
+export const OBJECT_TABLES = [
+  { table: "message_attachments", key: "object_key", backend: "storage_backend", sha: "sha256" },
+  { table: "subcontract_job_files", key: "object_key", backend: "storage_backend", sha: "sha256" },
+  { table: "staged_uploads", key: "object_key", backend: "storage_backend", sha: "sha256" },
+  { table: "shipments", key: "label_object_key", backend: "label_storage_backend", sha: null },
+];
+
+/**
+ * S3'e taşınmış nesneleri arşivin files/ dizinine indirir (yedek kendi başına eksiksiz olsun — kova kaybolsa da geri
+ * yüklenebilsin). S3'te kayıt varken S3 ortam değişkenleri yoksa sessizce eksik yedek üretmek yerine hata verir.
+ */
+export async function downloadS3Objects(client, companies, filesDir, env = process.env) {
+  let s3 = null;
+  let count = 0;
+  for (const co of companies) {
+    await client.query(`select set_config('app.company_id', $1, false), set_config('app.system_scope', 'backup', false)`, [co.id]);
+    for (const t of OBJECT_TABLES) {
+      const rows = (await client.query(`select ${t.key} as key${t.sha ? `, ${t.sha} as sha` : ""} from ${t.table} where ${t.key} is not null and ${t.backend} = 's3'`)).rows;
+      for (const r of rows) {
+        if (!s3) {
+          const need = ["S3_ENDPOINT", "S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"].filter((k) => !env[k]);
+          if (need.length) throw new Error(`S3'te nesne kaydı var ama yedek için S3 erişimi yok (eksik: ${need.join(", ")}) — eksik yedek üretilmedi`);
+          s3 = new S3Client({ endpoint: env.S3_ENDPOINT, region: env.S3_REGION || "tr-1", forcePathStyle: (env.S3_FORCE_PATH_STYLE ?? "true") !== "false", credentials: { accessKeyId: env.S3_ACCESS_KEY_ID, secretAccessKey: env.S3_SECRET_ACCESS_KEY } });
+        }
+        const res = await s3.send(new GetObjectCommand({ Bucket: env.S3_BUCKET, Key: r.key }));
+        const data = Buffer.from(await res.Body.transformToByteArray());
+        if (r.sha && createHash("sha256").update(data).digest("hex") !== r.sha) throw new Error(`S3 nesnesi bozuk (özet uyuşmuyor): ${r.key}`);
+        const out = path.join(filesDir, r.key);
+        await mkdir(path.dirname(out), { recursive: true });
+        await writeFile(out, data);
+        count++;
+      }
+    }
+  }
+  return count;
 }
 
 function quoteIdent(name) {
@@ -319,6 +358,8 @@ async function main() {
 
     const filesDir = path.join(work, "files");
     await copyDirectory(STORAGE_LOCAL_DIR, filesDir);
+    const s3Objects = await downloadS3Objects(client, companies, filesDir);
+    if (s3Objects) console.log(`  S3'ten ${s3Objects} nesne yedeğe alındı`);
 
     await writeFile(
       path.join(work, "manifest.json"),

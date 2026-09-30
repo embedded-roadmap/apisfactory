@@ -1482,3 +1482,14 @@ Kullanıcı kararı: kendi görüntülü görüşme altyapısı yok. Migration 0
 (`conferenceData.createRequest`, `conferenceDataVersion=1`), Microsoft ise Teams (`isOnlineMeeting`, `teamsForBusiness`) ister; dönen
 katılım bağlantısı toplantıya yazılır (elle girilenin üzerine yazmaz). Uyumsuzsa istenmez, olayda `conferenceMismatch`. .ics `URL` ve
 takvim açıklamasında bağlantı. Web: toplantı formunda platform/bağlantı/otomatik, detayda "Toplantıya katıl". `calendar.test.ts` +3.
+
+## Oturum 41 devamı — yurt içi S3 uyumlu depolama (dış bağımlılık 5)
+
+Kullanıcı kararı: veri yurt içinde kalmalı. `lib/storage.ts` `S3Storage` (AWS SDK v3; MinIO / yurt içi S3 uyumlu servis; path-style,
+Content-MD5 bütünlük) — `STORAGE_BACKEND=s3` + `S3_*` (bkz. .env.example); eksik değişkende açık hata (yerele sessizce düşmez).
+Okuma satırın `storage_backend` değerine göre (`storageFor`) → kesintisiz geçiş. Migration 068: kargo etiketine `label_storage_backend`;
+nesne tablolarının değişmezlik tetikleyicisi yalnız `storage_backend local→s3` geçişine izin verir (diğer alanlar aynı kalmalı).
+Geçiş: 1) `pnpm --filter @apisfactory/api migrate-storage` (kuru çalışma, rapor) 2) `… migrate-storage -- --apply` (yaz → geri oku →
+sha256 → satırı s3 yap; yerel dosya silinmez) 3) `STORAGE_BACKEND=s3` ile yeniden başlat (yeni yazmalar S3). Yedek (`backup.mjs`)
+S3'teki nesneleri de arşive indirir ve özetini doğrular; S3 erişimi yoksa eksik yedek yerine hata. Test: sahte S3 sunucusuyla
+(`storage-s3`, `storage-migrate`); `S3_TEST_ENDPOINT` verilirse gerçek MinIO'ya karşı da koşar (bu ortamda konteyner çekilemedi).

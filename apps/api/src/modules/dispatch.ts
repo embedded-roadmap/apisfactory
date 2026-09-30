@@ -8,7 +8,7 @@ import { decryptSecret } from "../lib/secrets";
 import { assertLiveAllowed, ConnectorError, credentialsSchema, saveConnectorCredentials } from "../lib/connector-credentials";
 import { EINVOICE_PROVIDERS, einvoiceReadiness, type EinvoiceEnvironment } from "../lib/einvoice-providers";
 import { CARGO_PROVIDERS, cargoReadiness, type CargoEnvironment } from "../lib/cargo-providers";
-import { newObjectKey, objectStorage } from "../lib/storage";
+import { newObjectKey, objectStorage, storageFor } from "../lib/storage";
 import { buildUblTr, deterministicUuid } from "../lib/ubl-tr";
 import { parse, tenant } from "../http/context";
 
@@ -288,10 +288,10 @@ export async function dispatchRoutes(app: FastifyInstance) {
   app.get("/api/shipments/:id/cargo-label-file", async (req, reply) => {
     const { id } = req.params as { id: string };
     const out = await tenant(req, "shipment.view", async (db) => {
-      const s = (await db.query(`select code, label_object_key, label_content_type from shipments where id = $1`, [id])).rows[0];
+      const s = (await db.query(`select code, label_object_key, label_content_type, label_storage_backend from shipments where id = $1`, [id])).rows[0];
       if (!s) throw notFound("Sevkiyat");
       if (!s.label_object_key) throw notFound("Etiket dosyası");
-      return { code: s.code as string, contentType: s.label_content_type as string, data: await objectStorage().get(s.label_object_key) };
+      return { code: s.code as string, contentType: s.label_content_type as string, data: await storageFor(s.label_storage_backend).get(s.label_object_key) };
     });
     const ext = out.contentType === "application/pdf" ? "pdf" : out.contentType === "image/png" ? "png" : "zpl";
     reply.header("content-type", out.contentType).header("content-disposition", `inline; filename="${out.code}-kargo.${ext}"`);
@@ -470,8 +470,8 @@ export async function processCargoLabel(companyId: string, shipmentId: string): 
   await withTenant({ companyId, userId: actor.userId }, async (db) => {
     await db.query(
       `update shipments set cargo_request_status = 'created', cargo_request_error = null, carrier = $2, tracking_no = $3, label_ref = $4, cargo_label_mode = 'live',
-              label_object_key = $5, label_content_type = $6, cargo_status = 'created', cargo_status_at = now() where id = $1`,
-      [shipmentId, c.name, res.trackingNo, labelRef, labelKey, res.label?.contentType ?? null],
+              label_object_key = $5, label_content_type = $6, label_storage_backend = $7, cargo_status = 'created', cargo_status_at = now() where id = $1`,
+      [shipmentId, c.name, res.trackingNo, labelRef, labelKey, res.label?.contentType ?? null, labelKey ? objectStorage().backend : null],
     );
     await db.query(`insert into document_dispatches (company_id, kind, connector_id, entity_type, entity_id, ref, dispatched_by) values (app_company_id(), 'cargo_label', $1, 'shipment', $2, $3, $4)`, [s.cid, shipmentId, labelRef, s.rb]);
     await recordEvent(db, actor, { entityType: "shipment", entityId: shipmentId, eventType: "cargo_label.created", after: { connector: c.name, trackingNo: res.trackingNo, labelRef, environment: c.environment, hasLabelFile: Boolean(labelKey) } });

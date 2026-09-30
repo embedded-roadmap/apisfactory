@@ -9,7 +9,7 @@ import type { Db } from "../db/pool";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors";
 import { enqueue, idempotent, nextCode, recordEvent } from "../lib/records";
 import { can, ctxOf, idempotencyKey, need, parse, tenant } from "../http/context";
-import { newObjectKey, objectStorage, sha256Hex } from "../lib/storage";
+import { newObjectKey, objectStorage, sha256Hex, storageFor } from "../lib/storage";
 import { probeVideo, sniffContentType } from "../lib/media";
 
 /**
@@ -410,7 +410,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const out = await tenant(req, null, async (db) => {
       const a = (await db.query(
-        `select a.file_name as "fileName", a.content_type as "contentType", a.content, a.object_key as "objectKey", t.entity_type as "entityType"
+        `select a.file_name as "fileName", a.content_type as "contentType", a.content, a.object_key as "objectKey", a.storage_backend as "storageBackend", t.entity_type as "entityType"
            from message_attachments a join messages m on m.id = a.message_id join threads t on t.id = m.thread_id where a.id = $1`,
         [id],
       )).rows[0];
@@ -421,7 +421,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
       return a;
     });
     // Video gibi büyük ekler nesne depolamada tutulur (object_key); eski küçük ekler hâlâ bytea `content`'ten okunur.
-    const body = out.objectKey ? await objectStorage().get(out.objectKey) : out.content;
+    const body = out.objectKey ? await storageFor(out.storageBackend).get(out.objectKey) : out.content;
     reply.header("content-type", out.contentType).header("content-disposition", `inline; filename="${encodeURIComponent(out.fileName)}"`);
     return body;
   });

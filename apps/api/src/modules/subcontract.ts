@@ -5,7 +5,7 @@ import type { Db } from "../db/pool";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors";
 import { closeTasks, nextCode, openTask, recordEvent } from "../lib/records";
 import { can, ctxOf, parse, tenant } from "../http/context";
-import { objectStorage } from "../lib/storage";
+import { storageFor } from "../lib/storage";
 
 const KIND = ["pcb", "dizgi", "mekanik", "kablo", "montaj", "dis_test"] as const;
 const KIND_TR: Record<string, string> = { pcb: "PCB", dizgi: "Dizgi", mekanik: "Mekanik", kablo: "Kablo", montaj: "Montaj", dis_test: "Dış test" };
@@ -419,9 +419,9 @@ export async function subcontractRoutes(app: FastifyInstance) {
     const { id, fileId } = req.params as { id: string; fileId: string };
     return tenant(req, null, async (db) => {
       await authorize(req, db, id);
-      const r = await db.query(`select file_name, content_type, content, object_key as "objectKey" from subcontract_job_files where id = $1 and job_id = $2`, [fileId, id]);
+      const r = await db.query(`select file_name, content_type, content, object_key as "objectKey", storage_backend as "storageBackend" from subcontract_job_files where id = $1 and job_id = $2`, [fileId, id]);
       if (!r.rows[0]) throw notFound("Dosya");
-      const body = r.rows[0].objectKey ? await objectStorage().get(r.rows[0].objectKey) : r.rows[0].content;
+      const body = r.rows[0].objectKey ? await storageFor(r.rows[0].storageBackend).get(r.rows[0].objectKey) : r.rows[0].content;
       reply.header("content-type", r.rows[0].content_type).header("content-disposition", `inline; filename="${r.rows[0].file_name.replace(/"/g, "")}"`);
       return body;
     });

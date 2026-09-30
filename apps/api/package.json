@@ -14,11 +14,13 @@
     "typecheck": "tsc --noEmit",
     "loadtest": "node scripts/loadtest.mjs",
     "backup": "node scripts/backup.mjs",
-    "restore": "node scripts/restore.mjs"
+    "restore": "node scripts/restore.mjs",
+    "migrate-storage": "node scripts/migrate-storage.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
     "@apisfactory/shared": "workspace:*",
+    "@aws-sdk/client-s3": "^3.1143.0",
     "@fastify/cors": "^10.0.1",
     "archiver": "^8.0.0",
     "fastify": "^5.1.0",

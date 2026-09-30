@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { ZipArchive } from "archiver";
 import { notFound } from "../lib/errors";
 import { recordEvent } from "../lib/records";
-import { objectStorage } from "../lib/storage";
+import { storageFor } from "../lib/storage";
 import { tenant } from "../http/context";
 
 /**
@@ -100,11 +100,11 @@ export async function companyExportRoutes(app: FastifyInstance) {
           const fileSpec = FILE_TABLES[table];
           if (fileSpec) {
             const withContent = await db.query(
-              `select id, ${fileSpec.nameCol} as name, ${fileSpec.contentCol} as content, ${fileSpec.objectKeyCol} as object_key from "${table}" where company_id = $1`,
+              `select id, ${fileSpec.nameCol} as name, ${fileSpec.contentCol} as content, ${fileSpec.objectKeyCol} as object_key, storage_backend from "${table}" where company_id = $1`,
               [actor.companyId],
             );
-            for (const r of withContent.rows as { id: string; name: string; content: Buffer | null; object_key: string | null }[]) {
-              const buf = r.object_key ? await objectStorage().get(r.object_key) : r.content;
+            for (const r of withContent.rows as { id: string; name: string; content: Buffer | null; object_key: string | null; storage_backend: string | null }[]) {
+              const buf = r.object_key ? await storageFor(r.storage_backend).get(r.object_key) : r.content;
               if (buf) {
                 archive.append(buf, { name: `dosyalar/${table}/${r.id}-${sanitizeFileName(r.name)}` });
                 totalFiles++;
