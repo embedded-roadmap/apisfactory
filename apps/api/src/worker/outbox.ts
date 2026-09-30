@@ -8,10 +8,11 @@ import { runSupplyRiskScan } from "../modules/supply-risk";
 import { pushMeeting, runCalendarPull } from "../modules/calendar";
 import { reconcileBilling, runSubscriptionLifecycle } from "../modules/billing";
 import { processCargoLabel, processEinvoiceSend } from "../modules/dispatch";
+import { EMAIL_JOB_TOPICS, processEmailJob } from "../lib/email";
 
 /**
- * Çıkış kutusu işleyicisi (test bağlayıcısı). Bu fazda dış sisteme hiçbir şey gönderilmez;
- * olaylar "işlendi" olarak işaretlenir ve konsola yazılır. Gerçek bağlayıcılar W17/W36'da eklenir.
+ * Çıkış kutusu işleyicisi. Dış çağrılar: takvim, e-belge, kargo etiketi ve bildirim e-postası (şirketin SMTP ayarı);
+ * diğer konular "işlendi" olarak işaretlenir ve konsola yazılır.
  * Hata olursa deneme sayısı artar; sonucu belirsiz dış işlem "unknown" durumuna alınır (prompt §7).
  */
 async function tick(client: pg.Client) {
@@ -38,6 +39,10 @@ async function tick(client: pg.Client) {
         // Gerçek dış çağrı (takvim sağlayıcısı): bağlantı yoksa atlanır; hata olursa aşağıdaki geri çekilmeyle yeniden denenir.
         const res = await pushMeeting(job.company_id, job.payload.meetingId);
         console.log(`[calendar] ${job.payload.meetingId}: ${res.status}${res.reason ? ` (${res.reason})` : ""}`);
+      } else if (EMAIL_JOB_TOPICS.has(job.topic)) {
+        // Şirketin SMTP ayarına göre: kapalı → yalnız uygulama içi, test → kaydedilir, canlı → gönderilir.
+        const res = await processEmailJob(job.company_id, String(job.id), job.topic, job.payload);
+        console.log(`[email] ${job.topic}: ${res.handled ? res.status : "ignored"}`);
       } else {
         console.log(`[outbox:test] ${job.topic}`, job.payload);
       }

@@ -12,6 +12,7 @@ import { distributorRoutes } from "./modules/distributors";
 import { supplyRiskRoutes } from "./modules/supply-risk";
 import { alternateRoutes } from "./modules/alternates";
 import { dispatchRoutes } from "./modules/dispatch";
+import { notificationRoutes } from "./modules/notifications";
 import { calendarRoutes } from "./modules/calendar";
 import { billingRoutes } from "./modules/billing";
 import { taxProfileRoutes } from "./modules/tax-profile";
@@ -123,5 +124,6 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(storageRoutes);
   await app.register(scenarioRoutes);
   await app.register(subcontractRoutes);
+  await app.register(notificationRoutes);
   return app;
 }

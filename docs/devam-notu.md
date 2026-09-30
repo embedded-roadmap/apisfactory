@@ -42,6 +42,7 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | Microsoft 365/Outlook OAuth | Microsoft Entra ID uygulama kaydı; kod hazır (oturum 41) | `MS_OAUTH_CLIENT_ID`, `MS_OAUTH_CLIENT_SECRET`, `MS_OAUTH_TENANT`, `OAUTH_REDIRECT_BASE` | Gerçek hesapla OAuth akışı ve delta sorgu |
 | Distribütör API'leri (DigiKey/Mouser/Farnell/Nexar/LCSC) | Her şirketin kendi geliştirici hesabı + ticari kullanım şartı onayı | Şirket başına: Distribütörler ekranında şifreli kayıt (`distributor_connectors.credentials_enc`); platform düzeyinde yalnız `CONNECTOR_SECRET_KEY` | İlk distribütör seçimi → adaptör → gerçek MPN sorgusu (stok/fiyat/temin) |
 | Ödeme sağlayıcısı (W42 — abonelik ücreti tahsilatı) | **iyzico seçildi** (oturum 41); kod hazır — iyzico üye işyeri hesabı + Abonelik eklentisi + USD/EUR tahsilat izni bekleniyor | `IYZICO_API_KEY`, `IYZICO_SECRET_KEY`, `IYZICO_BASE_URL`, `PUBLIC_API_BASE` (platform düzeyi); fiyat/plan referansları `subscription_prices` | Sandbox'ta test kartıyla gerçek abonelik başlatma, bildirim ve otomatik durum güncellemesi |
+| Bildirim e-postası (SMTP) | Şirketin kendi e-posta sağlayıcısının SMTP hesabı (Google Workspace, Microsoft 365, Yandex, barındırma firması vb.) — **her şirket kendisi seçer**; kod hazır (oturum 41) | Şirket başına: İş akışı → Bildirim e-postası ekranı (`email_channels`, parola `credentials_enc` şifreli); platform düzeyinde yalnız `CONNECTOR_SECRET_KEY` | Gerçek bir SMTP hesabıyla "kendime deneme e-postası" ve canlı modda bildirim teslimi |
 | AI/LLM sağlayıcısı (W30 yorum katmanı) | **Anthropic Claude seçildi** (oturum 41); kod hazır — yalnız API anahtarı bekleniyor | `ANTHROPIC_API_KEY` (+ isteğe bağlı `AI_MODEL`, varsayılan `claude-opus-5`) — yerelde `apps/api/.env`, sunucuda secret store | Gerçek anahtarla canlı yorum üretimi ve `ai_status='generated'` doğrulaması |
 
 ## Oturum 41 — dış bağımlılık maddesi 1: e-fatura için sağlayıcıdan bağımsız hazırlık
@@ -1493,3 +1494,16 @@ Geçiş: 1) `pnpm --filter @apisfactory/api migrate-storage` (kuru çalışma, r
 sha256 → satırı s3 yap; yerel dosya silinmez) 3) `STORAGE_BACKEND=s3` ile yeniden başlat (yeni yazmalar S3). Yedek (`backup.mjs`)
 S3'teki nesneleri de arşive indirir ve özetini doğrular; S3 erişimi yoksa eksik yedek yerine hata. Test: sahte S3 sunucusuyla
 (`storage-s3`, `storage-migrate`); `S3_TEST_ENDPOINT` verilirse gerçek MinIO'ya karşı da koşar (bu ortamda konteyner çekilemedi).
+
+## Oturum 41 devamı — bildirim e-postası / SMTP (dış bağımlılık 4)
+
+Kullanıcı kararı: müşteri hangi sağlayıcıyı kullanırsa seçebilsin → SMTP (her sağlayıcıda standart). Migration 069:
+`email_channels` (şirket başına; mod off/test/live, sunucu/port/TLS/kullanıcı, şifreli parola, gönderen/yanıt adresi, konu seçimi) ve
+değişmez `email_deliveries` teslim kaydı (`outbox_id` ile). `lib/email.ts`: kuyruk konusu → alıcı + metin (`notification.mention`,
+`meeting_invite/minutes/cancelled`, `escalation` → hedef roldeki etkin üyeler, `customer.reminder` → müşterinin fatura e-postası).
+Alıcı yalnız şirketin etkin üyesi olabilir. Gizlilik: mesaj içeriği e-postaya konmaz (etiket + bağlantı). Kalıcı ret (SMTP 5xx) yeniden
+denenmez; geçici hata işi geri çekilmeyle yeniden dener ve o işte gönderilmiş alıcılar atlanır (çift gönderim yok — kayıtlar işlem
+geri alınmadan yazılır). Uçlar: `GET/PUT /api/email-channel` (workflow.manage; parola asla dönmez, olay kaydında yalnız
+`passwordChanged`), `POST /api/email-channel/test` (yalnız isteyenin kendi adresine), `GET /api/email-deliveries`. Web: İş akışı →
+Bildirim e-postası (hazır ayarlar: Google/Microsoft/Yandex). `email.test.ts` 12/12 — süreç içi gerçek SMTP sunucusu (smtp-server) ile
+AUTH/RCPT/DATA; gerçek bir sağlayıcı hesabıyla doğrulanmadı. SMS ayrı (adım 5 araştırması).

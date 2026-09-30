@@ -17,13 +17,14 @@ const PERM: Record<string, string> = {
   "product.approve.production": "Devir onayı (Üretim)", "product.approve.quality": "Devir onayı (Kalite)", "sales.confirm": "Sipariş kesinleştirme",
 };
 
-function Tabs() {
+export function WorkflowTabs() {
   const can = useCan();
   return (
     <div className="row tabs" role="tablist">
       <NavLink to="/workflow" end>Onay politikaları</NavLink>
       <NavLink to="/workflow/delegations">Vekâlet</NavLink>
       {can("workflow.manage") ? <NavLink to="/workflow/monitor">İzleme & müdahale</NavLink> : null}
+      {can("workflow.manage") ? <NavLink to="/workflow/email">Bildirim e-postası</NavLink> : null}
     </div>
   );
 }
@@ -36,7 +37,7 @@ export function WorkflowPage() {
   return (
     <>
       <PageHeader title="Akış & onay" sub="Kendi talebini onaylama, rol bazlı parasal limit, süre ve üst sorumluya yükseltme. Politika değişikliği yeni sürümdür; teknik sistem yöneticisi iş onayı almaz." />
-      <Tabs />
+      <WorkflowTabs />
       {q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />}
       {q.data ? (
         <section className="card">
@@ -224,7 +225,7 @@ export function DelegationsPage() {
   return (
     <>
       <PageHeader title="Vekâlet" sub="Süreli ve kapsamlı. Yalnızca vekâlet verenin sahip olduğu onay izinleri devredilir; vekâleten yapılan her işlem kimin adına yapıldığını kaydeder." />
-      <Tabs />
+      <WorkflowTabs />
       <section className="card">
         <h2>Yeni vekâlet</h2>
         <form className="stack" onSubmit={(e: FormEvent) => {
@@ -302,7 +303,7 @@ export function WorkflowMonitorPage() {
   return (
     <>
       <PageHeader title="İzleme & müdahale" sub="Süresi geçen onaylar üst sorumluya bir kez yükseltilir (arka plan her dakika tarar). Aktarma ve kuyruk uzlaştırması gerekçeli ve kayıtlıdır." actions={<button onClick={() => act.mutate(() => post("/api/workflow/escalations/run"))}>Şimdi tara</button>} />
-      <Tabs />
+      <WorkflowTabs />
       <ErrorNotice error={act.error ?? q.error} />
       {act.data && "escalated" in act.data ? <div className="notice">{act.data.escalated} görev yükseltildi.</div> : null}
       <section className="card">
