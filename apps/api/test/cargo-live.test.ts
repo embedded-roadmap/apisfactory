@@ -86,12 +86,12 @@ describe("Kargo hazırlık denetimi ve erişim bilgisi (firmadan bağımsız)", 
   });
 
   it("adaptörü olmayan firma canlıya alınamaz; erişim bilgisi şifreli saklanır, değer hiçbir yanıtta yok", async () => {
-    const c = await cargo("yurtici");
+    const c = await cargo("surat");
     expect(c).toMatchObject({ adapterAvailable: false, hasCredentials: false, settings: {}, trackingSupported: false });
     expect((await call(w.app, W, A, "POST", `/api/cargo-connectors/${c.id}`, { mode: "live", reason: "Canlı deneme" })).body.error.code).toBe("adapter_not_available");
     const saved = expectOk(await call(w.app, W, A, "POST", `/api/cargo-connectors/${c.id}/credentials`, { environment: "sandbox", credentials: { musteriKodu: "123", apiKey: SECRET }, reason: "Sandbox hesabı" }));
     expect(saved).toEqual({ id: c.id, environment: "sandbox", hasCredentials: true, fields: ["apiKey", "musteriKodu"] });
-    const listed = await cargo("yurtici");
+    const listed = await cargo("surat");
     expect(listed).toMatchObject({ hasCredentials: true, environment: "sandbox" });
     expect(JSON.stringify(listed)).not.toContain(SECRET);
     expect(JSON.stringify(expectOk(await call(w.app, MGR, A, "GET", `/api/history/cargo_connector/${c.id}`)))).not.toContain(SECRET);
@@ -99,9 +99,9 @@ describe("Kargo hazırlık denetimi ve erişim bilgisi (firmadan bağımsız)", 
   });
 
   it("adaptörsüz firmada ayarlar serbest kaydedilir ve olay kaydına yazılır", async () => {
-    const c = await cargo("yurtici");
+    const c = await cargo("surat");
     expectOk(await call(w.app, W, A, "POST", `/api/cargo-connectors/${c.id}/settings`, { settings: { odemeTipi: "gonderici" }, reason: "Anlaşma" }));
-    expect((await cargo("yurtici")).settings).toEqual({ odemeTipi: "gonderici" });
+    expect((await cargo("surat")).settings).toEqual({ odemeTipi: "gonderici" });
   });
 });
 

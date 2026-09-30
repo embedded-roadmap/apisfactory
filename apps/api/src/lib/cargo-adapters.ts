@@ -286,4 +286,110 @@ export const basitkargo: CargoProvider = {
   },
 };
 
-export const CARGO_ADAPTERS: Record<string, CargoProvider> = { mng, basitkargo };
+// ---- SOAP yardımcıları (Yurtiçi, Aras) ----------------------------------------------------------------------------
+// Yanıtlar düz yapıdadır; yalnız bilinen alanlar okunur. DTD/varlık genişletmesi yapılmaz (XXE yok).
+
+export function xmlEscape(v: string) {
+  return v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+function xmlUnescape(v: string) {
+  return v.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_m, d) => String.fromCharCode(Number(d))).replace(/&amp;/g, "&");
+}
+/** Ad alanı önekinden bağımsız ilk <tag>metin</tag> değeri. */
+export function xmlField(xml: string, tag: string): string | null {
+  const m = xml.match(new RegExp(`<(?:[\\w.-]+:)?${tag}(?:\\s[^>]*)?>([^<]*)</(?:[\\w.-]+:)?${tag}>`));
+  return m ? xmlUnescape(m[1]!.trim()) : null;
+}
+/** Tekrarlanan <tag>…</tag> blokları. */
+export function xmlBlocks(xml: string, tag: string): string[] {
+  return [...xml.matchAll(new RegExp(`<(?:[\\w.-]+:)?${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</(?:[\\w.-]+:)?${tag}>`, "g"))].map((m) => m[1]!);
+}
+function xmlEl(name: string, v: string | number | boolean | null | undefined) {
+  return v === null || v === undefined || v === "" ? "" : `<${name}>${xmlEscape(String(v))}</${name}>`;
+}
+
+async function soap(url: string, body: string, soapAction = "") {
+  const res = await http(url, {
+    method: "POST",
+    headers: { "content-type": "text/xml; charset=utf-8", SOAPAction: soapAction ? `"${soapAction}"` : '""' },
+    body: `<?xml version="1.0" encoding="utf-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body>${body}</soapenv:Body></soapenv:Envelope>`,
+  });
+  return { status: res.status, text: await res.text() };
+}
+
+// ---- Yurtiçi Kargo -------------------------------------------------------------------------------------------------
+// Kaynak: Yurtiçi'nin kendi sunucusundaki WSDL (ws.yurticikargo.com/KOPSWebServices/ShippingOrderDispatcherServices?wsdl;
+// createShipment / queryShipment, ShippingOrderVO). WSDL'de olmayan anlamlar (keyType 0 = kargo anahtarı, operationStatus
+// kodları NOP/ISR/IND/DLV/CNL/ISC/BI) resmi teknik dokümandan alıntı yapan açık kaynak bir entegrasyondan alındı; resmi
+// doküman sayısal kodlarda kendi içinde çelişkili olduğundan üç harfli durum esas alınır. Test adresi IP izni ister.
+// Kayıt sevkiyat koduyla (cargoKey) açılır; Yurtiçi gönderiyi şubede teslim alınca işler — takip de bu anahtarla yapılır.
+
+const YK_PROD = "https://ws.yurticikargo.com/KOPSWebServices/ShippingOrderDispatcherServices";
+const YK_TEST = "https://testapi.yurticikargo.com:9090/KOPSWebServices/ShippingOrderDispatcherServices";
+const YK_NS = "http://yurticikargo.com.tr/ShippingOrderDispatcherServices";
+const YK_STATUS: Record<string, CargoStatus> = { NOP: "created", ISR: "in_transit", IND: "out_for_delivery", DLV: "delivered", CNL: "problem", ISC: "problem", BI: "problem" };
+
+function ykKey(code: string) {
+  return code.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 20);
+}
+
+async function ykCall(ctx: Ctx, body: string, what: string) {
+  const r = await soap(ctx.environment === "production" ? YK_PROD : YK_TEST, body);
+  const fault = xmlField(r.text, "faultstring");
+  // SOAP hatası (kimlik, şema) → kayıt oluşmadı.
+  if (fault) throw new ConnectorError(`Yurtiçi ${what}: ${fault.slice(0, 200)}`, { notSent: true });
+  if (r.status >= 500) throw new Error(`Yurtiçi ${what}: HTTP ${r.status}`);
+  if (r.status >= 400) throw new ConnectorError(`Yurtiçi ${what}: HTTP ${r.status}`, { notSent: true });
+  return r.text;
+}
+
+export const yurtici: CargoProvider = {
+  credentialFields: ["wsUserName", "wsPassword"],
+  settingFields: [{ key: "desiPerPackage", label: "Koli başına desi (boşsa gönderilmez; Yurtiçi şubede ölçer)" }],
+  verified: false,
+  docsUrl: "https://ws.yurticikargo.com/KOPSWebServices/ShippingOrderDispatcherServices?wsdl",
+
+  async createShipment(req, ctx) {
+    const key = ykKey(req.shipmentCode);
+    if (key.length < 3) throw new ConnectorError("Yurtiçi için sevkiyat kodu en az 3 karakter olmalı", { notSent: true });
+    const phone = tenDigitPhone(req.recipient.phone);
+    if (!phone) throw new ConnectorError("Yurtiçi için alıcı telefonu 10 haneli olmalı", { notSent: true });
+    if (!req.recipient.district) throw new ConnectorError("Yurtiçi için alıcı adresinde ilçe gerekli", { notSent: true });
+    if ((req.recipient.name.match(/\p{L}/gu) ?? []).length < 4) throw new ConnectorError("Yurtiçi alıcı adı en az 4 harf ister", { notSent: true });
+    const desi = ctx.settings.desiPerPackage ? Number(ctx.settings.desiPerPackage) : null;
+    if (desi !== null && !(desi > 0 && desi <= 999)) throw new ConnectorError("Yurtiçi ayarı: koli başına desi 0–999 olmalı", { notSent: true });
+    const weights = req.packages.map((p) => (p.weightKg === null ? null : Number(p.weightKg)));
+    const kg = weights.every((x) => x !== null) ? weights.reduce((a, b) => a! + b!, 0)! : null;
+    const address = [req.recipient.line1, req.recipient.line2].filter(Boolean).join(" ").replace(/\s+/g, " ").slice(0, 200);
+    const order =
+      xmlEl("cargoKey", key) + xmlEl("invoiceKey", key) + xmlEl("receiverCustName", req.recipient.name.slice(0, 200)) + xmlEl("receiverAddress", address) +
+      xmlEl("cityName", req.recipient.city) + xmlEl("townName", req.recipient.district) + xmlEl("receiverPhone1", phone) +
+      "<taxOfficeId>0</taxOfficeId>" + xmlEl("desi", desi === null ? null : +(desi * req.packages.length).toFixed(2)) + xmlEl("kg", kg === null ? null : +kg.toFixed(3)) +
+      `<cargoCount>${req.packages.length}</cargoCount>` + "<ttDocumentId>0</ttDocumentId><dcSelectedCredit>0</dcSelectedCredit><dcCreditRule>0</dcCreditRule>" +
+      xmlEl("description", `Sevkiyat ${req.shipmentCode}`);
+    const body = `<ns:createShipment xmlns:ns="${YK_NS}">${xmlEl("wsUserName", ctx.credentials.wsUserName)}${xmlEl("wsPassword", ctx.credentials.wsPassword)}<userLanguage>TR</userLanguage><ShippingOrderVO>${order}</ShippingOrderVO></ns:createShipment>`;
+    const xml = await ykCall(ctx, body, "gönderi");
+    const outFlag = xmlField(xml, "outFlag");
+    const detail = xmlBlocks(xml, "shippingOrderDetailVO")[0] ?? "";
+    const errCode = xmlField(detail, "errCode");
+    if (outFlag !== "0" || (errCode && errCode !== "0")) {
+      const msg = xmlField(detail, "errMessage") ?? xmlField(xml, "outResult") ?? "bilinmeyen hata";
+      throw new ConnectorError(`Yurtiçi gönderi: ${msg.slice(0, 200)}`, { notSent: true });
+    }
+    return { trackingNo: key, labelRef: `YK-${key}` };
+  },
+
+  async track(trackingNo, ctx) {
+    const body = `<ns:queryShipment xmlns:ns="${YK_NS}">${xmlEl("wsUserName", ctx.credentials.wsUserName)}${xmlEl("wsPassword", ctx.credentials.wsPassword)}<wsLanguage>TR</wsLanguage>${xmlEl("keys", trackingNo)}<keyType>0</keyType><addHistoricalData>false</addHistoricalData><onlyTracking>false</onlyTracking></ns:queryShipment>`;
+    const xml = await ykCall(ctx, body, "takip");
+    const d = xmlBlocks(xml, "shippingDeliveryDetailVO")[0] ?? "";
+    const st = (xmlField(d, "operationStatus") ?? "").toUpperCase();
+    const item = xmlBlocks(d, "shippingDeliveryItemDetailVO")[0] ?? "";
+    const dd = xmlField(item, "deliveryDate");
+    const dt = (xmlField(item, "deliveryTime") ?? "").replace(/\D/g, "").padEnd(6, "0").slice(0, 6);
+    const at = st === "DLV" && dd && /^\d{8}$/.test(dd) ? new Date(`${dd.slice(0, 4)}-${dd.slice(4, 6)}-${dd.slice(6, 8)}T${dt.slice(0, 2)}:${dt.slice(2, 4)}:${dt.slice(4, 6)}+03:00`).toISOString() : null;
+    return { status: YK_STATUS[st] ?? "unknown", raw: `${st} ${xmlField(d, "operationMessage") ?? ""}`.trim().slice(0, 120), at };
+  },
+};
+
+export const CARGO_ADAPTERS: Record<string, CargoProvider> = { mng, basitkargo, yurtici };

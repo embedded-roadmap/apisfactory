@@ -217,3 +217,70 @@ describe("Basit Kargo adaptörü (toplayıcı)", () => {
     expect(await BK.track!("1234567890", ctx())).toEqual({ status: "out_for_delivery", raw: "OUT_FOR_DELIVERY", at: null });
   });
 });
+
+describe("Yurtiçi Kargo adaptörü (SOAP, resmi WSDL)", () => {
+  const YK = CARGO_PROVIDERS.yurtici!;
+  const ctx = (settings: Record<string, string> = {}, environment: "sandbox" | "production" = "production") => ({ credentials: { wsUserName: "YKUSER", wsPassword: "yk-SECRET" }, settings, environment });
+  const env = (inner: string) => `<?xml version="1.0"?><env:Envelope xmlns:env="http://schemas.xmlsoap.org/soap/envelope/"><env:Body>${inner}</env:Body></env:Envelope>`;
+  const created = env(`<ns2:createShipmentResponse xmlns:ns2="http://yurticikargo.com.tr/ShippingOrderDispatcherServices"><ShippingOrderResultVO><outFlag>0</outFlag><outResult>Başarılı</outResult><count>1</count><jobId>123</jobId><shippingOrderDetailVO><cargoKey>SHP-000123</cargoKey><errCode>0</errCode><invoiceKey>SHP-000123</invoiceKey></shippingOrderDetailVO></ShippingOrderResultVO></ns2:createShipmentResponse>`);
+
+  it("kayıt defterinde, DOĞRULANMADI, belge = resmi WSDL", () => {
+    expect(YK).toMatchObject({ verified: false, credentialFields: ["wsUserName", "wsPassword"] });
+    expect(YK.docsUrl).toMatch(/^https:\/\/ws\.yurticikargo\.com\/.*\?wsdl$/);
+  });
+
+  it("createShipment zarfı WSDL şemasına uygun; özel karakterler kaçışlı; takip no = kargo anahtarı", async () => {
+    routes = [() => ({ json: undefined })];
+    cargoDeps.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      log.push({ method: init?.method ?? "GET", url: String(input), path: new URL(String(input)).pathname, headers: new Headers(init?.headers), body: String(init?.body ?? "") });
+      return new Response(created, { status: 200 });
+    }) as typeof fetch;
+    const out = await YK.createShipment(req({ recipient: { ...req().recipient, name: "Ayşe & Ali <Ltd>" } }), ctx({ desiPerPackage: "2" }));
+    expect(out).toEqual({ trackingNo: "SHP-000123", labelRef: "YK-SHP-000123" });
+    expect(log[0]!.url).toBe("https://ws.yurticikargo.com/KOPSWebServices/ShippingOrderDispatcherServices");
+    expect(log[0]!.headers.get("content-type")).toBe("text/xml; charset=utf-8");
+    const b = log[0]!.body;
+    expect(b).toContain('<ns:createShipment xmlns:ns="http://yurticikargo.com.tr/ShippingOrderDispatcherServices">');
+    expect(b).toContain("<wsUserName>YKUSER</wsUserName><wsPassword>yk-SECRET</wsPassword><userLanguage>TR</userLanguage>");
+    for (const f of ["<cargoKey>SHP-000123</cargoKey>", "<invoiceKey>SHP-000123</invoiceKey>", "<receiverCustName>Ayşe &amp; Ali &lt;Ltd&gt;</receiverCustName>",
+      "<cityName>ankara</cityName>", "<townName>ÇANKAYA</townName>", "<receiverPhone1>5550000000</receiverPhone1>", "<desi>4</desi>", "<kg>2.7</kg>", "<cargoCount>2</cargoCount>", "<taxOfficeId>0</taxOfficeId>"]) expect(b).toContain(f);
+  });
+
+  it("test ortamı adresi; outFlag/errCode ve SOAP hatası kesin ret (sır sızmaz); 5xx belirsiz", async () => {
+    let reply = env(`<ShippingOrderResultVO><outFlag>1</outFlag><outResult>Hata</outResult><shippingOrderDetailVO><cargoKey>SHP-000123</cargoKey><errCode>60020</errCode><errMessage>Kargo anahtarı daha önce kullanılmış</errMessage></shippingOrderDetailVO></ShippingOrderResultVO>`);
+    let status = 200;
+    cargoDeps.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      log.push({ method: "POST", url: String(input), path: "", headers: new Headers(init?.headers), body: String(init?.body ?? "") });
+      return new Response(reply, { status });
+    }) as typeof fetch;
+    const e1 = await YK.createShipment(req(), ctx({}, "sandbox")).catch((x) => x);
+    expect(log[0]!.url).toBe("https://testapi.yurticikargo.com:9090/KOPSWebServices/ShippingOrderDispatcherServices");
+    expect(e1).toMatchObject({ message: "Yurtiçi gönderi: Kargo anahtarı daha önce kullanılmış", opts: { notSent: true } });
+    reply = env(`<env:Fault><faultcode>env:Server</faultcode><faultstring>Kullanıcı adı veya şifre hatalı</faultstring></env:Fault>`);
+    status = 500;
+    const e2 = await YK.createShipment(req(), ctx()).catch((x) => x);
+    expect(e2).toMatchObject({ message: "Yurtiçi gönderi: Kullanıcı adı veya şifre hatalı", opts: { notSent: true } });
+    expect((e2 as Error).message).not.toContain("SECRET");
+    reply = "<html>Bad gateway</html>";
+    status = 502;
+    const e3 = await YK.createShipment(req(), ctx()).catch((x) => x);
+    expect(e3).not.toBeInstanceOf(ConnectorError);
+  });
+
+  it("eksik telefon/ilçe/kısa ad istek atılmadan reddedilir", async () => {
+    for (const r of [req({ recipient: { ...req().recipient, phone: null } }), req({ recipient: { ...req().recipient, district: null } }), req({ recipient: { ...req().recipient, name: "Al" } })]) {
+      expect(await YK.createShipment(r, ctx()).catch((x) => (x as ConnectorError).opts?.notSent)).toBe(true);
+    }
+    expect(log).toHaveLength(0);
+  });
+
+  it("takip: queryShipment keyType 0; üç harfli durum eşlenir, teslimde tarih (GMT+3)", async () => {
+    cargoDeps.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      log.push({ method: "POST", url: String(input), path: "", headers: new Headers(init?.headers), body: String(init?.body ?? "") });
+      return new Response(env(`<ns2:queryShipmentResponse><ShippingDeliveryVO><outFlag>0</outFlag><shippingDeliveryDetailVO><cargoKey>SHP-000123</cargoKey><operationCode>5</operationCode><operationMessage>Kargo teslim edilmiştir.</operationMessage><operationStatus>DLV</operationStatus><shippingDeliveryItemDetailVO><deliveryDate>20260930</deliveryDate><deliveryTime>143005</deliveryTime></shippingDeliveryItemDetailVO></shippingDeliveryDetailVO></ShippingDeliveryVO></ns2:queryShipmentResponse>`));
+    }) as typeof fetch;
+    const t = await YK.track!("SHP-000123", ctx());
+    expect(log[0]!.body).toContain("<keys>SHP-000123</keys><keyType>0</keyType>");
+    expect(t).toEqual({ status: "delivered", raw: "DLV Kargo teslim edilmiştir.", at: "2026-09-30T11:30:05.000Z" });
+  });
+});

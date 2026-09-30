@@ -1578,3 +1578,14 @@ Bilgilendirme amaçlı — İYS/ticari işaret gönderilmez. İşçi e-posta ve 
 iş yeniden denenir, iki kanalda da gönderilmiş alıcılar atlanır. Netgsm belge sitesi bot korumalı (aşılmadı) → Netgsm'in kendi GitHub
 SDK'sı kaynak alındı. Web: İş akışı → SMS, Parola sayfasında "Bildirim telefonum". `sms.test.ts` 9/9. Ops panosu testi Basit Kargo
 ile 18 bağlayıcıya güncellendi. Tam paket 462/462.
+
+## Oturum 41 devamı — Yurtiçi Kargo adaptörü (SOAP, DOĞRULANMADI)
+
+`lib/cargo-adapters.ts` `yurtici`. Kaynak: Yurtiçi'nin kendi sunucusundaki WSDL (ws.yurticikargo.com/KOPSWebServices/
+ShippingOrderDispatcherServices?wsdl) — `createShipment` (ShippingOrderVO) ve `queryShipment`. WSDL'de anlamı olmayan iki şey
+(keyType 0 = kargo anahtarı; operationStatus NOP/ISR/IND/DLV/CNL/ISC/BI) resmi teknik dokümandan alıntı yapan açık kaynak bir
+entegrasyondan alındı; resmi doküman sayısal kodlarda kendi içinde çelişkili → üç harfli durum esas alınır. Kayıt sevkiyat
+kodundan türeyen kargo anahtarıyla açılır (takip no = bu anahtar; Yurtiçi gönderiyi şubede teslim alınca işler, etiket bizim
+Code128 etiketimizdir). Kesin ret: outFlag≠0 / errCode / SOAP hatası; 5xx belirsiz. Test adresi (testapi…:9090) Yurtiçi'nin
+IP izni ister. SOAP yanıtı için bağımlılıksız küçük okuyucu (`xmlField`/`xmlBlocks`; DTD/varlık genişletmesi yok, XXE yok).
+`cargo-live` testindeki adaptörsüz örnek Sürat'e taşındı. `cargo-adapters.test.ts` +5; tam paket 467/467.

@@ -5,8 +5,8 @@ import { CARGO_ADAPTERS } from "./cargo-adapters";
 /**
  * Kargo firması adaptörleri. Firmalar arasında değişen her şey adaptördedir; yeni bir firma eklemek = bu arayüzü
  * uygulayan bir nesne yazıp CARGO_PROVIDERS'a kaydetmek (+ firma anahtarı migration 024'teki listede değilse CHECK'e
- * eklemek). Adaptörü olmayan bağlayıcı 'live' moda alınamaz. Oturum 41 devamı: MNG adaptörü MNG'nin resmi Swagger
- * tanımlarından yazıldı ama gerçek hesapla DOĞRULANMADI (`verified: false`; lib/cargo-adapters.ts).
+ * eklemek). Adaptörü olmayan bağlayıcı 'live' moda alınamaz. Oturum 41 devamı: MNG (resmi Swagger), Basit Kargo (açık REST
+ * belgesi) ve Yurtiçi (resmi WSDL) adaptörleri yazıldı ama gerçek hesapla DOĞRULANMADI (`verified: false`; lib/cargo-adapters.ts).
  */
 
 export type CargoEnvironment = "sandbox" | "production";
