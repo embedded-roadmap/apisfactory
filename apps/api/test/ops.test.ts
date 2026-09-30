@@ -28,9 +28,9 @@ describe("Bağlayıcı operasyon panosu (W38)", () => {
     const denied = await call(w.app, "purchasing@a.test", A, "GET", "/api/connectors/status");
     expect(denied.status).toBe(403);
     const s = expectOk(await call(w.app, "manager@a.test", A, "GET", "/api/connectors/status"));
-    expect(s.rows.length).toBe(5 + 6 + 6); // distribütör + e-belge + kargo
+    expect(s.rows.length).toBe(5 + 6 + 7); // distribütör + e-belge + kargo (Basit Kargo dahil)
     expect(s.rows.every((r: any) => r.mode === "not_connected" && r.activityToday === 0)).toBe(true);
-    expect(s.summary).toMatchObject({ connected: 0, total: 17, errorsWeek: 0 });
+    expect(s.summary).toMatchObject({ connected: 0, total: 18, errorsWeek: 0 });
   });
 
   it("distribütör TEST moduna alınıp sorgulanınca kota/önbellek isabeti panoya yansır", async () => {

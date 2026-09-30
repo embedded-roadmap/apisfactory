@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { get, openDownload, post } from "../lib/api";
+import { api, get, openDownload, post } from "../lib/api";
 import { ErrorNotice, Loading, PageHeader, StateBadge, useCan, useMe } from "../lib/ui";
 
 export function AdminPage() {
@@ -118,6 +118,33 @@ export function PasswordPage() {
         {f.again && f.next !== f.again ? <div className="notice warn">Parolalar eşleşmiyor.</div> : null}
         <button className="primary" disabled={ch.isPending}>Değiştir</button>
       </form>
+      <NotifyPhoneCard />
     </>
+  );
+}
+
+/** Kişinin kendi bildirim telefonu: şirket SMS açtıysa iç bildirimler (yükseltme, bahsedilme…) buraya gelir. */
+function NotifyPhoneCard() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["notifyPhone"], queryFn: () => get<{ phone: string | null }>("/api/me/notify-phone") });
+  const [v, setV] = useState<string | null>(null);
+  const save = useMutation({
+    mutationFn: (phone: string | null) => api<{ phone: string | null }>("PUT", "/api/me/notify-phone", { phone }),
+    onSuccess: (r) => { setV(null); qc.setQueryData(["notifyPhone"], r); },
+  });
+  const cur = q.data?.phone ?? null;
+  const shown = v ?? (cur ? `0${cur.slice(2)}` : "");
+  return (
+    <section className="card" style={{ maxWidth: 480 }}>
+      <h2>Bildirim telefonum</h2>
+      <p className="muted" style={{ margin: 0 }}>Şirketiniz SMS bildirimini açtıysa size gelen bildirimler bu numaraya da gönderilir. Numarayı yalnız siz görür ve değiştirirsiniz.</p>
+      {q.isLoading ? <Loading /> : <ErrorNotice error={q.error ?? save.error} />}
+      <div className="row" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
+        <label className="field" style={{ flex: 1 }}>Cep telefonu<input aria-label="Bildirim telefonu" inputMode="tel" placeholder="05xx xxx xx xx" value={shown} onChange={(e) => setV(e.target.value)} /></label>
+        <button className="primary" disabled={save.isPending || !shown.trim()} onClick={() => save.mutate(shown)}>Kaydet</button>
+        {cur ? <button disabled={save.isPending} onClick={() => save.mutate(null)}>Kaldır</button> : null}
+      </div>
+      {save.isSuccess ? <div className="notice ok">{save.data.phone ? "Kaydedildi." : "Kaldırıldı."}</div> : null}
+    </section>
   );
 }

@@ -25,6 +25,7 @@ export function WorkflowTabs() {
       <NavLink to="/workflow/delegations">Vekâlet</NavLink>
       {can("workflow.manage") ? <NavLink to="/workflow/monitor">İzleme & müdahale</NavLink> : null}
       {can("workflow.manage") ? <NavLink to="/workflow/email">Bildirim e-postası</NavLink> : null}
+      {can("workflow.manage") ? <NavLink to="/workflow/sms">SMS</NavLink> : null}
     </div>
   );
 }

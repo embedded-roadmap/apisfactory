@@ -78,6 +78,7 @@ const DelegationsPage = lazyNamed(() => import("./pages/Workflow"), "Delegations
 const WorkflowMonitorPage = lazyNamed(() => import("./pages/Workflow"), "WorkflowMonitorPage");
 const WorkflowPage = lazyNamed(() => import("./pages/Workflow"), "WorkflowPage");
 const EmailChannelPage = lazyNamed(() => import("./pages/EmailChannel"), "EmailChannelPage");
+const SmsChannelPage = lazyNamed(() => import("./pages/SmsChannel"), "SmsChannelPage");
 const ScenariosPage = lazyNamed(() => import("./pages/Scenarios"), "ScenariosPage");
 const SubcontractJobsPage = lazyNamed(() => import("./pages/Subcontract"), "SubcontractJobsPage");
 const HelpPage = lazyNamed(() => import("./pages/Help"), "HelpPage");
@@ -322,6 +323,7 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               <Route path="/workflow/delegations" element={<DelegationsPage />} />
               <Route path="/workflow/monitor" element={<WorkflowMonitorPage />} />
               <Route path="/workflow/email" element={<EmailChannelPage />} />
+              <Route path="/workflow/sms" element={<SmsChannelPage />} />
               <Route path="/admin" element={<AdminPage />} />
               <Route path="/help" element={<HelpPage />} />
               <Route path="/onboarding" element={<OnboardingPage />} />

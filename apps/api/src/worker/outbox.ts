@@ -9,6 +9,7 @@ import { pushMeeting, runCalendarPull } from "../modules/calendar";
 import { reconcileBilling, runSubscriptionLifecycle } from "../modules/billing";
 import { processCargoLabel, processEinvoiceSend } from "../modules/dispatch";
 import { EMAIL_JOB_TOPICS, processEmailJob } from "../lib/email";
+import { processSmsJob } from "../lib/sms";
 
 /**
  * Çıkış kutusu işleyicisi. Dış çağrılar: takvim, e-belge, kargo etiketi ve bildirim e-postası (şirketin SMTP ayarı);
@@ -40,9 +41,15 @@ async function tick(client: pg.Client) {
         const res = await pushMeeting(job.company_id, job.payload.meetingId);
         console.log(`[calendar] ${job.payload.meetingId}: ${res.status}${res.reason ? ` (${res.reason})` : ""}`);
       } else if (EMAIL_JOB_TOPICS.has(job.topic)) {
-        // Şirketin SMTP ayarına göre: kapalı → yalnız uygulama içi, test → kaydedilir, canlı → gönderilir.
-        const res = await processEmailJob(job.company_id, String(job.id), job.topic, job.payload);
-        console.log(`[email] ${job.topic}: ${res.handled ? res.status : "ignored"}`);
+        // Şirketin e-posta ve SMS ayarına göre: kapalı → yalnız uygulama içi, test → kaydedilir, canlı → gönderilir.
+        // İki kanal birbirini engellemez; biri geçici hata verirse iş yeniden denenir, gönderilmiş alıcılar atlanır.
+        const [em, sm] = await Promise.allSettled([
+          processEmailJob(job.company_id, String(job.id), job.topic, job.payload),
+          processSmsJob(job.company_id, String(job.id), job.topic, job.payload),
+        ]);
+        console.log(`[notify] ${job.topic}: e-posta ${em.status === "fulfilled" ? (em.value.handled ? em.value.status : "ignored") : "retry"}, sms ${sm.status === "fulfilled" ? (sm.value.handled ? sm.value.status : "ignored") : "retry"}`);
+        const failed = [em, sm].find((x) => x.status === "rejected") as PromiseRejectedResult | undefined;
+        if (failed) throw failed.reason;
       } else {
         console.log(`[outbox:test] ${job.topic}`, job.payload);
       }

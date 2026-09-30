@@ -42,6 +42,7 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | Microsoft 365/Outlook OAuth | Microsoft Entra ID uygulama kaydı; kod hazır (oturum 41) | `MS_OAUTH_CLIENT_ID`, `MS_OAUTH_CLIENT_SECRET`, `MS_OAUTH_TENANT`, `OAUTH_REDIRECT_BASE` | Gerçek hesapla OAuth akışı ve delta sorgu |
 | Distribütör API'leri (DigiKey/Mouser/Farnell/Nexar/LCSC) | Her şirketin kendi geliştirici hesabı + ticari kullanım şartı onayı | Şirket başına: Distribütörler ekranında şifreli kayıt (`distributor_connectors.credentials_enc`); platform düzeyinde yalnız `CONNECTOR_SECRET_KEY` | DigiKey/Mouser/element14 adaptörleri yazıldı (oturum 41, **doğrulanmadı**) — ücretsiz geliştirici anahtarıyla gerçek MPN sorgusu |
 | Ödeme sağlayıcısı (W42 — abonelik ücreti tahsilatı) | **iyzico seçildi** (oturum 41); kod hazır — iyzico üye işyeri hesabı + Abonelik eklentisi + USD/EUR tahsilat izni bekleniyor | `IYZICO_API_KEY`, `IYZICO_SECRET_KEY`, `IYZICO_BASE_URL`, `PUBLIC_API_BASE` (platform düzeyi); fiyat/plan referansları `subscription_prices` | Sandbox'ta test kartıyla gerçek abonelik başlatma, bildirim ve otomatik durum güncellemesi |
+| SMS bildirimi (Netgsm / Verimor) | Şirketin kendi SMS hesabı + onaylı gönderici başlığı (Verimor ayrıca sunucu IP izni ister) — kod hazır (oturum 41, **doğrulanmadı**) | Şirket başına: İş akışı → SMS ekranı (`sms_channels.credentials_enc` şifreli); çalışan telefonu kişinin kendi Parola sayfasından | Gerçek hesapla "kendime deneme SMS'i" ve canlı modda bildirim teslimi |
 | Bildirim e-postası (SMTP) | Şirketin kendi e-posta sağlayıcısının SMTP hesabı (Google Workspace, Microsoft 365, Yandex, barındırma firması vb.) — **her şirket kendisi seçer**; kod hazır (oturum 41) | Şirket başına: İş akışı → Bildirim e-postası ekranı (`email_channels`, parola `credentials_enc` şifreli); platform düzeyinde yalnız `CONNECTOR_SECRET_KEY` | Gerçek bir SMTP hesabıyla "kendime deneme e-postası" ve canlı modda bildirim teslimi |
 | AI/LLM sağlayıcısı (W30 yorum katmanı) | **Anthropic Claude seçildi** (oturum 41); kod hazır — yalnız API anahtarı bekleniyor | `ANTHROPIC_API_KEY` (+ isteğe bağlı `AI_MODEL`, varsayılan `claude-opus-5`) — yerelde `apps/api/.env`, sunucuda secret store | Gerçek anahtarla canlı yorum üretimi ve `ai_status='generated'` doğrulaması |
 
@@ -1565,3 +1566,15 @@ otomatik en ucuz/en hızlı (`ECONOMIC`/`FAST`) — firma ayardan seçilir. Akı
 (10 durum → ortak durum). Koli ölçüsü tutulmadığından yükseklik/genişlik/derinlik şirket ayarı; telefon belgeye göre 10 haneye indirgenir,
 olmuyorsa gönderilmez. Etiket yalnız SVG veriliyor — SVG betik taşıyabildiği için uygulama alanından satır içi sunulmaz, panelden basılır.
 Ayrı test ortamı yok. `cargo-adapters.test.ts` +4.
+
+## Oturum 41 devamı — SMS bildirimi: Netgsm ve Verimor (dış bağımlılık 4, DOĞRULANMADI)
+
+Migration 071: `sms_channels` (mod, sağlayıcı, gönderici başlığı, şifreli erişim bilgisi, konu seçimi), değişmez `sms_deliveries`,
+`memberships.notify_phone` (905xxxxxxxxx; yalnız kişinin kendisi `PUT /api/me/notify-phone` ile yazar). `lib/sms.ts`: Netgsm resmi JS
+SDK'sındaki sözleşme (REST v2, Basic auth, kod 00 + jobid; 20/30/40/50/51/70 kalıcı, 80/85/100/101 geçici), Verimor resmi kılavuzu
+(`send.json`, 200 kampanya no / 400 düz metin). Alıcı: iç bildirimde kişinin telefonu (yükseltmede rol üyeleri), müşteri hatırlatmasında
+varsayılan teslim adresindeki cep telefonu. Metin: iç bildirimde yalnız başlık + bağlantı, müşteride şirketin hatırlatma şablonu.
+Bilgilendirme amaçlı — İYS/ticari işaret gönderilmez. İşçi e-posta ve SMS'i birbirini beklemeden çalıştırır; biri geçici hata verirse
+iş yeniden denenir, iki kanalda da gönderilmiş alıcılar atlanır. Netgsm belge sitesi bot korumalı (aşılmadı) → Netgsm'in kendi GitHub
+SDK'sı kaynak alındı. Web: İş akışı → SMS, Parola sayfasında "Bildirim telefonum". `sms.test.ts` 9/9. Ops panosu testi Basit Kargo
+ile 18 bağlayıcıya güncellendi. Tam paket 462/462.
