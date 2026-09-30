@@ -54,9 +54,11 @@ beforeAll(async () => {
   shipB = expectOk(await call(w.app, W, A, "POST", `/api/sales-orders/${o.id}/shipments`, { lines: [{ lineId: o.lines[0].id, qty: "2" }] })).id;
 });
 
+const realMng = CARGO_PROVIDERS.mng;
+
 afterAll(async () => {
   delete CARGO_PROVIDERS.aras;
-  delete CARGO_PROVIDERS.mng;
+  CARGO_PROVIDERS.mng = realMng;
   await w.app.close();
   await w.owner.end();
   await closePool();

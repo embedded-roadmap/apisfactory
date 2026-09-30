@@ -36,8 +36,8 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 
 | Sağlayıcı/konu | Gerekli erişim | Güvenli yapılandırma yeri | Bekleyen doğrulama |
 |---|---|---|---|
-| E-fatura özel entegratörü (Uyumsoft/Foriba/Logo/Paraşüt/Nesbilgi/GİB Portalı) | API kullanıcı/parola veya sertifika (sağlayıcıya göre değişir) — **her şirketin kendi sözleşmesi** | Şirket başına: e-belge bağlayıcıları ekranında şifreli kayıt (`einvoice_connectors.credentials_enc`). Platform düzeyinde yalnız şifreleme anahtarı: `CONNECTOR_SECRET_KEY` (sunucu tarafı secret store) | API'siz her entegratörle PORTAL modu hazır (oturum 41: XML indir → portala yükle → ETTN gir). Doğrudan API için: sağlayıcı seçimi → adaptör → sağlayıcı test ortamında gerçek gönderim ve ETTN |
-| Kargo firması (her şirketin kendi anlaşmalısı) | API anahtarı/müşteri kodu (firmaya göre değişir — adaptör tanımlar) | Şirket başına: kargo bağlayıcıları ekranında şifreli kayıt (`cargo_connectors.credentials_enc`); platform düzeyinde yalnız `CONNECTOR_SECRET_KEY` | API'siz her firmayla ELLE modu hazır (oturum 41: takip no + elle durum + takip sayfası şablonu). Doğrudan API için: firma seçimi → adaptör → firmanın test ortamında gerçek etiket/takip |
+| E-fatura özel entegratörü (Uyumsoft/Foriba/Logo/Paraşüt/Nesbilgi/GİB Portalı) | API kullanıcı/parola veya sertifika (sağlayıcıya göre değişir) — **her şirketin kendi sözleşmesi** | Şirket başına: e-belge bağlayıcıları ekranında şifreli kayıt (`einvoice_connectors.credentials_enc`). Platform düzeyinde yalnız şifreleme anahtarı: `CONNECTOR_SECRET_KEY` (sunucu tarafı secret store) | API'siz her entegratörle PORTAL modu hazır (oturum 41). Paraşüt API adaptörü yazıldı (**doğrulanmadı**) — Paraşüt test firması + client id/secret (destek@parasut.com) ile gerçek gönderim ve ETTN |
+| Kargo firması (her şirketin kendi anlaşmalısı) | API anahtarı/müşteri kodu (firmaya göre değişir — adaptör tanımlar) | Şirket başına: kargo bağlayıcıları ekranında şifreli kayıt (`cargo_connectors.credentials_enc`); platform düzeyinde yalnız `CONNECTOR_SECRET_KEY` | API'siz her firmayla ELLE modu hazır (oturum 41). MNG API adaptörü yazıldı (**doğrulanmadı**) — apizone.mngkargo.com.tr uygulama kaydı + MNG müşteri no/şifre ile sandbox'ta gerçek gönderi/takip |
 | Google Calendar OAuth | Google Cloud Console'da uygulama kaydı (client id/secret) — platform işletmecisi tarafından; kod hazır (oturum 41) | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `OAUTH_REDIRECT_BASE` | Gerçek hesapla OAuth akışı ve artımlı senkron |
 | Microsoft 365/Outlook OAuth | Microsoft Entra ID uygulama kaydı; kod hazır (oturum 41) | `MS_OAUTH_CLIENT_ID`, `MS_OAUTH_CLIENT_SECRET`, `MS_OAUTH_TENANT`, `OAUTH_REDIRECT_BASE` | Gerçek hesapla OAuth akışı ve delta sorgu |
 | Distribütör API'leri (DigiKey/Mouser/Farnell/Nexar/LCSC) | Her şirketin kendi geliştirici hesabı + ticari kullanım şartı onayı | Şirket başına: Distribütörler ekranında şifreli kayıt (`distributor_connectors.credentials_enc`); platform düzeyinde yalnız `CONNECTOR_SECRET_KEY` | DigiKey/Mouser/element14 adaptörleri yazıldı (oturum 41, **doğrulanmadı**) — ücretsiz geliştirici anahtarıyla gerçek MPN sorgusu |
@@ -1534,3 +1534,24 @@ Hata mesajlarında anahtar/gövde yok. `distributor-adapters.test.ts` 9/9 (sahte
 `distributor-live.test.ts` gerçek adaptörleri silmeyecek şekilde düzeltildi (adaptörsüz örnek artık LCSC).
 **Doğrulama için:** DigiKey (developer.digikey.com, sandbox uygulaması), Mouser (mouser.com/api-hub, Search API anahtarı), element14
 (partner.element14.com anahtarı) — üçü de ücretsiz; anahtar Distribütörler ekranına girilir, W03 lisans teyidi sonrası canlıya alınır.
+
+## Oturum 41 devamı — Paraşüt (e-belge) ve MNG Kargo adaptörleri (dış bağımlılık 1b/2b, DOĞRULANMADI)
+
+**Paraşüt** (`lib/einvoice-adapters.ts`): kaynak apidocs.parasut.com/swagger.json ve belgenin "Satış Faturası Resmileştirme"
+bölümü. Akış: password grant → `e_invoice_inboxes?filter[vkn]` (gelen kutusu varsa e-Fatura zorunlu, yoksa e-Arşiv — seçim
+uyuşmazsa gönderilmez) → müşteri kartı bul/oluştur → `sales_invoices` → `e_invoices` (ilişki `invoice`, `to` = alıcı etiketi) veya
+`e_archives` (ilişki `sales_invoice`) → `trackable_jobs` yoklaması → `?include=active_e_document` UUID = ETTN. Hata sınıfı:
+resmileştirme isteğinden önceki her ret ve iş takibi 'error' → kesin ret (yeniden gönderilebilir); zaman aşımı / UUID yok → belirsiz.
+Sınırlar: yalnız TL (döviz kuru belgemizde yok, uydurulmaz); ayrı test adresi yok (Paraşüt test firmasıyla denenir); kesin
+retten sonra yeniden gönderimde Paraşüt'te ikinci bir (resmileşmemiş) satış faturası kalabilir. `einvoice-adapters.test.ts` 7/7.
+
+**MNG Kargo** (`lib/cargo-adapters.ts`): kaynak apizone.mngkargo.com.tr ürün sayfalarına gömülü resmi Swagger 2.0 tanımları
+(Identity, Standard Command, Barcode Command, Standard Query, CBS Info). Akış: `/mngapi/api/token` (müşteri no + şifre,
+X-IBM-Client-Id/Secret) → CBS il/ilçe kodu (Türkçe karakter sadeleştirmeli eşleşme) → `createOrder` (referans = sevkiyat kodu,
+aynı referansla ikinci sipariş açılamaz) → `createbarcode` (gönderi numarası = takip no) · takip `getshipmentstatusByShipmentId`
+(1–8 durum kodu eşlemesi, GMT+3 tarih). Ayarlar: gönderi tipi, kargo cinsi, ödeme, koli başına desi (ölçü tutulmuyor), test adresi
+(resmi tanımda yok; varsayılan testapi.mngkargo.com.tr, yalnız *.mngkargo.com.tr). Barkod değeri yalnız içeriği ZPL ise etiket
+dosyası sayılır (biçim belgede yazmıyor). Sipariş açılıp gönderiye çevrilemezse belirsiz (referanslı mesaj). `cargo-adapters.test.ts` 8/8.
+
+Ekranda e-belge ve kargo bağlayıcılarında da "var · doğrulanmadı" + belge bağlantısı (`AdapterBadge`). Mevcut `einvoice-live` ve
+`cargo-live` testleri gerçek adaptörleri silmeyecek şekilde düzeltildi.

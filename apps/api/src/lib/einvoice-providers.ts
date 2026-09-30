@@ -1,10 +1,11 @@
 import type { Db } from "../db/pool";
+import { EINVOICE_ADAPTERS } from "./einvoice-adapters";
 
 /**
  * E-fatura/e-arşiv sağlayıcı adaptörleri. Her entegratörün API'si farklıdır (REST/SOAP, UBL-TR XML veya JSON),
- * bu yüzden gerçek gönderim sağlayıcı başına bir adaptörle yapılır. Kayıt defteri BİLEREK boştur: bir sağlayıcının
- * adaptörü, o sağlayıcının kendi test ortamına karşı doğrulanmadan buraya eklenmez; adaptörü olmayan bağlayıcı
- * 'live' moda alınamaz (sahte "bağlandı" durumu üretilmez).
+ * bu yüzden gerçek gönderim sağlayıcı başına bir adaptörle yapılır. Adaptörü olmayan bağlayıcı 'live' moda alınamaz
+ * (sahte "bağlandı" durumu üretilmez). Oturum 41 devamı: Paraşüt adaptörü resmi belgeden yazıldı ama gerçek hesapla
+ * DOĞRULANMADI (`verified: false`, ekranda öyle gösterilir; lib/einvoice-adapters.ts).
  */
 
 export type EinvoiceEnvironment = "sandbox" | "production";
@@ -39,10 +40,13 @@ export type EinvoiceDocument = {
 export interface EinvoiceProvider {
   /** Sağlayıcının istediği erişim bilgisi alanları (ör. kullanıcı adı, parola) — arayüz formu ve doğrulama için. */
   credentialFields: string[];
+  /** Gerçek bir hesapla uçtan uca denendi mi (false: yalnız yayımlanmış belgeden yazıldı). */
+  verified?: boolean;
+  docsUrl?: string;
   send(doc: EinvoiceDocument, credentials: Record<string, string>, environment: EinvoiceEnvironment): Promise<{ ettn: string; providerRef?: string }>;
 }
 
-export const EINVOICE_PROVIDERS: Partial<Record<string, EinvoiceProvider>> = {};
+export const EINVOICE_PROVIDERS: Partial<Record<string, EinvoiceProvider>> = { ...EINVOICE_ADAPTERS };
 
 export type ReadinessIssue = { field: string; message: string };
 

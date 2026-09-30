@@ -5,7 +5,7 @@ import { get, newKey, post } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, fmt, fmtDate, useCan } from "../lib/ui";
 import { History } from "./Sales";
 import { Discussion } from "../components/Discussion";
-import { ConnectorCredentialsForm, ENV_LABEL, MODE_LABEL, ModeBadge, ModeOptions, AddCustomConnector } from "../components/Connectors";
+import { ConnectorCredentialsForm, ENV_LABEL, MODE_LABEL, ModeBadge, ModeOptions, AddCustomConnector, AdapterBadge } from "../components/Connectors";
 
 const ST: Record<string, [string, string]> = { draft: ["taslak", "warn"], issued: ["kesildi — açık", "warn"], paid: ["tahsil edildi", "ok"], cancelled: ["iptal", ""] };
 const today = () => new Date().toISOString().slice(0, 10);
@@ -48,7 +48,7 @@ export function EinvoiceConnectorsPage() {
             <tr key={c.id}>
               <td>{c.name}{c.isCustom ? <span className="muted"> (eklenen)</span> : null}</td>
               <td><ModeBadge mode={c.mode} /></td>
-              <td>{c.adapterAvailable ? <span className="badge ok">var</span> : <span className="muted">geliştirilmedi</span>}</td>
+              <td>{c.adapterAvailable ? <AdapterBadge c={c} /> : <span className="muted">geliştirilmedi</span>}</td>
               <td>{c.hasCredentials ? <>kayıtlı · {ENV_LABEL[c.environment] ?? c.environment}<div className="muted" style={{ fontSize: 13 }}>{fmtDate(c.credentialsUpdatedAt)}</div></> : <span className="muted">yok</span>}</td>
               <td className="muted">{c.note ?? "—"}</td>
               <td><button onClick={() => setEdit({ ...c, reason: "" })}>Ayarla</button></td>

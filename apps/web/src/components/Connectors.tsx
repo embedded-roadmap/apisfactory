@@ -31,6 +31,18 @@ export function ModeOptions({ c, kind }: { c: { adapterAvailable?: boolean; hasC
   );
 }
 
+/** Adaptör rozeti: yayımlanmış belgeden yazılıp gerçek hesapla denenmemiş adaptör "doğrulanmadı" olarak gösterilir. */
+export function AdapterBadge({ c, extra = "" }: { c: { adapterVerified?: boolean | null; adapterDocsUrl?: string | null }; extra?: string }) {
+  return (
+    <>
+      {c.adapterVerified === false
+        ? <span className="badge warn" title="Yayımlanmış API belgesinden yazıldı; gerçek bir hesapla henüz denenmedi">var · doğrulanmadı{extra}</span>
+        : <span className="badge ok">var{extra}</span>}
+      {c.adapterDocsUrl ? <> <a href={c.adapterDocsUrl} target="_blank" rel="noopener noreferrer">belge</a></> : null}
+    </>
+  );
+}
+
 /** Listede olmayan sağlayıcıyı ekleme (entegratör / kargo firması). */
 export function AddCustomConnector({ basePath, queryKey, label }: { basePath: string; queryKey: string; label: string }) {
   const qc = useQueryClient();

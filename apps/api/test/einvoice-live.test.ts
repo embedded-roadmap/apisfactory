@@ -62,8 +62,10 @@ beforeAll(async () => {
   expectOk(await call(w.app, M, A, "POST", `/api/customer-invoices/${invoiceId}/issue`, {}));
 });
 
+const realParasut = EINVOICE_PROVIDERS.parasut;
+
 afterAll(async () => {
-  delete EINVOICE_PROVIDERS.parasut;
+  EINVOICE_PROVIDERS.parasut = realParasut;
   await w.app.close();
   await w.owner.end();
   await closePool();

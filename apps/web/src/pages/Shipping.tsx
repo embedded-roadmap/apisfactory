@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SalesOrder } from "@apisfactory/shared";
 import { get, newKey, openDownload, post } from "../lib/api";
-import { AddCustomConnector, ConnectorCredentialsForm, ENV_LABEL, MODE_LABEL, ModeBadge, ModeOptions } from "../components/Connectors";
+import { AddCustomConnector, ConnectorCredentialsForm, ENV_LABEL, MODE_LABEL, ModeBadge, ModeOptions, AdapterBadge } from "../components/Connectors";
 import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, fmtDate, useCan } from "../lib/ui";
 import { Barcode } from "../lib/Barcode";
 import { History } from "./Sales";
@@ -191,7 +191,7 @@ export function CargoConnectorsPage() {
             <tr key={c.id}>
               <td>{c.name}{c.isCustom ? <span className="muted"> (eklenen)</span> : null}{c.note ? <div className="muted" style={{ fontSize: 13 }}>{c.note}</div> : null}</td>
               <td><ModeBadge mode={c.mode} /></td>
-              <td>{c.adapterAvailable ? <span className="badge ok">var{c.trackingSupported ? " · takip" : ""}</span> : <span className="muted">geliştirilmedi</span>}</td>
+              <td>{c.adapterAvailable ? <AdapterBadge c={c} extra={c.trackingSupported ? " · takip" : ""} /> : <span className="muted">geliştirilmedi</span>}</td>
               <td>{c.hasCredentials ? <>kayıtlı · {ENV_LABEL[c.environment] ?? c.environment}</> : <span className="muted">yok</span>}</td>
               <td className="muted">{Object.keys(c.settings ?? {}).length ? Object.entries(c.settings).map(([k, v]) => `${k}: ${v}`).join(", ") : "—"}</td>
               <td>{can("shipment.create") ? <button onClick={() => setEdit({ ...c, reason: "" })}>Ayarla</button> : null}</td>

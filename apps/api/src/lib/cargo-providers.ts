@@ -1,11 +1,12 @@
 import type { Db } from "../db/pool";
 import type { ReadinessIssue } from "./einvoice-providers";
+import { CARGO_ADAPTERS } from "./cargo-adapters";
 
 /**
  * Kargo firması adaptörleri. Firmalar arasında değişen her şey adaptördedir; yeni bir firma eklemek = bu arayüzü
  * uygulayan bir nesne yazıp CARGO_PROVIDERS'a kaydetmek (+ firma anahtarı migration 024'teki listede değilse CHECK'e
- * eklemek). Kayıt defteri BİLEREK boştur: bir adaptör, o firmanın kendi test ortamına karşı doğrulanmadan eklenmez;
- * adaptörü olmayan bağlayıcı 'live' moda alınamaz.
+ * eklemek). Adaptörü olmayan bağlayıcı 'live' moda alınamaz. Oturum 41 devamı: MNG adaptörü MNG'nin resmi Swagger
+ * tanımlarından yazıldı ama gerçek hesapla DOĞRULANMADI (`verified: false`; lib/cargo-adapters.ts).
  */
 
 export type CargoEnvironment = "sandbox" | "production";
@@ -43,6 +44,9 @@ export interface CargoProvider {
   credentialFields: string[];
   /** Firmaya özel, gizli olmayan ayarlar. */
   settingFields: CargoSettingField[];
+  /** Gerçek bir hesapla uçtan uca denendi mi (false: yalnız yayımlanmış belgeden yazıldı). */
+  verified?: boolean;
+  docsUrl?: string;
   /** Kargo kaydı açar; firmanın takip numarası ve (varsa) etiket dosyası döner. */
   createShipment(
     req: CargoShipmentRequest,
@@ -55,7 +59,7 @@ export interface CargoProvider {
   ): Promise<{ status: CargoStatus; raw: string; at: string | null }>;
 }
 
-export const CARGO_PROVIDERS: Partial<Record<string, CargoProvider>> = {};
+export const CARGO_PROVIDERS: Partial<Record<string, CargoProvider>> = { ...CARGO_ADAPTERS };
 
 /** Kargo kaydı ön koşulları (firmadan bağımsız): gönderici adres/telefon, alıcı adres/telefon, en az bir kapalı koli. */
 export async function cargoReadiness(db: Db, shipmentId: string): Promise<{ issues: ReadinessIssue[]; req: CargoShipmentRequest | null }> {

@@ -69,7 +69,7 @@ export async function dispatchRoutes(app: FastifyInstance) {
                   credentials_enc is not null as "hasCredentials", credentials_updated_at as "credentialsUpdatedAt"
              from einvoice_connectors order by is_custom, key`,
         )
-      ).rows.map((r) => ({ ...r, adapterAvailable: Boolean(EINVOICE_PROVIDERS[r.key]), credentialFields: EINVOICE_PROVIDERS[r.key]?.credentialFields ?? null }));
+      ).rows.map((r) => ({ ...r, adapterAvailable: Boolean(EINVOICE_PROVIDERS[r.key]), adapterVerified: EINVOICE_PROVIDERS[r.key]?.verified ?? null, adapterDocsUrl: EINVOICE_PROVIDERS[r.key]?.docsUrl ?? null, credentialFields: EINVOICE_PROVIDERS[r.key]?.credentialFields ?? null }));
     }),
   );
 
@@ -260,7 +260,7 @@ export async function dispatchRoutes(app: FastifyInstance) {
         )
       ).rows.map((r) => {
         const p = CARGO_PROVIDERS[r.key];
-        return { ...r, adapterAvailable: Boolean(p), credentialFields: p?.credentialFields ?? null, settingFields: p?.settingFields ?? null, trackingSupported: Boolean(p?.track) };
+        return { ...r, adapterAvailable: Boolean(p), adapterVerified: p?.verified ?? null, adapterDocsUrl: p?.docsUrl ?? null, credentialFields: p?.credentialFields ?? null, settingFields: p?.settingFields ?? null, trackingSupported: Boolean(p?.track) };
       });
     }),
   );
