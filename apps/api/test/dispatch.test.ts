@@ -58,7 +58,7 @@ describe("E-fatura/e-arşiv ve kargo bağlayıcıları (W36)", () => {
     expect(e.map((c: any) => c.key).sort()).toEqual(["foriba", "gib_portal", "logo", "nesbilgi", "parasut", "uyumsoft"]);
     expect(e.every((c: any) => c.mode === "not_connected")).toBe(true);
     const c = expectOk(await call(w.app, "manager@a.test", A, "GET", "/api/cargo-connectors"));
-    expect(c.map((x: any) => x.key).sort()).toEqual(["aras", "mng", "ptt", "surat", "ups", "yurtici"]);
+    expect(c.map((x: any) => x.key).sort()).toEqual(["aras", "basitkargo", "mng", "ptt", "surat", "ups", "yurtici"]);
     const denied = await call(w.app, W, A, "POST", `/api/einvoice-connectors/${e[0].id}`, { mode: "test", reason: "deneme" });
     expect(denied.status).toBe(403);
     const noReason = await call(w.app, M, A, "POST", `/api/einvoice-connectors/${e[0].id}`, { mode: "test" });

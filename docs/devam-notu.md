@@ -1555,3 +1555,13 @@ dosyası sayılır (biçim belgede yazmıyor). Sipariş açılıp gönderiye çe
 
 Ekranda e-belge ve kargo bağlayıcılarında da "var · doğrulanmadı" + belge bağlantısı (`AdapterBadge`). Mevcut `einvoice-live` ve
 `cargo-live` testleri gerçek adaptörleri silmeyecek şekilde düzeltildi.
+
+## Oturum 41 devamı — Basit Kargo adaptörü (çok firmalı toplayıcı, DOĞRULANMADI)
+
+`lib/cargo-adapters.ts` `basitkargo` (kaynak: basitkargo.com/api, herkese açık). Kargo bağlayıcıları listesine "Basit Kargo (çok firmalı)" eklendi.
+Tek API anahtarıyla PTT, MNG, Yurtiçi, Aras, Sürat, HepsiJET, KolayGelsin, Birgünde veya şirketin kendi anlaşması (`SELF_…`) ya da
+otomatik en ucuz/en hızlı (`ECONOMIC`/`FAST`) — firma ayardan seçilir. Akış: `POST /v2/order` (taslak) → `POST /v2/order/{id}/barcode`
+(belge: başarısızlıkta sipariş taslak kalır, ücret düşmez → açık ret kesin; 5xx/ağ hatası belirsiz) · takip `GET /v2/order/barcode/{no}`
+(10 durum → ortak durum). Koli ölçüsü tutulmadığından yükseklik/genişlik/derinlik şirket ayarı; telefon belgeye göre 10 haneye indirgenir,
+olmuyorsa gönderilmez. Etiket yalnız SVG veriliyor — SVG betik taşıyabildiği için uygulama alanından satır içi sunulmaz, panelden basılır.
+Ayrı test ortamı yok. `cargo-adapters.test.ts` +4.

@@ -189,4 +189,101 @@ export const mng: CargoProvider = {
   },
 };
 
-export const CARGO_ADAPTERS: Record<string, CargoProvider> = { mng };
+// ---- Basit Kargo (toplayıcı) ---------------------------------------------------------------------------------------
+// Kaynak: basitkargo.com/api (herkese açık REST belgesi). Tek adaptörle PTT, MNG, Yurtiçi, Aras, Sürat, HepsiJET,
+// KolayGelsin, Birgünde + şirketin kendi anlaşması (SELF_…). Ayrı test ortamı yok. Etiket SVG'dir; SVG betik taşıyabildiği
+// için uygulama alanından satır içi sunulmaz — etiket Basit Kargo panelinden basılır.
+
+const BK_BASE = "https://basitkargo.com/api";
+const BK_HANDLERS = ["PTT", "MNG", "YURTICI", "ARAS", "SURAT", "HEPSIJET", "KOLAYGELSIN", "BIRGUNDEKARGO", "ECONOMIC", "FAST", "SELF_PTT", "SELF_MNG", "SELF_YURTICI", "SELF_ARAS", "SELF_SURAT"];
+const BK_STATUS: Record<string, CargoStatus> = {
+  NEW: "created", READY_TO_SHIP: "created", SHIPPED: "in_transit", DELAYED: "in_transit", OUT_FOR_DELIVERY: "out_for_delivery",
+  DELIVERED: "delivered", RETURNING: "returned", RETURNED: "returned", NEEDS_SUPPORT: "problem", LOST: "problem",
+};
+
+async function bkError(res: Response) {
+  try {
+    const j = (await res.json()) as { message?: string; error?: string; errors?: string[] };
+    const m = j.message ?? j.error ?? j.errors?.join("; ");
+    return m ? `HTTP ${res.status}: ${String(m).slice(0, 200)}` : `HTTP ${res.status}`;
+  } catch {
+    return `HTTP ${res.status}`;
+  }
+}
+
+/** Belge: telefon 10 hane olmalı (fazla hane kesilmez, reddedilir) → 0/90 öneki atılır, 10 hane değilse gönderilmez. */
+export function tenDigitPhone(v: string | null) {
+  let d = String(v ?? "").replace(/\D/g, "");
+  if (d.length === 12 && d.startsWith("90")) d = d.slice(2);
+  if (d.length === 11 && d.startsWith("0")) d = d.slice(1);
+  return /^\d{10}$/.test(d) ? d : null;
+}
+
+const dim = (v: string | undefined, label: string) => {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0 || n > 500) throw new ConnectorError(`Basit Kargo ayarı: ${label} 0–500 cm arası olmalı`, { notSent: true });
+  return n;
+};
+
+export const basitkargo: CargoProvider = {
+  credentialFields: ["apiToken"],
+  settingFields: [
+    { key: "handlerCode", label: "Kargo firması (SELF_ = kendi anlaşmanız, ECONOMIC/FAST = otomatik)", options: BK_HANDLERS, required: true },
+    { key: "packageHeightCm", label: "Koli yüksekliği (cm)", required: true },
+    { key: "packageWidthCm", label: "Koli genişliği (cm)", required: true },
+    { key: "packageDepthCm", label: "Koli derinliği (cm)", required: true },
+    { key: "addressId", label: "Kayıtlı gönderici adres ID (boşsa varsayılan)" },
+  ],
+  verified: false,
+  docsUrl: "https://basitkargo.com/api",
+
+  async createShipment(req, ctx) {
+    const s = ctx.settings;
+    if (!BK_HANDLERS.includes(s.handlerCode ?? "")) throw new ConnectorError("Basit Kargo ayarı: kargo firması seçilmeli", { notSent: true });
+    const [h, wd, dp] = [dim(s.packageHeightCm, "yükseklik"), dim(s.packageWidthCm, "genişlik"), dim(s.packageDepthCm, "derinlik")];
+    const phone = tenDigitPhone(req.recipient.phone);
+    if (!phone) throw new ConnectorError("Basit Kargo için alıcı telefonu 10 haneli olmalı (5xx…)", { notSent: true });
+    if (!req.recipient.district) throw new ConnectorError("Basit Kargo için alıcı adresinde ilçe gerekli", { notSent: true });
+    const missing = req.packages.filter((p) => p.weightKg === null).map((p) => p.code);
+    if (missing.length) throw new ConnectorError(`Basit Kargo için koli ağırlığı gerekli: ${missing.join(", ")}`, { notSent: true });
+    const headers = { authorization: `Bearer ${ctx.credentials.apiToken}`, "content-type": "application/json", accept: "application/json" };
+
+    // 1) Taslak sipariş (NEW). Başarısızsa hiçbir kayıt yok.
+    const o = await http(`${BK_BASE}/v2/order`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        type: "OUTGOING",
+        content: { name: `Sevkiyat ${req.shipmentCode}`, code: req.shipmentCode, packages: req.packages.map((p) => ({ height: h, width: wd, depth: dp, weight: Number(p.weightKg) })) },
+        client: { name: req.recipient.name, phone, city: req.recipient.city, town: req.recipient.district, address: [req.recipient.line1, req.recipient.line2].filter(Boolean).join(" ") },
+        ...(s.addressId ? { addressId: s.addressId } : {}),
+      }),
+    });
+    if (!o.ok) throw new ConnectorError(`Basit Kargo sipariş: ${await bkError(o)}`, { notSent: true });
+    const order = (await o.json()) as { id?: string };
+    if (!order.id) throw new ConnectorError("Basit Kargo sipariş: kimlik dönmedi", { notSent: true });
+
+    // 2) Kargo kodu. Belge: başarısızlıkta sipariş NEW kalır (ücret düşülmez) → açık ret kesin; ağ hatası belirsiz.
+    let b: Response;
+    try {
+      b = await http(`${BK_BASE}/v2/order/${encodeURIComponent(order.id)}/barcode`, { method: "POST", headers, body: JSON.stringify({ handlerCode: s.handlerCode }) });
+    } catch (e) {
+      throw new Error(`Basit Kargo sipariş ${order.id} açıldı, kargo kodu yanıtı alınamadı (${(e as Error).name}) — panelden kontrol edin`);
+    }
+    if (b.status >= 500) throw new Error(`Basit Kargo sipariş ${order.id}: kargo kodu isteği ${await bkError(b)} — panelden kontrol edin`);
+    if (!b.ok) throw new ConnectorError(`Basit Kargo kargo kodu: ${await bkError(b)} (taslak sipariş ${order.id} panelde kalır)`, { notSent: true });
+    const r = (await b.json()) as { id: string; barcode?: string; shipmentInfo?: { handler?: { name?: string }; handlerShipmentCode?: string | null } };
+    if (!r.barcode) throw new Error(`Basit Kargo sipariş ${order.id}: kargo kodu dönmedi — panelden kontrol edin`);
+    return { trackingNo: r.barcode, labelRef: `BK-${order.id}` };
+  },
+
+  async track(trackingNo, ctx) {
+    const res = await http(`${BK_BASE}/v2/order/barcode/${encodeURIComponent(trackingNo)}`, { headers: { authorization: `Bearer ${ctx.credentials.apiToken}`, accept: "application/json" } });
+    if (!res.ok) throw new ConnectorError(`Basit Kargo takip: ${await bkError(res)}`, { notSent: true });
+    const j = (await res.json()) as { status?: string };
+    const st = String(j.status ?? "");
+    return { status: BK_STATUS[st] ?? "unknown", raw: st.slice(0, 120), at: null };
+  },
+};
+
+export const CARGO_ADAPTERS: Record<string, CargoProvider> = { mng, basitkargo };

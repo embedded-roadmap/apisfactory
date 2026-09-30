@@ -157,3 +157,63 @@ describe("MNG Kargo adaptörü", () => {
     expect(t).toEqual({ status: "delivered", raw: "Teslim_Edildi", at: "2019-02-13T09:03:00.000Z" });
   });
 });
+
+describe("Basit Kargo adaptörü (toplayıcı)", () => {
+  const BK = CARGO_PROVIDERS.basitkargo!;
+  const BKS = { handlerCode: "SELF_ARAS", packageHeightCm: "20", packageWidthCm: "30", packageDepthCm: "15" };
+  const ctx = (settings: Record<string, string> = BKS) => ({ credentials: { apiToken: "bk-SECRET" }, settings, environment: "production" as const });
+  const happyBk = () => {
+    routes = [
+      (r) => (r.method === "POST" && r.path === "/api/v2/order" ? { json: { id: "888-6AR-OUP", barcode: null, type: "OUTGOING", status: "NEW", validationFailed: false } } : undefined),
+      (r) => (r.path === "/api/v2/order/888-6AR-OUP/barcode"
+        ? { json: { id: "888-6AR-OUP", barcode: "1234567890", type: "OUTGOING", status: "READY_TO_SHIP", shipmentInfo: { handler: { name: "Aras Kargo - KA", code: "SELF_ARAS" }, handlerShipmentCode: null } } }
+        : undefined),
+    ];
+  };
+
+  it("kayıt defterinde, DOĞRULANMADI; firma seçimi seçenekli ayar", () => {
+    expect(BK).toMatchObject({ verified: false, credentialFields: ["apiToken"], docsUrl: "https://basitkargo.com/api" });
+    expect(BK.settingFields.find((f) => f.key === "handlerCode")!.options).toEqual(expect.arrayContaining(["ARAS", "SELF_ARAS", "ECONOMIC"]));
+  });
+
+  it("taslak sipariş → kargo kodu; gövdeler belgeye uygun; telefon 10 haneye indirgenir", async () => {
+    happyBk();
+    const out = await BK.createShipment(req({ recipient: { ...req().recipient, phone: "+90 (555) 000 00 00" } }), ctx());
+    expect(out).toEqual({ trackingNo: "1234567890", labelRef: "BK-888-6AR-OUP" });
+    expect(log.map((r) => `${r.method} ${r.url}`)).toEqual(["POST https://basitkargo.com/api/v2/order", "POST https://basitkargo.com/api/v2/order/888-6AR-OUP/barcode"]);
+    expect(log[0]!.headers.get("authorization")).toBe("Bearer bk-SECRET");
+    expect(JSON.parse(log[0]!.body)).toEqual({
+      type: "OUTGOING",
+      content: { name: "Sevkiyat shp-000123", code: "shp-000123", packages: [{ height: 20, width: 30, depth: 15, weight: 2.3 }, { height: 20, width: 30, depth: 15, weight: 0.4 }] },
+      client: { name: "Ayşe Alıcı", phone: "5550000000", city: "ankara", town: "ÇANKAYA", address: "Liman Yolu No:9 Kat 2" },
+    });
+    expect(JSON.parse(log[1]!.body)).toEqual({ handlerCode: "SELF_ARAS" });
+  });
+
+  it("geçersiz telefon/ölçü/firma: istek atılmadan kesin ret; kod reddi kesin, 5xx belirsiz", async () => {
+    const notSent = async (p: Promise<unknown>, msg: RegExp) => {
+      const e = await p.catch((x) => x);
+      expect((e as ConnectorError).opts?.notSent).toBe(true);
+      expect((e as Error).message).toMatch(msg);
+    };
+    await notSent(BK.createShipment(req({ recipient: { ...req().recipient, phone: "12345" } }), ctx()), /10 haneli/);
+    await notSent(BK.createShipment(req(), ctx({ ...BKS, packageDepthCm: "0" })), /derinlik/);
+    await notSent(BK.createShipment(req(), ctx({ ...BKS, handlerCode: "DHL" })), /firması/);
+    expect(log).toHaveLength(0);
+
+    happyBk();
+    routes.splice(1, 1, (r) => (r.path.endsWith("/barcode") ? { status: 400, json: { message: "Yetersiz bakiye" } } : undefined));
+    await notSent(BK.createShipment(req(), ctx()), /Yetersiz bakiye.*888-6AR-OUP/);
+    happyBk();
+    routes.splice(1, 1, (r) => (r.path.endsWith("/barcode") ? { status: 502, json: {} } : undefined));
+    const e = await BK.createShipment(req(), ctx()).catch((x) => x);
+    expect(e).not.toBeInstanceOf(ConnectorError);
+    expect((e as Error).message).toMatch(/888-6AR-OUP/);
+    expect((e as Error).message).not.toContain("SECRET");
+  });
+
+  it("takip: barkodla sorgu, durum eşlemesi", async () => {
+    routes = [(r) => (r.path === "/api/v2/order/barcode/1234567890" ? { json: { id: "888-6AR-OUP", barcode: "1234567890", status: "OUT_FOR_DELIVERY" } } : undefined)];
+    expect(await BK.track!("1234567890", ctx())).toEqual({ status: "out_for_delivery", raw: "OUT_FOR_DELIVERY", at: null });
+  });
+});
