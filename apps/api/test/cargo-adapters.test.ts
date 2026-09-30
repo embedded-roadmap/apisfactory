@@ -284,3 +284,66 @@ describe("Yurtiçi Kargo adaptörü (SOAP, resmi WSDL)", () => {
     expect(t).toEqual({ status: "delivered", raw: "DLV Kargo teslim edilmiştir.", at: "2026-09-30T11:30:05.000Z" });
   });
 });
+
+describe("Aras Kargo adaptörü (SOAP/ASMX, resmi WSDL)", () => {
+  const AR = CARGO_PROVIDERS.aras!;
+  const ctx = (settings: Record<string, string> = { payorTypeCode: "1", desiPerPackage: "2" }, environment: "sandbox" | "production" = "production") => ({ credentials: { userName: "arasuser", password: "ar-SECRET" }, settings, environment });
+  const env = (inner: string) => `<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body>${inner}</soap:Body></soap:Envelope>`;
+  let reply = "";
+  let status = 200;
+  const useFetch = () => {
+    cargoDeps.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      log.push({ method: "POST", url: String(input), path: "", headers: new Headers(init?.headers), body: String(init?.body ?? "") });
+      return new Response(reply, { status });
+    }) as typeof fetch;
+  };
+
+  it("kayıt defterinde, DOĞRULANMADI; takip desteklenmez (tipsiz yanıt uydurulmaz)", () => {
+    expect(AR).toMatchObject({ verified: false, credentialFields: ["userName", "password"] });
+    expect(AR.track).toBeUndefined();
+  });
+
+  it("SetOrder: SOAPAction, alanlar WSDL sırasında, parça barkodları; ResultCode 0 → takip no = entegrasyon kodu", async () => {
+    reply = env(`<SetOrderResponse xmlns="http://tempuri.org/"><SetOrderResult><OrderResultInfo><ResultCode>0</ResultCode><ResultMessage>Başarılı</ResultMessage><InvoiceKey>SHP-000123</InvoiceKey></OrderResultInfo></SetOrderResult></SetOrderResponse>`);
+    status = 200;
+    useFetch();
+    const out = await AR.createShipment(req(), ctx());
+    expect(out).toEqual({ trackingNo: "SHP-000123", labelRef: "ARAS-SHP-000123" });
+    expect(log[0]!.url).toBe("https://customerws.araskargo.com.tr/arascargoservice.asmx");
+    expect(log[0]!.headers.get("soapaction")).toBe('"http://tempuri.org/SetOrder"');
+    const b = log[0]!.body;
+    const order = ["UserName", "Password", "TradingWaybillNumber", "InvoiceNumber", "ReceiverName", "ReceiverAddress", "ReceiverPhone1", "ReceiverCityName", "ReceiverTownName",
+      "VolumetricWeight", "Weight", "PieceCount", "CodAmount", "IntegrationCode", "Description", "PayorTypeCode", "IsWorldWide", "IsCod", "PieceDetails"];
+    const positions = order.map((t) => b.indexOf(`<${t}>`));
+    expect(positions.every((p) => p > 0)).toBe(true);
+    expect([...positions].sort((x, y) => x - y)).toEqual(positions);
+    for (const f of ["<IntegrationCode>SHP-000123</IntegrationCode>", "<ReceiverPhone1>5550000000</ReceiverPhone1>", "<PieceCount>2</PieceCount>", "<VolumetricWeight>4</VolumetricWeight>", "<Weight>2.7</Weight>",
+      "<PieceDetail><VolumetricWeight>2</VolumetricWeight><Weight>2.3</Weight><BarcodeNumber>SHP-000123-1</BarcodeNumber><Description>PK-1</Description></PieceDetail>",
+      "</orderInfo><userName>arasuser</userName><password>ar-SECRET</password></SetOrder>"]) expect(b).toContain(f);
+  });
+
+  it("ResultCode≠0 ve SOAP hatası kesin ret (sır sızmaz); 5xx belirsiz; test adresi", async () => {
+    reply = env(`<SetOrderResponse xmlns="http://tempuri.org/"><SetOrderResult><OrderResultInfo><ResultCode>936</ResultCode><ResultMessage>Entegrasyon kodu daha önce kullanılmış</ResultMessage></OrderResultInfo></SetOrderResult></SetOrderResponse>`);
+    status = 200;
+    useFetch();
+    const e1 = await AR.createShipment(req(), ctx(undefined, "sandbox")).catch((x) => x);
+    expect(log[0]!.url).toBe("https://customerservicestest.araskargo.com.tr/arascargoservice/arascargoservice.asmx");
+    expect(e1).toMatchObject({ message: "Aras sipariş: Entegrasyon kodu daha önce kullanılmış", opts: { notSent: true } });
+    reply = env(`<soap:Fault><faultcode>soap:Server</faultcode><faultstring>Kullanıcı bilgileri hatalı</faultstring></soap:Fault>`);
+    status = 500;
+    const e2 = await AR.createShipment(req(), ctx()).catch((x) => x);
+    expect(e2).toMatchObject({ opts: { notSent: true } });
+    expect((e2 as Error).message).not.toContain("SECRET");
+    reply = "";
+    status = 503;
+    expect(await AR.createShipment(req(), ctx()).catch((x) => x)).not.toBeInstanceOf(ConnectorError);
+  });
+
+  it("ödeyen ayarı, telefon ve ilçe zorunlu; istek atılmadan reddedilir", async () => {
+    useFetch();
+    for (const [r, c] of [[req(), ctx({})], [req({ recipient: { ...req().recipient, phone: "1" } }), ctx()], [req({ recipient: { ...req().recipient, district: null } }), ctx()]] as const) {
+      expect(await AR.createShipment(r, c).catch((x) => (x as ConnectorError).opts?.notSent)).toBe(true);
+    }
+    expect(log).toHaveLength(0);
+  });
+});

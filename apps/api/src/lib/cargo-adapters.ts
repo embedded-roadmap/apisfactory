@@ -392,4 +392,59 @@ export const yurtici: CargoProvider = {
   },
 };
 
-export const CARGO_ADAPTERS: Record<string, CargoProvider> = { mng, basitkargo, yurtici };
+// ---- Aras Kargo ---------------------------------------------------------------------------------------------------
+// Kaynak: Aras'ın kendi sunucusundaki WSDL (customerws.araskargo.com.tr/arascargoservice.asmx?WSDL) — SetOrder (Order,
+// PieceDetail, OrderResultInfo), SOAPAction http://tempuri.org/SetOrder. ASMX alanları şema SIRASIYLA bekler; gövde WSDL
+// sırasıyla kurulur. ResultCode "0" = başarı ve test adresi açık kaynak bir entegrasyondan (WSDL'de anlam yok). Takip işlemleri
+// (GetCargoInfo vb.) tipsiz DataSet döndürür, alanları WSDL'de yok → takip desteklenmez (uydurulmaz); durum Aras panelinden.
+
+const ARAS_PROD = "https://customerws.araskargo.com.tr/arascargoservice.asmx";
+const ARAS_TEST = "https://customerservicestest.araskargo.com.tr/arascargoservice/arascargoservice.asmx";
+
+export const aras: CargoProvider = {
+  credentialFields: ["userName", "password"],
+  settingFields: [
+    { key: "payorTypeCode", label: "Ödeyen (1 gönderici, 2 alıcı)", options: ["1", "2"], required: true },
+    { key: "desiPerPackage", label: "Koli başına desi (boşsa 0 gönderilir; Aras şubede ölçer)" },
+  ],
+  verified: false,
+  docsUrl: "https://customerws.araskargo.com.tr/arascargoservice.asmx?WSDL",
+
+  async createShipment(req, ctx) {
+    const s = ctx.settings;
+    if (!["1", "2"].includes(s.payorTypeCode ?? "")) throw new ConnectorError("Aras ayarı: ödeyen seçilmeli", { notSent: true });
+    const ref = req.shipmentCode.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 32);
+    const phone = tenDigitPhone(req.recipient.phone);
+    if (!phone) throw new ConnectorError("Aras için alıcı telefonu 10 haneli olmalı", { notSent: true });
+    if (!req.recipient.district) throw new ConnectorError("Aras için alıcı adresinde ilçe gerekli", { notSent: true });
+    const desi = s.desiPerPackage ? Number(s.desiPerPackage) : 0;
+    if (!(desi >= 0 && desi <= 999)) throw new ConnectorError("Aras ayarı: koli başına desi 0–999 olmalı", { notSent: true });
+    const num = (n: number) => String(+n.toFixed(3));
+    const pieces = req.packages.map((p, i) => ({ desi, kg: p.weightKg === null ? 0 : Number(p.weightKg), barcode: `${ref}-${i + 1}`, code: p.code }));
+    const u = ctx.credentials.userName!;
+    const pw = ctx.credentials.password!;
+    // Alan sırası WSDL'deki Order dizisiyle aynıdır (değiştirmeyin).
+    const order =
+      xmlEl("UserName", u) + xmlEl("Password", pw) + xmlEl("TradingWaybillNumber", ref) + xmlEl("InvoiceNumber", ref) +
+      xmlEl("ReceiverName", req.recipient.name.slice(0, 100)) + xmlEl("ReceiverAddress", [req.recipient.line1, req.recipient.line2].filter(Boolean).join(" ").slice(0, 250)) +
+      xmlEl("ReceiverPhone1", phone) + xmlEl("ReceiverCityName", req.recipient.city) + xmlEl("ReceiverTownName", req.recipient.district) +
+      xmlEl("VolumetricWeight", num(pieces.reduce((a, p) => a + p.desi, 0))) + xmlEl("Weight", num(pieces.reduce((a, p) => a + p.kg, 0))) +
+      xmlEl("PieceCount", pieces.length) + "<CodAmount>0</CodAmount><CodCollectionType>0</CodCollectionType><CodBillingType>0</CodBillingType>" +
+      xmlEl("IntegrationCode", ref) + xmlEl("Description", `Sevkiyat ${req.shipmentCode}`) + xmlEl("PayorTypeCode", s.payorTypeCode) +
+      "<IsWorldWide>0</IsWorldWide><IsCod>0</IsCod>" +
+      `<PieceDetails>${pieces.map((p) => `<PieceDetail>${xmlEl("VolumetricWeight", num(p.desi))}${xmlEl("Weight", num(p.kg))}${xmlEl("BarcodeNumber", p.barcode)}${xmlEl("Description", p.code)}</PieceDetail>`).join("")}</PieceDetails>`;
+    const r = await soap(ctx.environment === "production" ? ARAS_PROD : ARAS_TEST,
+      `<SetOrder xmlns="http://tempuri.org/"><orderInfo><Order>${order}</Order></orderInfo>${xmlEl("userName", u)}${xmlEl("password", pw)}</SetOrder>`, "http://tempuri.org/SetOrder");
+    const fault = xmlField(r.text, "faultstring");
+    if (fault) throw new ConnectorError(`Aras sipariş: ${fault.slice(0, 200)}`, { notSent: true });
+    if (r.status >= 500) throw new Error(`Aras sipariş: HTTP ${r.status}`);
+    if (r.status >= 400) throw new ConnectorError(`Aras sipariş: HTTP ${r.status}`, { notSent: true });
+    const info = xmlBlocks(r.text, "OrderResultInfo")[0];
+    if (!info) throw new Error("Aras sipariş: sonuç bilgisi dönmedi — Aras panelinden kontrol edin");
+    const code = xmlField(info, "ResultCode");
+    if (code !== "0") throw new ConnectorError(`Aras sipariş: ${(xmlField(info, "ResultMessage") ?? `kod ${code}`).slice(0, 200)}`, { notSent: true });
+    return { trackingNo: ref, labelRef: `ARAS-${xmlField(info, "InvoiceKey") ?? ref}` };
+  },
+};
+
+export const CARGO_ADAPTERS: Record<string, CargoProvider> = { mng, basitkargo, yurtici, aras };

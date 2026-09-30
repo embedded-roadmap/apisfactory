@@ -58,10 +58,14 @@ düzeyinde tek sır şifreleme anahtarıdır: `CONNECTOR_SECRET_KEY` (sunucu tar
 **Kabul kriteri:** sağlayıcının kendi test ortamında gerçek bir e-fatura/e-arşiv gönderiminin başarıyla
 iletilmesi ve dönen gerçek ETTN'nin kaydedilmesi (sentetik değil).
 
+**Durum (oturum 41 devamı):** API'siz her entegratör için PORTAL modu (XML indir → portala yükle → ETTN gir) ve Paraşüt
+API adaptörü (`apps/api/src/lib/einvoice-adapters.ts`, **doğrulanmadı**) hazır. Canlı gönderim kuyruk üzerinden yapılır:
+`send-einvoice` → outbox `einvoice.send` → `processEinvoiceSend` (`dispatch.ts`).
+
 **Bana ne söylemeniz yeterli:** "Uyumsoft'u seçtik" + sağlayıcının API dokümantasyonu. Erişim bilgisini sohbete
 yazmayın — uygulamanın e-belge bağlayıcıları ekranından kendiniz girin. Ben o sağlayıcı için
-`apps/api/src/lib/einvoice-providers.ts`'e bir adaptör yazar, `EINVOICE_PROVIDERS`'a eklerim; `dispatch.ts`'teki
-canlı gönderim yolu (`sendLive`) hazır. Otomatik test + sağlayıcı test ortamında gerçek gönderim ile doğrularım.
+`einvoice-adapters.ts`'e bir adaptör yazar, `EINVOICE_ADAPTERS`'a eklerim. Otomatik test + sağlayıcı test ortamında
+gerçek gönderim ile doğrularım (doğrulanınca `verified: true`).
 
 ---
 
@@ -97,9 +101,14 @@ firma ayarları ve erişim bilgisi formu. Uyarlanabilirlik iki farklı sahte ada
 **Kabul kriteri:** firmanın test ortamında gerçek bir kargo kaydı açılması, gerçek takip numarası ve etiket
 dosyasının alınması; takip destekleniyorsa gerçek durum sorgusunun normalize edilmesi.
 
-**Bana ne söylemeniz yeterli:** "Aras Kargo'yu kullanıyoruz" + firmanın API dokümantasyonu. Erişim bilgisini
+**Durum (oturum 41 devamı):** API'siz her firma için ELLE modu (takip no + elle durum + takip sayfası şablonu) ve MNG,
+Yurtiçi, Aras, Basit Kargo (çok firmalı) adaptörleri (`apps/api/src/lib/cargo-adapters.ts`, **doğrulanmadı**) hazır.
+Canlı kayıt kuyruk üzerinden yapılır: `cargo-label` → outbox `cargo.label` → `processCargoLabel`; takip `cargo-track`,
+etiket `cargo-label-file` (`dispatch.ts`).
+
+**Bana ne söylemeniz yeterli:** "X Kargo'yu kullanıyoruz" + firmanın API dokümantasyonu. Erişim bilgisini
 sohbete yazmayın — kargo bağlayıcıları ekranından kendiniz girin. Ben o firmanın adaptörünü yazar,
-`CARGO_PROVIDERS`'a eklerim; canlı yol (`labelLive`, `cargo-track`, etiket indirme) hazır.
+`CARGO_ADAPTERS`'a eklerim; doğrulanınca `verified: true`.
 
 ---
 

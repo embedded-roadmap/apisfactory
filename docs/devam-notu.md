@@ -1589,3 +1589,13 @@ kodundan türeyen kargo anahtarıyla açılır (takip no = bu anahtar; Yurtiçi 
 Code128 etiketimizdir). Kesin ret: outFlag≠0 / errCode / SOAP hatası; 5xx belirsiz. Test adresi (testapi…:9090) Yurtiçi'nin
 IP izni ister. SOAP yanıtı için bağımlılıksız küçük okuyucu (`xmlField`/`xmlBlocks`; DTD/varlık genişletmesi yok, XXE yok).
 `cargo-live` testindeki adaptörsüz örnek Sürat'e taşındı. `cargo-adapters.test.ts` +5; tam paket 467/467.
+
+## Oturum 41 devamı — Aras Kargo adaptörü (SOAP/ASMX, DOĞRULANMADI)
+
+`lib/cargo-adapters.ts` `aras`. Kaynak: Aras'ın kendi sunucusundaki WSDL (customerws.araskargo.com.tr/arascargoservice.asmx?WSDL)
+— `SetOrder` (Order, PieceDetail, OrderResultInfo; SOAPAction http://tempuri.org/SetOrder). ASMX alanları şema sırasıyla bekler;
+gövde WSDL sırasıyla kurulur (testte sıra doğrulanır). `ResultCode "0"` = başarı ve test adresi açık kaynak bir entegrasyondan
+(WSDL'de anlam yok). Takip no = entegrasyon kodu (sevkiyat kodu). **Takip yok:** Aras'ın takip işlemleri tipsiz DataSet
+döndürür ve alanları WSDL'de yazmaz — eşleme uydurulmadı; durum Aras panelinden izlenir (ekranda "takip sorgusu
+geliştirilmedi" uyarısı). Ayar: ödeyen (1/2), koli başına desi (isteğe bağlı). `cargo-adapters.test.ts` +4.
+`dis-bagimlilik-promptu.md` eski `sendLive`/`labelLive` adlarından arındırıldı, güncel duruma getirildi.

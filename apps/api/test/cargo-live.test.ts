@@ -55,9 +55,10 @@ beforeAll(async () => {
 });
 
 const realMng = CARGO_PROVIDERS.mng;
+const realAras = CARGO_PROVIDERS.aras;
 
 afterAll(async () => {
-  delete CARGO_PROVIDERS.aras;
+  CARGO_PROVIDERS.aras = realAras;
   CARGO_PROVIDERS.mng = realMng;
   await w.app.close();
   await w.owner.end();
