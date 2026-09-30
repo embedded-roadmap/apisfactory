@@ -73,7 +73,7 @@ async function loadInvoice(db: Db, id: string) {
     `select ci.id, ci.code, ci.status, ci.document_mode as "documentMode", ci.invoice_date::text as "invoiceDate", ci.due_date::text as "dueDate", ci.currency,
             ci.tax_rate as "taxRate", ci.net_amount as "netAmount", ci.tax_amount as "taxAmount", ci.gross_amount as "grossAmount", ci.note, ci.cancel_reason as "cancelReason",
             ci.created_at as "createdAt", cu.name as "createdBy", ci.issued_at as "issuedAt", iu.name as "issuedBy",
-            ci.einvoice_kind as "einvoiceKind", ci.einvoice_ettn as "einvoiceEttn", ci.einvoice_sent_at as "einvoiceSentAt", ec.name as "einvoiceConnector",
+            ci.einvoice_kind as "einvoiceKind", ci.einvoice_ettn as "einvoiceEttn", ci.einvoice_number as "einvoiceNumber", ci.einvoice_sent_at as "einvoiceSentAt", ec.name as "einvoiceConnector",
             ci.einvoice_status as "einvoiceStatus", ci.einvoice_error as "einvoiceError",
             ci.migrated, c.id as "customerId", c.code as "customerCode", c.name as "customerName", so.id as "salesOrderId", so.code as "salesOrderCode", sh.id as "shipmentId", sh.code as "shipmentCode",
             coalesce((select sum(r.amount) from customer_receipts r where r.invoice_id = ci.id), 0) as received,

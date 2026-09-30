@@ -36,8 +36,8 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 
 | Sağlayıcı/konu | Gerekli erişim | Güvenli yapılandırma yeri | Bekleyen doğrulama |
 |---|---|---|---|
-| E-fatura özel entegratörü (Uyumsoft/Foriba/Logo/Paraşüt/Nesbilgi/GİB Portalı) | API kullanıcı/parola veya sertifika (sağlayıcıya göre değişir) — **her şirketin kendi sözleşmesi** | Şirket başına: e-belge bağlayıcıları ekranında şifreli kayıt (`einvoice_connectors.credentials_enc`). Platform düzeyinde yalnız şifreleme anahtarı: `CONNECTOR_SECRET_KEY` (sunucu tarafı secret store) | Sağlayıcı seçimi → adaptör geliştirme → sağlayıcı test ortamında gerçek e-fatura gönderimi ve gerçek ETTN |
-| Kargo firması (her şirketin kendi anlaşmalısı) | API anahtarı/müşteri kodu (firmaya göre değişir — adaptör tanımlar) | Şirket başına: kargo bağlayıcıları ekranında şifreli kayıt (`cargo_connectors.credentials_enc`); platform düzeyinde yalnız `CONNECTOR_SECRET_KEY` | Firma seçimi → adaptör → firmanın test ortamında gerçek etiket/takip |
+| E-fatura özel entegratörü (Uyumsoft/Foriba/Logo/Paraşüt/Nesbilgi/GİB Portalı) | API kullanıcı/parola veya sertifika (sağlayıcıya göre değişir) — **her şirketin kendi sözleşmesi** | Şirket başına: e-belge bağlayıcıları ekranında şifreli kayıt (`einvoice_connectors.credentials_enc`). Platform düzeyinde yalnız şifreleme anahtarı: `CONNECTOR_SECRET_KEY` (sunucu tarafı secret store) | API'siz her entegratörle PORTAL modu hazır (oturum 41: XML indir → portala yükle → ETTN gir). Doğrudan API için: sağlayıcı seçimi → adaptör → sağlayıcı test ortamında gerçek gönderim ve ETTN |
+| Kargo firması (her şirketin kendi anlaşmalısı) | API anahtarı/müşteri kodu (firmaya göre değişir — adaptör tanımlar) | Şirket başına: kargo bağlayıcıları ekranında şifreli kayıt (`cargo_connectors.credentials_enc`); platform düzeyinde yalnız `CONNECTOR_SECRET_KEY` | API'siz her firmayla ELLE modu hazır (oturum 41: takip no + elle durum + takip sayfası şablonu). Doğrudan API için: firma seçimi → adaptör → firmanın test ortamında gerçek etiket/takip |
 | Google Calendar OAuth | Google Cloud Console'da uygulama kaydı (client id/secret) — platform işletmecisi tarafından; kod hazır (oturum 41) | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `OAUTH_REDIRECT_BASE` | Gerçek hesapla OAuth akışı ve artımlı senkron |
 | Microsoft 365/Outlook OAuth | Microsoft Entra ID uygulama kaydı; kod hazır (oturum 41) | `MS_OAUTH_CLIENT_ID`, `MS_OAUTH_CLIENT_SECRET`, `MS_OAUTH_TENANT`, `OAUTH_REDIRECT_BASE` | Gerçek hesapla OAuth akışı ve delta sorgu |
 | Distribütör API'leri (DigiKey/Mouser/Farnell/Nexar/LCSC) | Her şirketin kendi geliştirici hesabı + ticari kullanım şartı onayı | Şirket başına: Distribütörler ekranında şifreli kayıt (`distributor_connectors.credentials_enc`); platform düzeyinde yalnız `CONNECTOR_SECRET_KEY` | İlk distribütör seçimi → adaptör → gerçek MPN sorgusu (stok/fiyat/temin) |
@@ -1507,3 +1507,17 @@ geri alınmadan yazılır). Uçlar: `GET/PUT /api/email-channel` (workflow.manag
 `passwordChanged`), `POST /api/email-channel/test` (yalnız isteyenin kendi adresine), `GET /api/email-deliveries`. Web: İş akışı →
 Bildirim e-postası (hazır ayarlar: Google/Microsoft/Yandex). `email.test.ts` 12/12 — süreç içi gerçek SMTP sunucusu (smtp-server) ile
 AUTH/RCPT/DATA; gerçek bir sağlayıcı hesabıyla doğrulanmadı. SMS ayrı (adım 5 araştırması).
+
+## Oturum 41 devamı — e-belge PORTAL ve kargo ELLE modu (dış bağımlılık 1a/2a)
+
+Kullanıcı kararı: müşteri hangi entegratörü/kargoyu kullanırsa seçebilsin. API adaptörü olmayan her sağlayıcı için resmi sonuç
+üreten elle yol. Migration 070: bağlayıcı anahtar listesi serbest (`custom_…`, `is_custom`) — listede olmayan entegratör/kargo firması
+ekranda eklenir (`POST /api/einvoice-connectors/custom`, `/api/cargo-connectors/custom`, aynı ad reddedilir).
+**E-belge PORTAL:** gönderimde hazırlık denetimi (eksiksiz olmalı) → `einvoice_status = portal_pending`, ETTN sabitlenir; `/ubl` aynı
+ETTN ile XML verir; kullanıcı portala yükler, `POST /api/customer-invoices/:id/einvoice-portal` `uploaded` (portalın ETTN'si + isteğe
+bağlı 16 haneli fatura no → belge CANLI, gönderim izi) veya `cancelled` (gerekçeli; yeniden hazırlanabilir, yeni ETTN). Aynı ETTN
+başka faturada kayıtlıysa reddedilir. **Kargo ELLE:** etiket isteğinde firmanın verdiği takip no zorunlu → `cargo_label_mode = manual`;
+`POST /api/shipments/:id/cargo-status` ile durum elle (olay kaydına yazılır); firmanın takip sayfası şablonunu şirket girer
+(`/api/cargo-connectors/:id/tracking-url`, https + `{no}`) — uygulama adres uydurmaz; sevkiyatta `trackingUrl`. Web: mod
+seçicide PORTAL/ELLE, "listede olmayan … ekle", fatura sayfasında 3 adımlı portal kartı, sevkiyatta elle takip no ve durum.
+`portal-manual.test.ts` 5/5; mevcut e-belge/kargo testleri değişmeden geçti.

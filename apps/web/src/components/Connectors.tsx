@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { post } from "../lib/api";
 import { ErrorNotice } from "../lib/ui";
 
 /** Bağlayıcı (e-belge entegratörü, kargo firması) ortak ekran parçaları — oturum 41. */
 
-export const MODE_LABEL: Record<string, [string, string]> = { not_connected: ["BAĞLANMADI", ""], test: ["TEST", "warn"], live: ["CANLI", "ok"] };
+export const MODE_LABEL: Record<string, [string, string]> = {
+  not_connected: ["BAĞLANMADI", ""], test: ["TEST", "warn"], portal: ["PORTAL", "ok"], manual: ["ELLE", "ok"], live: ["CANLI", "ok"],
+};
 export const ENV_LABEL: Record<string, string> = { sandbox: "test ortamı", production: "üretim" };
 
 export function ModeBadge({ mode }: { mode: string }) {
@@ -13,15 +15,43 @@ export function ModeBadge({ mode }: { mode: string }) {
   return <span className={`badge ${cls}`}>{label}</span>;
 }
 
-/** Mod seçici: CANLI yalnız gerçek adaptörü olan ve erişim bilgisi kayıtlı bağlayıcıda seçilebilir. */
-export function ModeOptions({ c }: { c: { adapterAvailable?: boolean; hasCredentials?: boolean } }) {
+/**
+ * Mod seçici: CANLI yalnız gerçek adaptörü olan ve erişim bilgisi kayıtlı bağlayıcıda seçilebilir.
+ * API'siz her sağlayıcı için elle çalışan resmi yol: e-belgede PORTAL (XML'i entegratör portalına yükle), kargoda ELLE (takip no gir).
+ */
+export function ModeOptions({ c, kind }: { c: { adapterAvailable?: boolean; hasCredentials?: boolean }; kind: "einvoice" | "cargo" }) {
   const why = !c.adapterAvailable ? " (gerçek bağlantı geliştirilmedi)" : !c.hasCredentials ? " (önce erişim bilgisi)" : "";
   return (
     <>
       <option value="not_connected">BAĞLANMADI</option>
       <option value="test">TEST</option>
+      {kind === "einvoice" ? <option value="portal">PORTAL — XML'i entegratör portalına yükle</option> : <option value="manual">ELLE — kayıt firmanın sisteminde, takip no girilir</option>}
       <option value="live" disabled={!c.adapterAvailable || !c.hasCredentials}>CANLI{why}</option>
     </>
+  );
+}
+
+/** Listede olmayan sağlayıcıyı ekleme (entegratör / kargo firması). */
+export function AddCustomConnector({ basePath, queryKey, label }: { basePath: string; queryKey: string; label: string }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [reason, setReason] = useState("");
+  const add = useMutation({
+    mutationFn: () => post(`${basePath}/custom`, { name, reason }),
+    onSuccess: () => { setOpen(false); setName(""); setReason(""); qc.invalidateQueries({ queryKey: [queryKey] }); },
+  });
+  if (!open) return <button onClick={() => setOpen(true)}>+ Listede olmayan {label}</button>;
+  return (
+    <div className="stack">
+      <ErrorNotice error={add.error} />
+      <div className="row" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
+        <label className="field">Ad<input aria-label={`Yeni ${label} adı`} value={name} onChange={(e) => setName(e.target.value)} /></label>
+        <label className="field" style={{ flex: 1 }}>Gerekçe<input aria-label={`Yeni ${label} gerekçesi`} value={reason} onChange={(e) => setReason(e.target.value)} /></label>
+        <button className="primary" disabled={name.trim().length < 2 || reason.trim().length < 3 || add.isPending} onClick={() => add.mutate()}>Ekle</button>
+        <button onClick={() => setOpen(false)}>Vazgeç</button>
+      </div>
+    </div>
   );
 }
 

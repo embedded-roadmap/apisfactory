@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SalesOrder } from "@apisfactory/shared";
 import { get, newKey, openDownload, post } from "../lib/api";
-import { ConnectorCredentialsForm, ENV_LABEL, MODE_LABEL, ModeBadge, ModeOptions } from "../components/Connectors";
+import { AddCustomConnector, ConnectorCredentialsForm, ENV_LABEL, MODE_LABEL, ModeBadge, ModeOptions } from "../components/Connectors";
 import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, fmtDate, useCan } from "../lib/ui";
 import { Barcode } from "../lib/Barcode";
 import { History } from "./Sales";
@@ -182,14 +182,14 @@ export function CargoConnectorsPage() {
   });
   return (
     <>
-      <PageHeader title="Kargo bağlayıcıları" sub="Kargo firması seçimi şirket kararıdır. TEST modu sentetik takip no üretir, firmaya hiçbir şey iletilmez. CANLI mod, yalnız gerçek bağlantısı geliştirilip firmanın test ortamında doğrulanmış firmalarda açılır." />
+      <PageHeader title="Kargo bağlayıcıları" sub="Kargo firması seçimi şirket kararıdır. TEST modu sentetik takip no üretir, firmaya hiçbir şey iletilmez. ELLE modu her firmayla çalışır: kaydı firmanın kendi sisteminde açar, takip no'yu buraya girersiniz. CANLI mod, yalnız gerçek bağlantısı geliştirilip firmanın test ortamında doğrulanmış firmalarda açılır." />
       <p style={{ marginTop: 0 }}><Link to="/shipments">← Sevkiyat</Link> · Gönderici adresi ve telefonu: <Link to="/receivables/einvoice-connectors">şirket bilgileri</Link></p>
       <section className="card">
         <table>
           <thead><tr><th>Kargo firması</th><th>Mod</th><th>Gerçek bağlantı</th><th>Erişim bilgisi</th><th>Ayarlar</th><th /></tr></thead>
           <tbody>{q.data?.map((c: any) => (
             <tr key={c.id}>
-              <td>{c.name}{c.note ? <div className="muted" style={{ fontSize: 13 }}>{c.note}</div> : null}</td>
+              <td>{c.name}{c.isCustom ? <span className="muted"> (eklenen)</span> : null}{c.note ? <div className="muted" style={{ fontSize: 13 }}>{c.note}</div> : null}</td>
               <td><ModeBadge mode={c.mode} /></td>
               <td>{c.adapterAvailable ? <span className="badge ok">var{c.trackingSupported ? " · takip" : ""}</span> : <span className="muted">geliştirilmedi</span>}</td>
               <td>{c.hasCredentials ? <>kayıtlı · {ENV_LABEL[c.environment] ?? c.environment}</> : <span className="muted">yok</span>}</td>
@@ -198,6 +198,7 @@ export function CargoConnectorsPage() {
             </tr>
           ))}</tbody>
         </table>
+        {can("shipment.create") ? <AddCustomConnector basePath="/api/cargo-connectors" queryKey="cargoConnectors" label="kargo firması" /> : null}
       </section>
       {q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />}
       {edit ? (
@@ -207,7 +208,7 @@ export function CargoConnectorsPage() {
           <div className="row" style={{ alignItems: "flex-end" }}>
             <label className="field">Mod
               <select aria-label="Bağlayıcı modu" value={edit.mode} onChange={(e) => setEdit({ ...edit, mode: e.target.value })}>
-                <ModeOptions c={edit} />
+                <ModeOptions c={edit} kind="cargo" />
               </select>
             </label>
             <label className="field" style={{ flex: 1 }}>Not<input value={edit.note ?? ""} onChange={(e) => setEdit({ ...edit, note: e.target.value })} /></label>
@@ -215,11 +216,31 @@ export function CargoConnectorsPage() {
             <button className="primary" disabled={edit.reason.trim().length < 3 || save.isPending} onClick={() => save.mutate()}>Kaydet</button>
             <button onClick={() => setEdit(null)}>Vazgeç</button>
           </div>
+          <TrackingUrlForm connector={edit} onSaved={done} />
           <CargoSettingsForm connector={edit} onSaved={done} />
           <ConnectorCredentialsForm basePath="/api/cargo-connectors" connector={edit} onSaved={done} />
         </section>
       ) : null}
     </>
+  );
+}
+
+/** Firmanın herkese açık takip sayfası: şirket kendisi girer ({no} takip no ile değişir); sevkiyatta bağlantı olarak görünür. */
+function TrackingUrlForm({ connector: c, onSaved }: { connector: any; onSaved: () => void }) {
+  const [template, setTemplate] = useState<string>(c.trackingUrlTemplate ?? "");
+  const [reason, setReason] = useState("");
+  const save = useMutation({ mutationFn: () => post(`/api/cargo-connectors/${c.id}/tracking-url`, { template: template.trim() || null, reason }), onSuccess: onSaved });
+  return (
+    <div className="stack" style={{ marginTop: 12 }}>
+      <h4 style={{ margin: 0 }}>Takip sayfası</h4>
+      <p className="muted" style={{ margin: 0 }}>Firmanın web sitesindeki gönderi sorgulama adresi; takip no yerine <span className="mono">{"{no}"}</span> yazın. Boş bırakılırsa bağlantı gösterilmez.</p>
+      <ErrorNotice error={save.error} />
+      <div className="row" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
+        <label className="field" style={{ flex: 2 }}>Adres şablonu<input aria-label="Takip adresi şablonu" placeholder="https://…?takipno={no}" value={template} onChange={(e) => setTemplate(e.target.value)} /></label>
+        <label className="field" style={{ flex: 1 }}>Gerekçe<input aria-label="Takip adresi gerekçesi" value={reason} onChange={(e) => setReason(e.target.value)} /></label>
+        <button disabled={reason.trim().length < 3 || save.isPending} onClick={() => save.mutate()}>Kaydet</button>
+      </div>
+    </div>
   );
 }
 
@@ -301,6 +322,8 @@ export function ShipmentPage() {
   const [problem, setProblem] = useState({ kind: "damage", note: "" });
   const [tracking, setTracking] = useState("");
   const [cargoConnectorId, setCargoConnectorId] = useState("");
+  const [manualTracking, setManualTracking] = useState("");
+  const [manualStatus, setManualStatus] = useState({ status: "in_transit", note: "" });
   const needsLabel = can("shipment.create") && !q.data?.trackingNo && ["preparing", "packed"].includes(q.data?.status) && !["queued", "sending", "unknown"].includes(q.data?.cargoRequestStatus);
   const cargoQ = useQuery({ queryKey: ["cargoConnectors"], queryFn: () => get<any[]>("/api/cargo-connectors"), enabled: needsLabel });
   const readyQ = useQuery({ queryKey: ["cargoReadiness", id, q.data?.status, q.data?.packages?.length], queryFn: () => get<any>(`/api/shipments/${id}/cargo-readiness`), enabled: needsLabel });
@@ -360,10 +383,10 @@ export function ShipmentPage() {
       {needsLabel ? (
         <section className="card">
           <h2>Kargo etiketi</h2>
-          <p className="muted" style={{ margin: 0 }}>TEST modundaki bağlayıcı sentetik takip no üretir (firmaya iletilmez); CANLI bağlayıcı firmada kargo kaydı açar ve gerçek takip no + etiket dosyası alır. İstenirse taşıyıcı aşağıda elle de girilebilir.</p>
+          <p className="muted" style={{ margin: 0 }}>TEST modundaki bağlayıcı sentetik takip no üretir (firmaya iletilmez); ELLE modunda kaydı firmanın kendi sisteminde açıp takip no'yu girersiniz; CANLI bağlayıcı firmada kargo kaydı açar ve gerçek takip no + etiket dosyası alır. İstenirse taşıyıcı aşağıda elle de girilebilir.</p>
           {readyQ.data && !readyQ.data.ready ? (
             <div className="notice warn">
-              Kargo kaydı için eksik bilgi{selectedCargo?.mode === "live" ? " — CANLI kayıt bunlar tamamlanmadan açılamaz" : " (TEST etiketini etkilemez)"}:
+              Kargo kaydı için eksik bilgi{selectedCargo?.mode === "live" ? " — CANLI kayıt bunlar tamamlanmadan açılamaz" : selectedCargo?.mode === "manual" ? " (firmanın sisteminde kayıt açarken gerekir)" : " (TEST etiketini etkilemez)"}:
               <ul style={{ margin: "4px 0 0" }}>{readyQ.data.issues.map((x: any) => <li key={x.field}>{x.message}</li>)}</ul>
             </div>
           ) : readyQ.data?.ready ? <p className="muted" style={{ margin: 0 }}>{readyQ.data.packages} koli{readyQ.data.totalWeightKg ? ` · toplam ${fmt(readyQ.data.totalWeightKg)} kg` : " · ağırlığı girilmemiş koli var"}</p> : null}
@@ -372,7 +395,10 @@ export function ShipmentPage() {
               <option value="">Seçin…</option>
               {cargoQ.data?.map((c: any) => <option key={c.id} value={c.id}>{c.name} ({MODE_LABEL[c.mode]?.[0] ?? c.mode})</option>)}
             </select>
-            <button disabled={!cargoConnectorId || act.isPending} onClick={() => act.mutate(() => post(`/api/shipments/${id}/cargo-label`, { connectorId: cargoConnectorId }))}>Etiket üret</button>
+            {selectedCargo?.mode === "manual" ? <input aria-label="Firmanın verdiği takip no" placeholder="Firmanın verdiği takip no" value={manualTracking} onChange={(e) => setManualTracking(e.target.value.trim())} /> : null}
+            {selectedCargo?.mode === "manual"
+              ? <button disabled={manualTracking.length < 3 || act.isPending} onClick={() => act.mutate(() => post(`/api/shipments/${id}/cargo-label`, { connectorId: cargoConnectorId, trackingNo: manualTracking }))}>Takip no kaydet</button>
+              : <button disabled={!cargoConnectorId || act.isPending} onClick={() => act.mutate(() => post(`/api/shipments/${id}/cargo-label`, { connectorId: cargoConnectorId }))}>Etiket üret</button>}
           </div>
         </section>
       ) : null}
@@ -381,10 +407,26 @@ export function ShipmentPage() {
         <section className="card">
           <h2>Kargo kaydı <ModeBadge mode={s.cargoLabelMode} /></h2>
           <p style={{ margin: 0 }}>
-            {s.cargoConnector} · takip no <span className="mono">{s.trackingNo}</span> · etiket <span className="mono">{s.labelRef}</span>
+            {s.cargoConnector} · takip no {s.trackingUrl ? <a className="mono" href={s.trackingUrl} target="_blank" rel="noopener noreferrer">{s.trackingNo}</a> : <span className="mono">{s.trackingNo}</span>}{s.labelRef ? <> · etiket <span className="mono">{s.labelRef}</span></> : null}
             {s.cargoStatus ? <> · durum <b>{CARGO_STATUS_LABEL[s.cargoStatus] ?? s.cargoStatus}</b>{s.cargoStatusRaw ? <span className="muted"> ({s.cargoStatusRaw})</span> : null} {s.cargoStatusAt ? <span className="muted">{fmtDate(s.cargoStatusAt)}</span> : null}</> : null}
           </p>
           {s.cargoLabelMode === "test" ? <p className="muted" style={{ margin: 0 }}>TEST — sentetik takip no, kargo firmasına iletilmedi.</p> : null}
+          {s.cargoLabelMode === "manual" ? (
+            <>
+              <p className="muted" style={{ margin: 0 }}>ELLE — kayıt firmanın kendi sisteminde açıldı; durumu firmanın takip sayfasından bakıp işaretleyin.</p>
+              {can("shipment.create") ? (
+                <div className="row" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
+                  <label className="field">Durum
+                    <select aria-label="Kargo durumu" value={manualStatus.status} onChange={(e) => setManualStatus({ ...manualStatus, status: e.target.value })}>
+                      {["created", "in_transit", "out_for_delivery", "delivered", "returned", "problem"].map((x) => <option key={x} value={x}>{CARGO_STATUS_LABEL[x]}</option>)}
+                    </select>
+                  </label>
+                  <label className="field" style={{ flex: 1 }}>Not (isteğe bağlı)<input aria-label="Kargo durum notu" value={manualStatus.note} onChange={(e) => setManualStatus({ ...manualStatus, note: e.target.value })} /></label>
+                  <button disabled={act.isPending} onClick={() => act.mutate(() => post(`/api/shipments/${id}/cargo-status`, { status: manualStatus.status, ...(manualStatus.note.trim() ? { note: manualStatus.note.trim() } : {}) }))}>Durumu kaydet</button>
+                </div>
+              ) : null}
+            </>
+          ) : null}
           {s.cargoLabelMode === "live" ? (
             <div className="row">
               {s.hasLabelFile ? <button onClick={() => openDownload(`/api/shipments/${id}/cargo-label-file`, `${s.code}-kargo.${LABEL_EXT[s.labelContentType] ?? "bin"}`, s.labelContentType ?? "")}>Etiketi indir</button> : null}

@@ -5,7 +5,7 @@ import { get, newKey, post } from "../lib/api";
 import { Empty, ErrorNotice, Loading, PageHeader, fmt, fmtDate, useCan } from "../lib/ui";
 import { History } from "./Sales";
 import { Discussion } from "../components/Discussion";
-import { ConnectorCredentialsForm, ENV_LABEL, MODE_LABEL, ModeBadge, ModeOptions } from "../components/Connectors";
+import { ConnectorCredentialsForm, ENV_LABEL, MODE_LABEL, ModeBadge, ModeOptions, AddCustomConnector } from "../components/Connectors";
 
 const ST: Record<string, [string, string]> = { draft: ["taslak", "warn"], issued: ["kesildi — açık", "warn"], paid: ["tahsil edildi", "ok"], cancelled: ["iptal", ""] };
 const today = () => new Date().toISOString().slice(0, 10);
@@ -41,12 +41,12 @@ export function EinvoiceConnectorsPage() {
       <CustomerTaxIdentityCard />
       <section className="card">
         <h2>E-belge bağlayıcıları</h2>
-        <p className="muted" style={{ margin: 0 }}>Resmi e-fatura/e-arşiv gönderimi bir GİB özel entegratör sözleşmesi gerektirir — sağlayıcı seçimi şirket kararıdır. TEST modu sentetik ETTN üretir, GİB'e hiçbir şey gönderilmez. CANLI mod, yalnız gerçek bağlantısı geliştirilip sağlayıcının test ortamında doğrulanmış sağlayıcılarda açılır.</p>
+        <p className="muted" style={{ margin: 0 }}>Resmi e-fatura/e-arşiv gönderimi bir GİB özel entegratör sözleşmesi gerektirir — sağlayıcı seçimi şirket kararıdır. TEST modu sentetik ETTN üretir, GİB'e hiçbir şey gönderilmez. PORTAL modu her entegratörle çalışır: uygulama UBL-TR XML'ini hazırlar, siz entegratörünüzün portalına yükleyip verilen ETTN'yi girersiniz. CANLI mod (doğrudan API), yalnız gerçek bağlantısı geliştirilip sağlayıcının test ortamında doğrulanmış sağlayıcılarda açılır.</p>
         <table>
           <thead><tr><th>Sağlayıcı</th><th>Mod</th><th>Gerçek bağlantı</th><th>Erişim bilgisi</th><th>Not</th><th /></tr></thead>
           <tbody>{q.data?.map((c: any) => (
             <tr key={c.id}>
-              <td>{c.name}</td>
+              <td>{c.name}{c.isCustom ? <span className="muted"> (eklenen)</span> : null}</td>
               <td><ModeBadge mode={c.mode} /></td>
               <td>{c.adapterAvailable ? <span className="badge ok">var</span> : <span className="muted">geliştirilmedi</span>}</td>
               <td>{c.hasCredentials ? <>kayıtlı · {ENV_LABEL[c.environment] ?? c.environment}<div className="muted" style={{ fontSize: 13 }}>{fmtDate(c.credentialsUpdatedAt)}</div></> : <span className="muted">yok</span>}</td>
@@ -55,6 +55,7 @@ export function EinvoiceConnectorsPage() {
             </tr>
           ))}</tbody>
         </table>
+        <AddCustomConnector basePath="/api/einvoice-connectors" queryKey="einvoiceConnectors" label="entegratör" />
       </section>
       {q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />}
       {edit ? (
@@ -64,7 +65,7 @@ export function EinvoiceConnectorsPage() {
           <div className="row" style={{ alignItems: "flex-end" }}>
             <label className="field">Mod
               <select aria-label="Bağlayıcı modu" value={edit.mode} onChange={(e) => setEdit({ ...edit, mode: e.target.value })}>
-                <ModeOptions c={edit} />
+                <ModeOptions c={edit} kind="einvoice" />
               </select>
             </label>
             <label className="field" style={{ flex: 1 }}>Not<input value={edit.note ?? ""} onChange={(e) => setEdit({ ...edit, note: e.target.value })} /></label>
@@ -232,7 +233,7 @@ export function CustomerInvoicePage() {
   const [kind, setKind] = useState<"e_fatura" | "e_arsiv">("e_arsiv");
   const i = q.data;
   const manage = can("receivable.manage");
-  const canSend = manage && i?.status === "issued" && !i?.einvoiceSentAt && !["queued", "sending", "unknown"].includes(i?.einvoiceStatus);
+  const canSend = manage && i?.status === "issued" && !i?.einvoiceSentAt && !["queued", "sending", "unknown", "portal_pending"].includes(i?.einvoiceStatus);
   const einvoiceQ = useQuery({ queryKey: ["einvoiceConnectors"], queryFn: () => get<any[]>("/api/einvoice-connectors"), enabled: canSend });
   const readyQ = useQuery({ queryKey: ["einvoiceReadiness", id, kind], queryFn: () => get<any>(`/api/customer-invoices/${id}/einvoice-readiness?kind=${kind}`), enabled: canSend });
   const selected = einvoiceQ.data?.find((c: any) => c.id === connectorId);
@@ -251,9 +252,10 @@ export function CustomerInvoicePage() {
         <div className="notice info">E-belge gönderimi arka planda sürüyor ({i.einvoiceConnector}) — sağlayıcı yanıtı gelince bu sayfa güncellenir.</div>
       ) : null}
       {i.einvoiceStatus === "failed" && !i.einvoiceSentAt ? <div className="notice bad">Son e-belge gönderimi sağlayıcı tarafından reddedildi (hiçbir belge oluşmadı): {i.einvoiceError}. Düzeltip yeniden gönderebilirsiniz.</div> : null}
+      {i.einvoiceStatus === "portal_pending" ? <EinvoicePortal invoice={i} manage={manage} onDone={() => { qc.invalidateQueries({ queryKey: ["cinvoice", id] }); qc.invalidateQueries({ queryKey: ["history"] }); }} /> : null}
       {i.einvoiceStatus === "unknown" ? <EinvoiceResolve id={id!} error={i.einvoiceError} manage={manage} onDone={() => { qc.invalidateQueries({ queryKey: ["cinvoice", id] }); qc.invalidateQueries({ queryKey: ["history"] }); }} /> : null}
       {i.documentMode === "live" ? (
-        <div className="notice info">Belge modu <span className="badge mode ok">CANLI</span>: {i.einvoiceKind === "e_fatura" ? "e-Fatura" : "e-Arşiv"} olarak {i.einvoiceConnector} üzerinden gönderildi (ETTN {i.einvoiceEttn}).</div>
+        <div className="notice info">Belge modu <span className="badge mode ok">CANLI</span>: {i.einvoiceKind === "e_fatura" ? "e-Fatura" : "e-Arşiv"} olarak {i.einvoiceConnector} üzerinden gönderildi (ETTN {i.einvoiceEttn}{i.einvoiceNumber ? <>, fatura no <span className="mono">{i.einvoiceNumber}</span></> : null}).</div>
       ) : i.documentMode === "test" ? (
         <div className="notice warn">Belge modu <span className="badge mode warn">TEST</span>: {i.einvoiceKind === "e_fatura" ? "e-Fatura" : "e-Arşiv"} olarak {i.einvoiceConnector} üzerinden sentetik gönderildi (ETTN {i.einvoiceEttn}) — resmi değildir, GİB'e iletilmedi.</div>
       ) : (
@@ -262,10 +264,10 @@ export function CustomerInvoicePage() {
       {canSend ? (
         <section className="card">
           <h3>E-belge gönder</h3>
-          <p className="muted" style={{ margin: 0 }}>Sağlayıcı seçimi şirket kararıdır (<Link to="/receivables/einvoice-connectors">bağlayıcılar ve vergi kimliği</Link>). TEST modundaki bağlayıcı sentetik ETTN üretir; CANLI bağlayıcı belgeyi entegratöre gönderir.</p>
+          <p className="muted" style={{ margin: 0 }}>Sağlayıcı seçimi şirket kararıdır (<Link to="/receivables/einvoice-connectors">bağlayıcılar ve vergi kimliği</Link>). TEST modundaki bağlayıcı sentetik ETTN üretir; PORTAL modundaki bağlayıcı belgeyi portala yüklemeniz için hazırlar; CANLI bağlayıcı belgeyi entegratöre gönderir.</p>
           {readyQ.data && !readyQ.data.ready ? (
             <div className="notice warn">
-              {kind === "e_fatura" ? "e-Fatura" : "e-Arşiv"} için eksik bilgi{selected?.mode === "live" ? " — CANLI gönderim bunlar tamamlanmadan yapılamaz" : " (TEST gönderimi etkilemez)"}:
+              {kind === "e_fatura" ? "e-Fatura" : "e-Arşiv"} için eksik bilgi{["live", "portal"].includes(selected?.mode) ? " — resmi belge bunlar tamamlanmadan hazırlanamaz" : " (TEST gönderimi etkilemez)"}:
               <ul style={{ margin: "4px 0 0" }}>{readyQ.data.issues.map((x: any) => <li key={x.field}>{x.message}</li>)}</ul>
             </div>
           ) : null}
@@ -282,7 +284,7 @@ export function CustomerInvoicePage() {
                 <option value="e_fatura">e-Fatura</option>
               </select>
             </label>
-            <button className="primary" disabled={!connectorId || act.isPending} onClick={() => act.mutate(() => post(`/api/customer-invoices/${id}/send-einvoice`, { connectorId, kind }))}>Gönder</button>
+            <button className="primary" disabled={!connectorId || act.isPending} onClick={() => act.mutate(() => post(`/api/customer-invoices/${id}/send-einvoice`, { connectorId, kind }))}>{selected?.mode === "portal" ? "Portal için hazırla" : "Gönder"}</button>
             <button disabled={!readyQ.data?.ready || ubl.isPending} onClick={() => ubl.mutate()}>UBL-TR önizle</button>
           </div>
           {ubl.data ? (
@@ -351,6 +353,50 @@ export function CustomerInvoicePage() {
  * Sonucu belirsiz e-belge gönderimi (zaman aşımı/ağ hatası): sistem otomatik tekrar etmez — çift resmi belge riski.
  * Kullanıcı entegratör panelinden kontrol eder: belge oluşmuşsa gerçek ETTN ile, oluşmamışsa "gönderilmedi" olarak işaretler.
  */
+/**
+ * Portal modu: belge hazırlandı (ETTN sabit). 1) XML'i indir 2) entegratör portalına yükle 3) portalın gösterdiği ETTN ve
+ * fatura no'yu gir → belge CANLI. Yanlış hazırlandıysa iptal edilip yeniden hazırlanır.
+ */
+function EinvoicePortal({ invoice: i, manage, onDone }: { invoice: any; manage: boolean; onDone: () => void }) {
+  const [number, setNumber] = useState("");
+  const [ettn, setEttn] = useState<string>(i.einvoiceEttn ?? "");
+  const [cancelReason, setCancelReason] = useState("");
+  const xml = useMutation({
+    mutationFn: () => get<any>(`/api/customer-invoices/${i.id}/ubl?kind=${i.einvoiceKind}${number ? `&number=${encodeURIComponent(number.toUpperCase())}` : ""}`),
+    onSuccess: (u) => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([u.xml], { type: "application/xml" })); a.download = `${i.code}-${u.uuid}.xml`; a.click(); },
+  });
+  const m = useMutation({ mutationFn: (body: object) => post(`/api/customer-invoices/${i.id}/einvoice-portal`, body), onSuccess: onDone });
+  return (
+    <section className="card">
+      <h3>E-belge portal yüklemesi bekliyor <span className="badge warn">PORTAL</span></h3>
+      <ol style={{ margin: "0 0 8px", paddingLeft: 20 }}>
+        <li>XML'i indirin ({i.einvoiceKind === "e_fatura" ? "e-Fatura" : "e-Arşiv"}, ETTN <span className="mono">{i.einvoiceEttn}</span>). Fatura numarasını entegratörünüz veriyorsa boş bırakın.</li>
+        <li>{i.einvoiceConnector} portalına giriş yapıp XML'i yükleyin.</li>
+        <li>Portalın gösterdiği ETTN'yi (ve fatura no'yu) aşağıya girin — belge ancak bundan sonra resmi sayılır.</li>
+      </ol>
+      <div className="row" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
+        <label className="field" style={{ width: 220 }}>Fatura no (isteğe bağlı)<input aria-label="Fatura no" placeholder="ABC2026000000001" value={number} onChange={(e) => setNumber(e.target.value.trim())} /></label>
+        <button disabled={xml.isPending} onClick={() => xml.mutate()}>XML indir</button>
+      </div>
+      <ErrorNotice error={xml.error} />
+      {xml.data && !xml.data.valid ? <div className="notice warn">XML'de hata var: {xml.data.issues.filter((x: any) => x.severity === "error").map((x: any) => x.message).join("; ")}</div> : null}
+      {manage ? (
+        <>
+          <div className="row" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
+            <label className="field" style={{ width: 340 }}>Portalda görülen ETTN<input aria-label="Portal ETTN" className="mono" value={ettn} onChange={(e) => setEttn(e.target.value.trim())} /></label>
+            <button className="primary" disabled={ettn.length !== 36 || m.isPending} onClick={() => m.mutate({ outcome: "uploaded", ettn, ...(number ? { number: number.toUpperCase() } : {}) })}>Portala yüklendi</button>
+          </div>
+          <div className="row" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
+            <label className="field" style={{ flex: 1 }}>İptal gerekçesi<input aria-label="Portal iptal gerekçesi" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} /></label>
+            <button disabled={cancelReason.trim().length < 3 || m.isPending} onClick={() => m.mutate({ outcome: "cancelled", reason: cancelReason })}>Hazırlığı iptal et</button>
+          </div>
+          <ErrorNotice error={m.error} />
+        </>
+      ) : null}
+    </section>
+  );
+}
+
 function EinvoiceResolve({ id, error, manage, onDone }: { id: string; error: string | null; manage: boolean; onDone: () => void }) {
   const [ettn, setEttn] = useState("");
   const [reason, setReason] = useState("");
