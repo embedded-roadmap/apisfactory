@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { call, clearTokens, expectOk, setupWorld, type World } from "./helpers";
 import { closePool } from "../src/db/pool";
-import { DISTRIBUTOR_PROVIDERS } from "../src/lib/distributor-providers";
+import { DISTRIBUTOR_PROVIDERS, type DistributorProvider } from "../src/lib/distributor-providers";
 
 let w: World;
 let A: string;
@@ -33,6 +33,8 @@ beforeAll(async () => {
   const bomId = expectOk(await call(w.app, "rd@a.test", A, "POST", `/api/imports/${prev.jobId}/commit`, {})).bomVersionId;
   mcu = expectOk(await call(w.app, "rd@a.test", A, "GET", `/api/boms/${bomId}`)).lines[0].itemId;
 
+  realDigikey = DISTRIBUTOR_PROVIDERS.digikey;
+  realFarnell = DISTRIBUTOR_PROVIDERS.farnell;
   DISTRIBUTOR_PROVIDERS.digikey = {
     credentialFields: ["clientId", "clientSecret"],
     async lookup(mpn, ctx) {
@@ -52,9 +54,12 @@ beforeAll(async () => {
   };
 });
 
+let realDigikey: DistributorProvider | undefined;
+let realFarnell: DistributorProvider | undefined;
+
 afterAll(async () => {
-  delete DISTRIBUTOR_PROVIDERS.digikey;
-  delete DISTRIBUTOR_PROVIDERS.farnell;
+  DISTRIBUTOR_PROVIDERS.digikey = realDigikey;
+  DISTRIBUTOR_PROVIDERS.farnell = realFarnell;
   await w.app.close();
   await w.owner.end();
   await closePool();
@@ -65,14 +70,14 @@ const LICENSE_OK = { multi_tenant: "allowed", display: "allowed", cache: "allowe
 
 describe("Distribütör canlı API altyapısı (madde 4)", () => {
   it("adaptörü olmayan distribütör canlıya alınamaz; erişim bilgisi şifreli, değer hiçbir yanıtta yok", async () => {
-    const mouser = await conn("mouser");
-    expect(mouser).toMatchObject({ adapterAvailable: false, hasCredentials: false });
-    expect((await call(w.app, P, A, "POST", `/api/distributors/${mouser.id}`, { mode: "live", reason: "Canlı deneme" })).body.error.code).toBe("adapter_not_available");
-    expectOk(await call(w.app, P, A, "POST", `/api/distributors/${mouser.id}/credentials`, { environment: "production", credentials: { apiKey: SECRET }, reason: "Geliştirici hesabı" }));
-    const listed = await conn("mouser");
+    const lcsc = await conn("lcsc");
+    expect(lcsc).toMatchObject({ adapterAvailable: false, hasCredentials: false });
+    expect((await call(w.app, P, A, "POST", `/api/distributors/${lcsc.id}`, { mode: "live", reason: "Canlı deneme" })).body.error.code).toBe("adapter_not_available");
+    expectOk(await call(w.app, P, A, "POST", `/api/distributors/${lcsc.id}/credentials`, { environment: "production", credentials: { apiKey: SECRET }, reason: "Geliştirici hesabı" }));
+    const listed = await conn("lcsc");
     expect(listed).toMatchObject({ hasCredentials: true, environment: "production" });
     expect(JSON.stringify(listed)).not.toContain(SECRET);
-    expect((await call(w.app, "rd@a.test", A, "POST", `/api/distributors/${mouser.id}/credentials`, { environment: "sandbox", credentials: { k: "v" }, reason: "yetkisiz" })).status).toBe(403);
+    expect((await call(w.app, "rd@a.test", A, "POST", `/api/distributors/${lcsc.id}/credentials`, { environment: "sandbox", credentials: { k: "v" }, reason: "yetkisiz" })).status).toBe(403);
   });
 
   it("her distribütör kendi erişim bilgisi alanlarını ister; eksik alan ve erişim bilgisiz canlı geçiş reddedilir", async () => {

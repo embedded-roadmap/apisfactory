@@ -2,12 +2,15 @@
  * Distribütör API adaptörleri (DigiKey, Mouser, Farnell, Nexar/Octopart, LCSC...). Her distribütörün kimlik doğrulaması
  * (OAuth2 istemci kimliği, API anahtarı), istek biçimi ve yanıt alanları farklıdır; adaptör bunları firmadan bağımsız
  * bir teklif biçimine (DistributorOffer) çevirir. Önbellek, günlük kota, çağrı kaydı ve fiyat görünürlüğü ortaktır
- * (modules/distributors.ts). Kayıt defteri BİLEREK boştur: adaptör, distribütörün gerçek API'sine karşı doğrulanmadan
- * eklenmez; adaptörü olmayan distribütör 'live' moda alınamaz.
+ * (modules/distributors.ts). Oturum 41 devamı: DigiKey, Mouser, element14 adaptörleri yayımlanmış belgelerden yazıldı
+ * (lib/distributor-adapters.ts) ama gerçek hesapla DOĞRULANMADI — `verified: false`, ekranda öyle gösterilir. Adaptörü
+ * olmayan distribütör 'live' moda alınamaz; canlı mod ayrıca W03 yazılı lisans teyidi ister.
  *
  * Lisans notu: çoğu distribütör API'si sonuçların üçüncü taraf bir üründe gösterilmesi için ayrı ticari kullanım
  * şartı koyar — her şirket kendi geliştirici hesabını ve şartlarını kendisi onaylar.
  */
+
+import { DISTRIBUTOR_ADAPTERS } from "./distributor-adapters";
 
 export type DistributorEnvironment = "sandbox" | "production";
 
@@ -27,6 +30,10 @@ export type DistributorOffer = {
 
 export interface DistributorProvider {
   credentialFields: string[];
+  /** Gerçek bir hesapla uçtan uca denendi mi (false: yalnız yayımlanmış belgeden yazıldı). */
+  verified?: boolean;
+  /** Adaptörün dayandığı resmi belge. */
+  docsUrl?: string;
   /** Tek MPN sorgusu; katalogda yoksa null. Hata fırlatırsa çağrı 'error' olarak kaydedilir, önbellek korunur. */
   lookup(
     mpn: string,
@@ -34,4 +41,4 @@ export interface DistributorProvider {
   ): Promise<DistributorOffer | null>;
 }
 
-export const DISTRIBUTOR_PROVIDERS: Partial<Record<string, DistributorProvider>> = {};
+export const DISTRIBUTOR_PROVIDERS: Partial<Record<string, DistributorProvider>> = { ...DISTRIBUTOR_ADAPTERS };

@@ -40,7 +40,7 @@ sağlayıcı test ortamında doğrulandı / canlıda doğrulandı / dış bağı
 | Kargo firması (her şirketin kendi anlaşmalısı) | API anahtarı/müşteri kodu (firmaya göre değişir — adaptör tanımlar) | Şirket başına: kargo bağlayıcıları ekranında şifreli kayıt (`cargo_connectors.credentials_enc`); platform düzeyinde yalnız `CONNECTOR_SECRET_KEY` | API'siz her firmayla ELLE modu hazır (oturum 41: takip no + elle durum + takip sayfası şablonu). Doğrudan API için: firma seçimi → adaptör → firmanın test ortamında gerçek etiket/takip |
 | Google Calendar OAuth | Google Cloud Console'da uygulama kaydı (client id/secret) — platform işletmecisi tarafından; kod hazır (oturum 41) | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `OAUTH_REDIRECT_BASE` | Gerçek hesapla OAuth akışı ve artımlı senkron |
 | Microsoft 365/Outlook OAuth | Microsoft Entra ID uygulama kaydı; kod hazır (oturum 41) | `MS_OAUTH_CLIENT_ID`, `MS_OAUTH_CLIENT_SECRET`, `MS_OAUTH_TENANT`, `OAUTH_REDIRECT_BASE` | Gerçek hesapla OAuth akışı ve delta sorgu |
-| Distribütör API'leri (DigiKey/Mouser/Farnell/Nexar/LCSC) | Her şirketin kendi geliştirici hesabı + ticari kullanım şartı onayı | Şirket başına: Distribütörler ekranında şifreli kayıt (`distributor_connectors.credentials_enc`); platform düzeyinde yalnız `CONNECTOR_SECRET_KEY` | İlk distribütör seçimi → adaptör → gerçek MPN sorgusu (stok/fiyat/temin) |
+| Distribütör API'leri (DigiKey/Mouser/Farnell/Nexar/LCSC) | Her şirketin kendi geliştirici hesabı + ticari kullanım şartı onayı | Şirket başına: Distribütörler ekranında şifreli kayıt (`distributor_connectors.credentials_enc`); platform düzeyinde yalnız `CONNECTOR_SECRET_KEY` | DigiKey/Mouser/element14 adaptörleri yazıldı (oturum 41, **doğrulanmadı**) — ücretsiz geliştirici anahtarıyla gerçek MPN sorgusu |
 | Ödeme sağlayıcısı (W42 — abonelik ücreti tahsilatı) | **iyzico seçildi** (oturum 41); kod hazır — iyzico üye işyeri hesabı + Abonelik eklentisi + USD/EUR tahsilat izni bekleniyor | `IYZICO_API_KEY`, `IYZICO_SECRET_KEY`, `IYZICO_BASE_URL`, `PUBLIC_API_BASE` (platform düzeyi); fiyat/plan referansları `subscription_prices` | Sandbox'ta test kartıyla gerçek abonelik başlatma, bildirim ve otomatik durum güncellemesi |
 | Bildirim e-postası (SMTP) | Şirketin kendi e-posta sağlayıcısının SMTP hesabı (Google Workspace, Microsoft 365, Yandex, barındırma firması vb.) — **her şirket kendisi seçer**; kod hazır (oturum 41) | Şirket başına: İş akışı → Bildirim e-postası ekranı (`email_channels`, parola `credentials_enc` şifreli); platform düzeyinde yalnız `CONNECTOR_SECRET_KEY` | Gerçek bir SMTP hesabıyla "kendime deneme e-postası" ve canlı modda bildirim teslimi |
 | AI/LLM sağlayıcısı (W30 yorum katmanı) | **Anthropic Claude seçildi** (oturum 41); kod hazır — yalnız API anahtarı bekleniyor | `ANTHROPIC_API_KEY` (+ isteğe bağlı `AI_MODEL`, varsayılan `claude-opus-5`) — yerelde `apps/api/.env`, sunucuda secret store | Gerçek anahtarla canlı yorum üretimi ve `ai_status='generated'` doğrulaması |
@@ -1521,3 +1521,16 @@ başka faturada kayıtlıysa reddedilir. **Kargo ELLE:** etiket isteğinde firma
 (`/api/cargo-connectors/:id/tracking-url`, https + `{no}`) — uygulama adres uydurmaz; sevkiyatta `trackingUrl`. Web: mod
 seçicide PORTAL/ELLE, "listede olmayan … ekle", fatura sayfasında 3 adımlı portal kartı, sevkiyatta elle takip no ve durum.
 `portal-manual.test.ts` 5/5; mevcut e-belge/kargo testleri değişmeden geçti.
+
+## Oturum 41 devamı — distribütör adaptörleri: DigiKey, Mouser, element14 (dış bağımlılık 3b, DOĞRULANMADI)
+
+`lib/distributor-adapters.ts`, kayıt defterine bağlı (`verified: false`, `docsUrl`; ekranda "var · doğrulanmadı" + belge bağlantısı).
+Kaynaklar: DigiKey v4 — resmi Swagger'dan üretilmiş istemcinin alan eşlemesi (`/products/v4/search/{no}/productdetails`,
+OAuth2 client_credentials, jeton önbellekte, 401'de düşer); Mouser — `api.mouser.com/api/docs/V1` Swagger 2.0 (`POST /api/v1/search/partnumber?apiKey=`,
+`Exact`); element14 — partner.element14.com REST belgesi (`manuPartNum:`, mağaza `storeInfo.id`). Kurallar: tam MPN (+ verilmişse üretici)
+eşleşmesi yoksa null; fiyat merdiveni artan sırada; yerel fiyat biçimi ("1,23 €") çözülür; Mouser'da boş ömür döngüsü "aktif" sayılmaz
+(unknown); element14'te para birimi yanıtta yok → şirketin girdiği `storeCurrency`; `stock.leastLeadTime` birimi belgede yok → boş.
+Hata mesajlarında anahtar/gövde yok. `distributor-adapters.test.ts` 9/9 (sahte fetch: istek biçimi + yanıt eşlemesi). Mevcut
+`distributor-live.test.ts` gerçek adaptörleri silmeyecek şekilde düzeltildi (adaptörsüz örnek artık LCSC).
+**Doğrulama için:** DigiKey (developer.digikey.com, sandbox uygulaması), Mouser (mouser.com/api-hub, Search API anahtarı), element14
+(partner.element14.com anahtarı) — üçü de ücretsiz; anahtar Distribütörler ekranına girilir, W03 lisans teyidi sonrası canlıya alınır.

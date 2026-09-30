@@ -187,7 +187,7 @@ export async function distributorRoutes(app: FastifyInstance) {
                 (select max(o.fetched_at) from part_offers o where o.connector_id = c.id) as "lastFetchedAt"
            from distributor_connectors c left join suppliers s on s.id = c.supplier_id order by c.key`,
       );
-      return r.rows.map((x) => ({ ...x, adapterAvailable: Boolean(DISTRIBUTOR_PROVIDERS[x.key]), credentialFields: DISTRIBUTOR_PROVIDERS[x.key]?.credentialFields ?? null }));
+      return r.rows.map((x) => ({ ...x, adapterAvailable: Boolean(DISTRIBUTOR_PROVIDERS[x.key]), adapterVerified: DISTRIBUTOR_PROVIDERS[x.key]?.verified ?? null, adapterDocsUrl: DISTRIBUTOR_PROVIDERS[x.key]?.docsUrl ?? null, credentialFields: DISTRIBUTOR_PROVIDERS[x.key]?.credentialFields ?? null }));
     }),
   );
 

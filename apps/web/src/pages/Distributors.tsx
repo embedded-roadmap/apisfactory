@@ -36,7 +36,7 @@ export function DistributorsPage() {
               <td>{c.name} <span className="muted">({c.currency})</span></td>
               <td><span className={`badge mode ${MODE[c.mode]![1]}`}>{MODE[c.mode]![0]}</span></td>
               <td>
-                {c.adapterAvailable ? <span className="badge ok">var</span> : <span className="muted">geliştirilmedi</span>}
+                {c.adapterAvailable ? <>{c.adapterVerified === false ? <span className="badge warn" title="Yayımlanmış API belgesinden yazıldı; gerçek bir hesapla henüz denenmedi">var · doğrulanmadı</span> : <span className="badge ok">var</span>}{c.adapterDocsUrl ? <> <a href={c.adapterDocsUrl} target="_blank" rel="noopener noreferrer">belge</a></> : null}</> : <span className="muted">geliştirilmedi</span>}
                 <div className="muted" style={{ fontSize: 13 }}>{c.hasCredentials ? `erişim bilgisi kayıtlı · ${ENV_LABEL[c.environment] ?? c.environment}` : "erişim bilgisi yok"}</div>
                 <div className="muted" style={{ fontSize: 13 }}>{licenseSummary(c.license)}</div>
               </td>
