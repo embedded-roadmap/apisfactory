@@ -107,13 +107,30 @@ const MeetingInput = z.object({
   participantIds: z.array(z.string().uuid()).max(50).default([]),
   entityType: z.string().optional(),
   entityId: z.string().uuid().optional(),
+  onlineProvider: z.enum(["teams", "meet", "zoom", "other"]).optional(),
+  onlineUrl: z.string().url().max(1000).optional(),
+  onlineAuto: z.boolean().default(false),
 });
+
+/** Çevrim içi bağlantı: https ve seçilen platformun alan adı (yanlış yapıştırılan bağlantı yakalanır). */
+const ONLINE_HOSTS: Record<string, RegExp> = { teams: /(^|\.)teams\.(microsoft|live)\.com$/, meet: /^meet\.google\.com$/, zoom: /(^|\.)zoom\.(us|com)$/ };
+function checkOnline(provider: string | null | undefined, url: string | null | undefined, auto: boolean | undefined) {
+  if (auto && !["teams", "meet"].includes(provider ?? "")) throw badRequest("Otomatik bağlantı yalnız Teams ve Google Meet için (Zoom bağlantısını elle girin)");
+  if (!url) return;
+  if (!provider) throw badRequest("Bağlantı için platform seçin");
+  let u: URL;
+  try { u = new URL(url); } catch { throw badRequest("Geçersiz bağlantı"); }
+  if (u.protocol !== "https:") throw badRequest("Bağlantı https olmalı");
+  const re = ONLINE_HOSTS[provider];
+  if (re && !re.test(u.hostname)) throw badRequest(`Bağlantı seçilen platforma (${provider}) ait görünmüyor: ${u.hostname}`);
+}
 
 async function loadMeeting(db: Db, id: string) {
   const m = await db.query(
     `select m.id, m.code, m.title, m.starts_at as "startsAt", m.duration_minutes as "durationMinutes", m.location, m.agenda, m.notes, m.status,
             m.entity_type as "entityType", m.entity_id as "entityId", m.organizer_id as "organizerId", o.name as "organizerName",
-            m.closed_at as "closedAt", cu.name as "closedBy", m.cancel_reason as "cancelReason", m.created_at as "createdAt"
+            m.closed_at as "closedAt", cu.name as "closedBy", m.cancel_reason as "cancelReason", m.created_at as "createdAt",
+            m.online_provider as "onlineProvider", m.online_url as "onlineUrl", m.online_auto as "onlineAuto"
        from meetings m join users o on o.id = m.organizer_id left join users cu on cu.id = m.closed_by where m.id = $1`,
     [id],
   );
@@ -168,7 +185,7 @@ function buildMeetingIcs(
   const start = new Date(m.startsAt);
   const end = new Date(start.getTime() + m.durationMinutes * 60_000);
   const status = m.status === "cancelled" ? "CANCELLED" : m.status === "closed" ? "CONFIRMED" : "CONFIRMED";
-  const descParts = [m.agenda ? `Gündem: ${m.agenda}` : null, m.entityLabel ? `Bağlı kayıt: ${m.entityLabel}` : null].filter(Boolean);
+  const descParts = [m.onlineUrl ? `Katılım bağlantısı: ${m.onlineUrl}` : null, m.agenda ? `Gündem: ${m.agenda}` : null, m.entityLabel ? `Bağlı kayıt: ${m.entityLabel}` : null].filter(Boolean);
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
@@ -181,7 +198,8 @@ function buildMeetingIcs(
     `DTSTART:${icsDate(start)}`,
     `DTEND:${icsDate(end)}`,
     `SUMMARY:${icsEscape(`${m.code} ${m.title}`)}`,
-    m.location ? `LOCATION:${icsEscape(m.location)}` : null,
+    m.location || m.onlineUrl ? `LOCATION:${icsEscape(m.location ?? m.onlineUrl!)}` : null,
+    m.onlineUrl ? `URL:${m.onlineUrl}` : null,
     descParts.length ? `DESCRIPTION:${icsEscape(descParts.join("\n"))}` : null,
     `STATUS:${status}`,
     organizer?.email ? `ORGANIZER;CN=${icsEscape(organizer.name)}:mailto:${organizer.email}` : null,
@@ -544,12 +562,14 @@ export async function collaborationRoutes(app: FastifyInstance) {
         const members = await userPerms(db, ids);
         const missing = ids.filter((u) => !members.has(u));
         if (missing.length) throw conflict("not_member", "Katılımcılardan bazıları şirkette aktif üye değil", { userIds: missing });
+        checkOnline(input.onlineProvider, input.onlineUrl, input.onlineAuto && !input.onlineUrl);
         const code = await nextCode(db, actor.companyId, "meeting", "TOP");
         const id = randomUUID();
         await db.query(
-          `insert into meetings (id, company_id, code, title, starts_at, duration_minutes, location, agenda, entity_type, entity_id, organizer_id)
-           values ($1, app_company_id(), $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-          [id, code, input.title, input.startsAt, input.durationMinutes, input.location ?? null, input.agenda ?? null, input.entityType ?? null, input.entityId ?? null, actor.userId],
+          `insert into meetings (id, company_id, code, title, starts_at, duration_minutes, location, agenda, entity_type, entity_id, organizer_id, online_provider, online_url, online_auto)
+           values ($1, app_company_id(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+          [id, code, input.title, input.startsAt, input.durationMinutes, input.location ?? null, input.agenda ?? null, input.entityType ?? null, input.entityId ?? null, actor.userId,
+            input.onlineProvider ?? null, input.onlineUrl ?? null, input.onlineAuto && !input.onlineUrl],
         );
         for (const u of ids) {
           await db.query(`insert into meeting_participants (company_id, meeting_id, user_id) values (app_company_id(), $1, $2)`, [id, u]);
@@ -599,11 +619,22 @@ export async function collaborationRoutes(app: FastifyInstance) {
       z.object({
         title: z.string().min(3).max(200).optional(), startsAt: z.string().datetime({ offset: true }).optional(), durationMinutes: z.number().int().min(5).max(600).optional(),
         location: z.string().max(200).nullable().optional(), agenda: z.string().max(8000).nullable().optional(), notes: z.string().max(20000).nullable().optional(),
+        onlineProvider: z.enum(["teams", "meet", "zoom", "other"]).nullable().optional(), onlineUrl: z.string().url().max(1000).nullable().optional(), onlineAuto: z.boolean().optional(),
       }),
       req.body,
     );
     return tenant(req, "task.view", async (db, actor) => {
       await editable(db, id, actor.userId, can(req, "task.manage"));
+      const onlineChanged = input.onlineProvider !== undefined || input.onlineUrl !== undefined || input.onlineAuto !== undefined;
+      if (onlineChanged) {
+        const cur = (await db.query(`select online_provider, online_url, online_auto from meetings where id = $1`, [id])).rows[0];
+        const provider = input.onlineProvider !== undefined ? input.onlineProvider : cur.online_provider;
+        const url = input.onlineUrl !== undefined ? input.onlineUrl : input.onlineProvider !== undefined && input.onlineProvider !== cur.online_provider ? null : cur.online_url;
+        const auto = (input.onlineAuto ?? cur.online_auto) && !url;
+        checkOnline(provider, url, auto);
+        await db.query(`update meetings set online_provider = $2, online_url = $3, online_auto = $4 where id = $1`, [id, provider, url, auto]);
+        await recordEvent(db, actor, { entityType: "meeting", entityId: id, eventType: "online.updated", after: { provider, url, auto } });
+      }
       await db.query(
         `update meetings set title = coalesce($2, title), starts_at = coalesce($3, starts_at), duration_minutes = coalesce($4, duration_minutes),
                 location = case when $5 then $6 else location end, agenda = case when $7 then $8 else agenda end, notes = case when $9 then $10 else notes end
@@ -611,7 +642,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
         [id, input.title ?? null, input.startsAt ?? null, input.durationMinutes ?? null, input.location !== undefined, input.location ?? null, input.agenda !== undefined, input.agenda ?? null, input.notes !== undefined, input.notes ?? null],
       );
       if (input.startsAt) await recordEvent(db, actor, { entityType: "meeting", entityId: id, eventType: "rescheduled", after: { startsAt: input.startsAt } });
-      if (input.title || input.startsAt || input.durationMinutes || input.location !== undefined || input.agenda !== undefined) {
+      if (input.title || input.startsAt || input.durationMinutes || input.location !== undefined || input.agenda !== undefined || onlineChanged) {
         await enqueue(db, actor.companyId, "calendar.push", { meetingId: id });
       }
       return loadMeeting(db, id);

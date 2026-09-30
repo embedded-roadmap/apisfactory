@@ -21,10 +21,10 @@ export function MeetingsPage() {
   const org = useQuery({ queryKey: ["org"], queryFn: () => get<any>("/api/org") });
   const { me } = useMe();
   const [show, setShow] = useState(false);
-  const [f, setF] = useState({ title: "", startsAt: localInput(new Date(Date.now() + 86400e3)), durationMinutes: "60", location: "", agenda: "", participantIds: [] as string[] });
+  const [f, setF] = useState({ title: "", startsAt: localInput(new Date(Date.now() + 86400e3)), durationMinutes: "60", location: "", agenda: "", participantIds: [] as string[], onlineProvider: "", onlineUrl: "", onlineAuto: false });
   const [key] = useState(newKey());
   const create = useMutation({
-    mutationFn: () => post<any>("/api/meetings", { ...f, startsAt: new Date(f.startsAt).toISOString(), durationMinutes: Number(f.durationMinutes) || 60, location: f.location || undefined, agenda: f.agenda || undefined }, { "Idempotency-Key": key }),
+    mutationFn: () => post<any>("/api/meetings", { ...f, startsAt: new Date(f.startsAt).toISOString(), durationMinutes: Number(f.durationMinutes) || 60, location: f.location || undefined, agenda: f.agenda || undefined, onlineProvider: f.onlineProvider || undefined, onlineUrl: f.onlineUrl || undefined, onlineAuto: f.onlineAuto && !f.onlineUrl }, { "Idempotency-Key": key }),
     onSuccess: (m) => nav(`/planning/meetings/${m.id}`),
   });
   return (
@@ -48,6 +48,15 @@ export function MeetingsPage() {
               <label className="field">Başlangıç<input aria-label="Toplantı zamanı" type="datetime-local" required value={f.startsAt} onChange={(e) => setF({ ...f, startsAt: e.target.value })} /></label>
               <label className="field" style={{ width: 100 }}>Süre (dk)<input inputMode="numeric" value={f.durationMinutes} onChange={(e) => setF({ ...f, durationMinutes: e.target.value })} /></label>
               <label className="field">Yer<input value={f.location} onChange={(e) => setF({ ...f, location: e.target.value })} /></label>
+              <label className="field">Çevrim içi<select aria-label="Çevrim içi platform" value={f.onlineProvider} onChange={(e) => setF({ ...f, onlineProvider: e.target.value, onlineAuto: ["teams", "meet"].includes(e.target.value) ? f.onlineAuto : false })}>
+                <option value="">Yok</option><option value="teams">Microsoft Teams</option><option value="meet">Google Meet</option><option value="zoom">Zoom</option><option value="other">Diğer</option>
+              </select></label>
+              {f.onlineProvider ? <label className="field" style={{ flex: 1 }}>Bağlantı{["teams", "meet"].includes(f.onlineProvider) ? " (boş bırakıp otomatik oluşturabilirsiniz)" : ""}<input aria-label="Toplantı bağlantısı" placeholder="https://…" value={f.onlineUrl} onChange={(e) => setF({ ...f, onlineUrl: e.target.value })} /></label> : null}
+              {["teams", "meet"].includes(f.onlineProvider) && !f.onlineUrl ? (
+                <label className="row" style={{ gap: 6, alignSelf: "flex-end" }} title="Takvime yazılırken bağlı takviminizden oluşturulur (Google → Meet, Microsoft → Teams)">
+                  <input type="checkbox" checked={f.onlineAuto} onChange={(e) => setF({ ...f, onlineAuto: e.target.checked })} /> Bağlantıyı otomatik oluştur
+                </label>
+              ) : null}
             </div>
             <label className="field">Gündem<textarea aria-label="Gündem" rows={3} value={f.agenda} onChange={(e) => setF({ ...f, agenda: e.target.value })} /></label>
             <div className="row" style={{ flexWrap: "wrap" }}>
@@ -175,7 +184,7 @@ export function MeetingPage() {
     <>
       <PageHeader
         title={`${m.code} — ${m.title}`}
-        sub={<>{fmtDate(m.startsAt)} · {m.durationMinutes} dk{m.location ? ` · ${m.location}` : ""} · düzenleyen {m.organizerName}{m.entityLink ? <> · bağlı kayıt <Link to={m.entityLink}>{m.entityLabel}</Link></> : null} · <Link to="/planning/meetings">← Toplantılar</Link></>}
+        sub={<>{fmtDate(m.startsAt)} · {m.durationMinutes} dk{m.location ? ` · ${m.location}` : ""}{m.onlineUrl ? <> · <a href={m.onlineUrl} target="_blank" rel="noreferrer noopener">Toplantıya katıl ({({ teams: "Teams", meet: "Meet", zoom: "Zoom", other: "bağlantı" } as Record<string, string>)[m.onlineProvider] ?? "bağlantı"})</a></> : m.onlineAuto ? " · bağlantı takvime gönderilince oluşturulacak" : ""} · düzenleyen {m.organizerName}{m.entityLink ? <> · bağlı kayıt <Link to={m.entityLink}>{m.entityLabel}</Link></> : null} · <Link to="/planning/meetings">← Toplantılar</Link></>}
         actions={<>
           {m.organizerId === me?.user.id || can("task.manage") ? <button className="ghost" disabled={act.isPending} onClick={() => act.mutate(() => post(`/api/meetings/${id}/calendar-push`).then((r: any) => setPushResult(r)))}>Takvime gönder</button> : null}
           <button className="ghost" onClick={() => downloadIcs(id!, m.code)}>Takvime ekle (.ics)</button> <span className={`badge ${STATUS[m.status]![1]}`}>{STATUS[m.status]![0]}</span>

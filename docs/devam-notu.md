@@ -1474,3 +1474,11 @@ Migration 066: `nonconformances.defect_code/capa_id`, `capa_settings` (eşik, pe
 bağsız aynı ürün/kod kayıtları eşiğe ulaştıysa DF aç + kaliteye görev. `/api/capas`, `/:id/action` (kök neden varsayım + faaliyet +
 kontrol günü → capa_verify görevi), `/:id/verify` (giren doğrulayamaz; faaliyetten sonra tekrar varsa etkili için ≥20 karakter gerekçe;
 etkisiz → yeniden açılır), `/api/capa-settings`. Web: cihaz kararında hata kodu, Kalite → DF paneli. `capa.test.ts` 2/2.
+
+## Oturum 41 devamı — toplantı çevrim içi bağlantısı (dış bağımlılık 6)
+
+Kullanıcı kararı: kendi görüntülü görüşme altyapısı yok. Migration 067: `meetings.online_provider` (teams/meet/zoom/other), `online_url`
+(https, platform alan adıyla doğrulanır), `online_auto`. Otomatik: `pushMeeting` düzenleyenin bağlı takvimi Google ise Meet
+(`conferenceData.createRequest`, `conferenceDataVersion=1`), Microsoft ise Teams (`isOnlineMeeting`, `teamsForBusiness`) ister; dönen
+katılım bağlantısı toplantıya yazılır (elle girilenin üzerine yazmaz). Uyumsuzsa istenmez, olayda `conferenceMismatch`. .ics `URL` ve
+takvim açıklamasında bağlantı. Web: toplantı formunda platform/bağlantı/otomatik, detayda "Toplantıya katıl". `calendar.test.ts` +3.

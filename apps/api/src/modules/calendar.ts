@@ -51,7 +51,7 @@ async function markError(ctx: Ctx, id: string, msg: string) {
 /** Toplantıyı düzenleyenin bağlı takvimine yazar. Bağlantı yoksa sessizce atlar (etkinlik zorunlu değil). */
 export async function pushMeeting(companyId: string, meetingId: string): Promise<{ status: "created" | "updated" | "cancelled" | "skipped"; reason?: string; externalId?: string }> {
   const lookup = await withTenant({ companyId, userId: SYSTEM_USER }, async (db) => {
-    const m = (await db.query(`select id, code, title, starts_at, duration_minutes, location, agenda, status, cancel_reason, organizer_id from meetings where id = $1`, [meetingId])).rows[0];
+    const m = (await db.query(`select id, code, title, starts_at, duration_minutes, location, agenda, status, cancel_reason, organizer_id, online_provider, online_url, online_auto from meetings where id = $1`, [meetingId])).rows[0];
     if (!m) return null;
     const link = (await db.query(`select l.external_event_id, c.id, c.user_id, c.provider, c.token_enc, c.sync_cursor, c.status from calendar_event_links l join calendar_connections c on c.id = l.connection_id where l.meeting_id = $1`, [meetingId])).rows[0];
     const conn = link ?? (await db.query(`select id, user_id, provider, token_enc, sync_cursor, status from calendar_connections where user_id = $1 and status = 'active' order by provider limit 1`, [m.organizer_id])).rows[0];
@@ -66,15 +66,20 @@ export async function pushMeeting(companyId: string, meetingId: string): Promise
   const ctx = { companyId, userId: m.organizer_id as string };
   const provider = CALENDAR_PROVIDERS[conn.provider as CalendarProviderKey];
   const token = await accessToken(ctx, conn);
+  // Otomatik bağlantı yalnız sağlayıcı uyuyorsa (Google → Meet, Microsoft → Teams) ve henüz bağlantı yoksa istenir.
+  const wantConference = m.online_auto && !m.online_url && ((m.online_provider === "meet" && conn.provider === "google") || (m.online_provider === "teams" && conn.provider === "microsoft"));
+  const conferenceMismatch = m.online_auto && !m.online_url && !wantConference;
   const input: EventInput = {
     title: `${m.code} ${m.title}`,
-    description: `${m.agenda ?? ""}\n\napisfactory: ${config.corsOrigin}/planning/meetings/${m.id}`.trim(),
-    location: m.location,
+    description: `${m.online_url ? `Katılım bağlantısı: ${m.online_url}\n\n` : ""}${m.agenda ?? ""}\n\napisfactory: ${config.corsOrigin}/planning/meetings/${m.id}`.trim(),
+    location: m.location ?? m.online_url ?? null,
+    conference: wantConference ? { requestId: `apisfactory-${m.id}` } : null,
     startsAt: new Date(m.starts_at).toISOString(),
     durationMinutes: m.duration_minutes,
     attendees,
   };
   let status: "created" | "updated" | "cancelled";
+  let joinUrl: string | null = null;
   let externalId: string = link?.external_event_id;
   if (m.status === "cancelled") {
     await provider.cancelEvent(token, externalId, m.cancel_reason ?? "Toplantı iptal edildi");
@@ -83,7 +88,9 @@ export async function pushMeeting(companyId: string, meetingId: string): Promise
     await provider.updateEvent(token, externalId, input);
     status = "updated";
   } else {
-    externalId = await provider.createEvent(token, input);
+    const created = await provider.createEvent(token, input);
+    externalId = created.id;
+    joinUrl = created.joinUrl;
     status = "created";
   }
   await withTenant(ctx, async (db) => {
@@ -92,7 +99,11 @@ export async function pushMeeting(companyId: string, meetingId: string): Promise
        on conflict (meeting_id) do update set last_pushed_at = now()`,
       [meetingId, conn.id, externalId],
     );
-    await recordEvent(db, automation(ctx), { entityType: "meeting", entityId: meetingId, eventType: `calendar.${status}`, after: { provider: conn.provider } });
+    await recordEvent(db, automation(ctx), { entityType: "meeting", entityId: meetingId, eventType: `calendar.${status}`, after: { provider: conn.provider, joinUrl, conferenceMismatch: conferenceMismatch || undefined } });
+    if (joinUrl) {
+      // Sağlayıcının oluşturduğu katılım bağlantısı toplantı kaydına yazılır (elle girilmiş bağlantının üzerine yazılmaz).
+      await db.query(`update meetings set online_url = $2, online_auto = false where id = $1 and online_url is null`, [meetingId, joinUrl]);
+    }
   });
   return { status, externalId };
 }

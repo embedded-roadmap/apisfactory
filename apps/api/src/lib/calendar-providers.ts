@@ -7,7 +7,12 @@
 
 export type CalendarProviderKey = "google" | "microsoft";
 export type Tokens = { accessToken: string; refreshToken: string; expiresAt: number };
-export type EventInput = { title: string; description: string; location: string | null; startsAt: string; durationMinutes: number; attendees: { email: string; name: string }[] };
+export type EventInput = {
+  title: string; description: string; location: string | null; startsAt: string; durationMinutes: number; attendees: { email: string; name: string }[];
+  /** Sağlayıcının kendi çevrim içi toplantısını iste (Google → Meet, Microsoft → Teams). requestId: tekrarlarda aynı. */
+  conference?: { requestId: string } | null;
+};
+export type CreatedEvent = { id: string; joinUrl: string | null };
 export type RemoteChange = { externalId: string; deleted: boolean; title?: string; startsAt?: string; durationMinutes?: number };
 
 export class CalendarError extends Error {
@@ -23,7 +28,7 @@ export interface CalendarProvider {
   authorizeUrl(state: string, redirectUri: string): string;
   exchangeCode(code: string, redirectUri: string): Promise<Tokens & { email: string | null }>;
   refresh(refreshToken: string): Promise<Tokens>;
-  createEvent(token: string, e: EventInput): Promise<string>;
+  createEvent(token: string, e: EventInput): Promise<CreatedEvent>;
   updateEvent(token: string, id: string, e: EventInput): Promise<void>;
   cancelEvent(token: string, id: string, reason: string): Promise<void>;
   /** Artımlı değişiklikler. cursor null ise ilk senkron (yeni imleç alınır). 'gone' → imleç geçersiz, sıfırlanmalı. */
@@ -93,8 +98,9 @@ const google: CalendarProvider = {
     return tokensFrom(j, refreshToken);
   },
   async createEvent(token, e) {
-    const j = await http(`${G_EVENTS}?sendUpdates=all`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(googleBody(e)) });
-    return j.id as string;
+    const j = await http(`${G_EVENTS}?sendUpdates=all${e.conference ? "&conferenceDataVersion=1" : ""}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(googleBody(e)) });
+    const video = (j.conferenceData?.entryPoints ?? []).find((p: { entryPointType?: string }) => p.entryPointType === "video")?.uri;
+    return { id: j.id as string, joinUrl: (j.hangoutLink ?? video ?? null) as string | null };
   },
   async updateEvent(token, id, e) {
     await http(`${G_EVENTS}/${encodeURIComponent(id)}?sendUpdates=all`, { method: "PATCH", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(googleBody(e)) });
@@ -131,6 +137,7 @@ function googleBody(e: EventInput) {
     start: { dateTime: e.startsAt },
     end: { dateTime: endOf(e.startsAt, e.durationMinutes) },
     attendees: e.attendees.map((a) => ({ email: a.email, displayName: a.name })),
+    ...(e.conference ? { conferenceData: { createRequest: { requestId: e.conference.requestId, conferenceSolutionKey: { type: "hangoutsMeet" } } } } : {}),
   };
 }
 
@@ -166,7 +173,7 @@ const microsoft: CalendarProvider = {
   },
   async createEvent(token, e) {
     const j = await http(`${GRAPH}/me/events`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(msBody(e)) });
-    return j.id as string;
+    return { id: j.id as string, joinUrl: (j.onlineMeeting?.joinUrl ?? null) as string | null };
   },
   async updateEvent(token, id, e) {
     await http(`${GRAPH}/me/events/${encodeURIComponent(id)}`, { method: "PATCH", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(msBody(e)) });
@@ -201,6 +208,7 @@ function msBody(e: EventInput) {
     end: msDate(endOf(e.startsAt, e.durationMinutes)),
     location: e.location ? { displayName: e.location } : undefined,
     attendees: e.attendees.map((a) => ({ emailAddress: { address: a.email, name: a.name }, type: "required" })),
+    ...(e.conference ? { isOnlineMeeting: true, onlineMeetingProvider: "teamsForBusiness" } : {}),
   };
 }
 

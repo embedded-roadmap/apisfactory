@@ -154,6 +154,43 @@ describe("Uygulama → takvim (Google)", () => {
     expect(expectOk(await call(w.app, "rd@a.test", A, "POST", `/api/meetings/${m.id}/calendar-push`))).toEqual({ status: "skipped", reason: "no_connection" });
     expect(log).toEqual([]); // sağlayıcıya hiç istek gitmedi
   });
+
+  it("çevrim içi bağlantı: elle girilen bağlantı platform alan adıyla doğrulanır, .ics ve takvim açıklamasına girer", async () => {
+    const base = { title: "Tedarikçi görüşmesi", startsAt: "2026-10-12T09:00:00+03:00", durationMinutes: 30 };
+    expect((await call(w.app, M, A, "POST", "/api/meetings", { ...base, onlineProvider: "zoom", onlineUrl: "https://evil.example.com/j/1" })).status).toBe(400);
+    expect((await call(w.app, M, A, "POST", "/api/meetings", { ...base, onlineUrl: "https://zoom.us/j/1" })).status).toBe(400); // platform seçilmedi
+    expect((await call(w.app, M, A, "POST", "/api/meetings", { ...base, onlineProvider: "zoom", onlineAuto: true })).status).toBe(400); // Zoom otomatik değil
+    const m = expectOk(await call(w.app, M, A, "POST", "/api/meetings", { ...base, onlineProvider: "zoom", onlineUrl: "https://us02web.zoom.us/j/123456789" }));
+    expect(m).toMatchObject({ onlineProvider: "zoom", onlineUrl: "https://us02web.zoom.us/j/123456789", onlineAuto: false });
+    const ics = await w.app.inject({ method: "GET", url: `/api/meetings/${m.id}/ics`, headers: { authorization: `Bearer ${await login(w.app, M)}`, "x-company-id": A } });
+    expect(ics.body).toContain("URL:https://us02web.zoom.us/j/123456789");
+    route((q) => (q.method === "POST" && q.url.startsWith("https://www.googleapis.com/calendar/v3/calendars/primary/events?") ? { json: { id: "g-evt-zoom" } } : undefined));
+    expectOk(await call(w.app, M, A, "POST", `/api/meetings/${m.id}/calendar-push`));
+    const sent = log.find((x) => x.method === "POST" && x.url.includes("/events?"))!;
+    expect(sent.url).not.toContain("conferenceDataVersion");
+    expect(JSON.parse(sent.body).description).toContain("Katılım bağlantısı: https://us02web.zoom.us/j/123456789");
+  });
+
+  it("otomatik Google Meet: takvime yazılırken konferans istenir, dönen bağlantı toplantıya kaydedilir; uyumsuz platform istenmez", async () => {
+    const m = expectOk(await call(w.app, M, A, "POST", "/api/meetings", { title: "Tasarım gözden geçirme", startsAt: "2026-10-13T10:00:00+03:00", onlineProvider: "meet", onlineAuto: true }));
+    route((q) => (q.method === "POST" && q.url.includes("conferenceDataVersion=1")
+      ? { json: { id: "g-evt-meet", hangoutLink: "https://meet.google.com/abc-defg-hij", conferenceData: { entryPoints: [{ entryPointType: "video", uri: "https://meet.google.com/abc-defg-hij" }] } } }
+      : undefined));
+    expectOk(await call(w.app, M, A, "POST", `/api/meetings/${m.id}/calendar-push`));
+    const sent = log.find((x) => x.method === "POST" && x.url.includes("conferenceDataVersion=1"))!;
+    expect(JSON.parse(sent.body).conferenceData.createRequest).toEqual({ requestId: `apisfactory-${m.id}`, conferenceSolutionKey: { type: "hangoutsMeet" } });
+    expect(expectOk(await call(w.app, M, A, "GET", `/api/meetings/${m.id}`))).toMatchObject({ onlineUrl: "https://meet.google.com/abc-defg-hij", onlineAuto: false });
+
+    // Teams istendi ama düzenleyenin bağlı takvimi Google: konferans istenmez, olayda not düşülür.
+    log = [];
+    const t = expectOk(await call(w.app, M, A, "POST", "/api/meetings", { title: "Müşteri toplantısı", startsAt: "2026-10-14T10:00:00+03:00", onlineProvider: "teams", onlineAuto: true }));
+    route((q) => (q.method === "POST" && q.url.startsWith("https://www.googleapis.com/calendar/v3/calendars/primary/events?") && !q.url.includes("conferenceDataVersion") ? { json: { id: "g-evt-teams" } } : undefined));
+    expectOk(await call(w.app, M, A, "POST", `/api/meetings/${t.id}/calendar-push`));
+    expect(JSON.parse(log.find((x) => x.method === "POST" && x.url.includes("/events?"))!.body).conferenceData).toBeUndefined();
+    const ev = await asOwner(async () => (await w.owner.query(`select after_state from events where entity_id = $1 and event_type = 'calendar.created'`, [t.id])).rows[0]);
+    expect(ev.after_state.conferenceMismatch).toBe(true);
+    expect(expectOk(await call(w.app, M, A, "GET", `/api/meetings/${t.id}`)).onlineUrl).toBeNull();
+  });
 });
 
 describe("Takvim → uygulama (Google artımlı senkron)", () => {
@@ -253,6 +290,15 @@ describe("Microsoft 365 (Graph)", () => {
     route((r) => (r.url.endsWith("$deltatoken=d1") ? { json: { value: [{ id: "m-evt-2", "@removed": { reason: "deleted" } }], "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/calendarView/delta?$deltatoken=d2" } } : undefined));
     expect(expectOk(await call(w.app, M, A, "POST", "/api/calendar/sync")).applied).toBe(1);
     expect(expectOk(await call(w.app, M, A, "GET", `/api/meetings/${m.id}`)).status).toBe("cancelled");
+  });
+
+  it("otomatik Teams: Microsoft takviminde çevrim içi toplantı istenir, katılım bağlantısı kaydedilir", async () => {
+    const m = expectOk(await call(w.app, M, A, "POST", "/api/meetings", { title: "Teams toplantısı", startsAt: "2026-10-15T10:00:00+03:00", onlineProvider: "teams", onlineAuto: true }));
+    route((q) => (q.method === "POST" && q.url === "https://graph.microsoft.com/v1.0/me/events" ? { json: { id: "m-evt-teams", onlineMeeting: { joinUrl: "https://teams.microsoft.com/l/meetup-join/19%3ameeting_x" } } } : undefined));
+    expectOk(await call(w.app, M, A, "POST", `/api/meetings/${m.id}/calendar-push`));
+    const body = JSON.parse(log.filter((x) => x.url === "https://graph.microsoft.com/v1.0/me/events").pop()!.body);
+    expect(body).toMatchObject({ isOnlineMeeting: true, onlineMeetingProvider: "teamsForBusiness" });
+    expect(expectOk(await call(w.app, M, A, "GET", `/api/meetings/${m.id}`)).onlineUrl).toBe("https://teams.microsoft.com/l/meetup-join/19%3ameeting_x");
   });
 
   it("bağlantı kesilince token silinir; başka şirket bağlantıyı görmez", async () => {
