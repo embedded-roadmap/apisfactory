@@ -1,5 +1,6 @@
 import { createContext, useContext, type ReactNode } from "react";
-import { t as translate, type Locale, type Me, type Permission } from "@apisfactory/shared";
+import { DEFAULT_ROLES, t as translate, type Locale, type Me, type Permission } from "@apisfactory/shared";
+import { Link } from "react-router-dom";
 import { ApiError } from "./api";
 
 export const MeContext = createContext<{ me: Me | null; locale: Locale; setLocale: (l: Locale) => void }>({ me: null, locale: "tr", setLocale: () => {} });
@@ -90,3 +91,19 @@ export function PageHeader({ title, actions, sub }: { title: string; actions?: R
 export const fmt = (v: string | number | null | undefined) =>
   v == null ? "—" : Number(v).toLocaleString("tr-TR", { maximumFractionDigits: 6 });
 export const fmtDate = (v: string | null | undefined) => (v ? new Date(v).toLocaleString("tr-TR") : "—");
+
+/**
+ * Yetki yoksa düğmeyi sessizce gizlemek yerine hangi rolün gerektiğini söyler. Rol adları varsayılan rol şablonundan
+ * gelir (şirket rolleri özelleştirdiyse yol gösterici niteliktedir). Rol yönetebilen kullanıcıya ekrana bağlantı verir.
+ */
+export function NeedRole({ perm, what }: { perm: Permission; what: string }) {
+  const can = useCan();
+  if (can(perm)) return null;
+  const names = Object.values(DEFAULT_ROLES).filter((r) => r.permissions.includes(perm)).map((r) => r.name.tr);
+  return (
+    <div className="notice" role="note">
+      {what} için {names.length ? <>şu rollerden biri gerekir: <b>{names.join(", ")}</b>.</> : "yetkiniz yok."}{" "}
+      {can("admin.roles") ? <Link to="/admin">Kullanıcılar & roller ekranından ekleyebilirsiniz.</Link> : "Şirket yöneticinizden isteyin."}
+    </div>
+  );
+}

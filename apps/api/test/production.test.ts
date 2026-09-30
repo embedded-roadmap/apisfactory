@@ -262,7 +262,8 @@ describe("Kullanıcı ve rol yönetimi", () => {
     const users = expectOk(await call(w.app, "admin@a.test", A, "GET", "/api/admin/users"));
     const self = users.find((u: any) => u.email === "admin@a.test");
     const escalate = await call(w.app, "admin@a.test", A, "POST", `/api/admin/users/${self.membershipId}/roles`, { roles: ["admin", "manager", "sales"] });
-    expect(escalate.body.error.code).toBe("self_change");
+    // Şirketin tek yöneticisi: gerekçesiz kendi rol değişikliği reddedilir (ayrıntı: admin-self-role.test.ts).
+    expect(escalate.status).toBe(400);
     const notAdmin = await call(w.app, "manager@a.test", A, "GET", "/api/admin/users");
     expect(notAdmin.status).toBe(403);
     expectOk(await call(w.app, "admin@a.test", A, "POST", `/api/admin/users/${created.membershipId}/status`, { status: "suspended", reason: "Görev değişikliği" }));

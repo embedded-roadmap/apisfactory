@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SalesOrder } from "@apisfactory/shared";
 import { get, newKey, openDownload, post } from "../lib/api";
 import { AddCustomConnector, ConnectorCredentialsForm, ENV_LABEL, MODE_LABEL, ModeBadge, ModeOptions, AdapterBadge } from "../components/Connectors";
-import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, fmtDate, useCan } from "../lib/ui";
+import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, fmtDate, useCan, NeedRole } from "../lib/ui";
 import { Barcode } from "../lib/Barcode";
 import { History } from "./Sales";
 
@@ -184,6 +184,7 @@ export function CargoConnectorsPage() {
     <>
       <PageHeader title="Kargo bağlayıcıları" sub="Kargo firması seçimi şirket kararıdır. TEST modu sentetik takip no üretir, firmaya hiçbir şey iletilmez. ELLE modu her firmayla çalışır: kaydı firmanın kendi sisteminde açar, takip no'yu buraya girersiniz. CANLI mod, yalnız gerçek bağlantısı geliştirilip firmanın test ortamında doğrulanmış firmalarda açılır." />
       <p style={{ marginTop: 0 }}><Link to="/shipments">← Sevkiyat</Link> · Gönderici adresi ve telefonu: <Link to="/receivables/einvoice-connectors">şirket bilgileri</Link></p>
+      <NeedRole perm="shipment.create" what="Kargo bağlayıcılarını ayarlamak" />
       <section className="card">
         <table>
           <thead><tr><th>Kargo firması</th><th>Mod</th><th>Gerçek bağlantı</th><th>Erişim bilgisi</th><th>Ayarlar</th><th /></tr></thead>

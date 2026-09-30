@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, get, post } from "../lib/api";
-import { Empty, ErrorNotice, Loading, PageHeader, fmtDate, useCan } from "../lib/ui";
+import { Empty, ErrorNotice, Loading, PageHeader, fmtDate, useCan, NeedRole } from "../lib/ui";
 import { WorkflowTabs } from "./Workflow";
 
 const TOPIC: Record<string, string> = {
@@ -33,7 +33,7 @@ export function SmsChannelPage() {
   });
   const test = useMutation({ mutationFn: () => post<any>("/api/sms-channel/test"), onSuccess: refresh });
   const header = <PageHeader title="SMS bildirimi" sub={<>Kendi SMS sağlayıcınızın hesabı. Çalışanlar numaralarını <Link to="/password">kendi ayar sayfalarından</Link> girer; müşteri hatırlatması varsayılan teslim adresindeki cep telefonuna gider.</>} />;
-  if (!can("workflow.manage")) return <>{header}<WorkflowTabs /><Empty>Bu ayar için yetkiniz yok.</Empty></>;
+  if (!can("workflow.manage")) return <>{header}<WorkflowTabs /><NeedRole perm="workflow.manage" what="Bu ayarı değiştirmek" /></>;
   if (!f) return <>{header}<WorkflowTabs />{q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />}</>;
   const set = (p: Partial<Form>) => setF({ ...f, ...p });
   const prov = f.provider ? q.data?.providers?.[f.provider] : null;

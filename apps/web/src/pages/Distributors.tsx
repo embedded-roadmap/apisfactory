@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post } from "../lib/api";
-import { Empty, ErrorNotice, Loading, PageHeader, fmtDate, useCan } from "../lib/ui";
+import { Empty, ErrorNotice, Loading, PageHeader, fmtDate, useCan, NeedRole } from "../lib/ui";
 import { PurchasingTabs } from "./Procurement";
 import { ConnectorCredentialsForm, ENV_LABEL } from "../components/Connectors";
 import { DistributorLicense, licenseSummary } from "../components/DistributorLicense";
@@ -26,6 +26,7 @@ export function DistributorsPage() {
     <>
       <PageHeader title="Satın alma" sub="Distribütör fiyat/stok bağlantısı. Her şirket kullanmak istediği distribütörü kendi seçer: TEST modu sentetik katalog üretir ve her yerde işaretlenir; FİYAT DOSYASI modu distribütörden indirilen listeyi yükler; CANLI API modu şirketin kendi geliştirici hesabıyla gerçek API'yi sorgular (yalnız gerçek bağlantısı geliştirilmiş distribütörlerde)." />
       <PurchasingTabs />
+      <NeedRole perm="supplier.manage" what="Distribütör ayarlarını ve erişim bilgisini değiştirmek" />
       <section className="card">
         <h2>Bağlayıcılar</h2>
         {q.isLoading ? <Loading /> : <ErrorNotice error={q.error} />}

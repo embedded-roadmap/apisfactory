@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, NavLink, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, newKey, post } from "../lib/api";
-import { Empty, ErrorNotice, Loading, PageHeader, fmt, fmtDate, useCan } from "../lib/ui";
+import { Empty, ErrorNotice, Loading, PageHeader, fmt, fmtDate, useCan, NeedRole } from "../lib/ui";
 import { History } from "./Sales";
 import { Discussion } from "../components/Discussion";
 import { ConnectorCredentialsForm, ENV_LABEL, MODE_LABEL, ModeBadge, ModeOptions, AddCustomConnector, AdapterBadge } from "../components/Connectors";
@@ -37,6 +37,7 @@ export function EinvoiceConnectorsPage() {
   return (
     <>
       <Header />
+      <NeedRole perm="receivable.manage" what="E-belge bağlayıcılarını ayarlamak" />
       <CompanyTaxProfileCard />
       <CustomerTaxIdentityCard />
       <section className="card">

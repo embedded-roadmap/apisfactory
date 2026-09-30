@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BomDiff, BomVersion, ProductSummary, RevisionDetail } from "@apisfactory/shared";
 import { get, post, api } from "../lib/api";
-import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, fmtDate, useCan } from "../lib/ui";
+import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, fmtDate, useCan, NeedRole } from "../lib/ui";
 import { Discussion } from "../components/Discussion";
 import { BomSourcing } from "./Distributors";
 
@@ -25,6 +25,7 @@ export function ProductsPage() {
   return (
     <>
       <PageHeader title="Ar-Ge & BOM" sub="Ürünler, revizyonlar ve üretime devir durumu" actions={<Link className="btn" to="/products/alternates">Alternatif parçalar</Link>} />
+      <NeedRole perm="product.create" what="Yeni ürün oluşturmak" />
       {can("product.create") ? (
         <form className="card" onSubmit={(e: FormEvent) => { e.preventDefault(); create.mutate(); }}>
           <h3>Yeni ürün</h3>
@@ -90,7 +91,7 @@ export function ProductDetailPage() {
                 <option value="">Karmaşıklık: tanımsız</option><option value="low">Karmaşıklık: düşük</option><option value="medium">Karmaşıklık: orta</option><option value="high">Karmaşıklık: yüksek</option>
               </select>
             ) : p.complexity ? <span className="badge">karmaşıklık: {p.complexity}</span> : null}
-            {can("bom.import") ? <Link className="btn primary" to={`/products/${p.id}/bom-import`}>BOM içe aktar</Link> : null}
+            {can("bom.import") ? <Link className="btn primary" to={`/products/${p.id}/bom-import`}>BOM içe aktar</Link> : <NeedRole perm="bom.import" what="BOM içe aktarmak" />}
           </div>
         }
       />

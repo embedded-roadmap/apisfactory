@@ -16,11 +16,15 @@ export function AdminPage() {
     mutationFn: () => post<any>("/api/admin/users", { email: f.email, name: f.name, roles: [f.role] }),
     onSuccess: (r) => { setCreated({ email: f.email, password: r.temporaryPassword }); setF({ ...f, email: "", name: "" }); qc.invalidateQueries({ queryKey: ["admin-users"] }); },
   });
-  const act = useMutation({ mutationFn: (fn: () => Promise<unknown>) => fn(), onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-users"] }) });
+  const act = useMutation({ mutationFn: (fn: () => Promise<unknown>) => fn(), onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-users"] }); qc.invalidateQueries({ queryKey: ["self-role-change"] }); } });
+  const selfChange = useQuery({ queryKey: ["self-role-change"], queryFn: () => get<{ allowed: boolean }>("/api/admin/self-role-change"), enabled: can("admin.roles") });
 
   return (
     <>
-      <PageHeader title="Kullanıcılar & roller" sub="Yetki değişiklikleri işlem geçmişine yazılır. Kimse kendi rolünü değiştiremez." />
+      <PageHeader title="Kullanıcılar & roller" sub="Yetki değişiklikleri işlem geçmişine yazılır. Kimse kendi rolünü değiştiremez — yalnız şirketin tek yöneticisiyseniz gerekçeyle kendi iş rollerinizi ekleyebilirsiniz." />
+      {selfChange.data?.allowed ? (
+        <div className="notice info">Şirketin tek yöneticisisiniz: kendi satırınızdan iş rolü (Satın alma, Ar-Ge, Depo…) ekleyebilirsiniz. Değişiklik gerekçeyle işlem geçmişine yazılır; ikinci bir yönetici eklediğinizde bu istisna kalkar.</div>
+      ) : null}
       <form className="card" onSubmit={(e: FormEvent) => { e.preventDefault(); invite.mutate(); }}>
         <h2>Kullanıcı ekle</h2>
         <ErrorNotice error={invite.error} />
@@ -48,7 +52,7 @@ export function AdminPage() {
           <thead><tr><th>Kullanıcı</th><th>Roller</th><th>Durum</th><th /></tr></thead>
           <tbody>
             {users.data?.map((u) => (
-              <UserRow key={u.membershipId} u={u} roles={roles.data ?? []} self={u.userId === me?.user.id} act={(fn) => act.mutate(fn)} />
+              <UserRow key={u.membershipId} u={u} roles={roles.data ?? []} self={u.userId === me?.user.id} selfEditable={u.userId === me?.user.id && !!selfChange.data?.allowed} act={(fn) => act.mutate(fn)} />
             ))}
           </tbody>
         </table>
@@ -69,9 +73,10 @@ export function AdminPage() {
   );
 }
 
-function UserRow({ u, roles, self, act }: { u: any; roles: any[]; self: boolean; act: (fn: () => Promise<unknown>) => void }) {
+function UserRow({ u, roles, self, selfEditable, act }: { u: any; roles: any[]; self: boolean; selfEditable: boolean; act: (fn: () => Promise<unknown>) => void }) {
   const [sel, setSel] = useState<string[]>(u.roles);
   const [reason, setReason] = useState("");
+  const [selfReason, setSelfReason] = useState("");
   const changed = sel.slice().sort().join() !== u.roles.slice().sort().join();
   return (
     <tr>
@@ -80,7 +85,7 @@ function UserRow({ u, roles, self, act }: { u: any; roles: any[]; self: boolean;
         <div className="row" style={{ gap: 6 }}>
           {roles.map((r) => (
             <label key={r.code} className="row" style={{ gap: 4, fontSize: 13 }}>
-              <input type="checkbox" style={{ minHeight: 0 }} disabled={self} checked={sel.includes(r.code)} onChange={(e) => setSel(e.target.checked ? [...sel, r.code] : sel.filter((x) => x !== r.code))} />
+              <input type="checkbox" style={{ minHeight: 0 }} disabled={self && !selfEditable} checked={sel.includes(r.code)} onChange={(e) => setSel(e.target.checked ? [...sel, r.code] : sel.filter((x) => x !== r.code))} />
               {r.name}
             </label>
           ))}
@@ -88,7 +93,13 @@ function UserRow({ u, roles, self, act }: { u: any; roles: any[]; self: boolean;
       </td>
       <td><StateBadge value={u.status === "active" ? "approved" : "suspended"} /></td>
       <td className="row">
-        {self ? <span className="muted">Kendi hesabınız</span> : null}
+        {self && !selfEditable ? <span className="muted">Kendi hesabınız</span> : null}
+        {self && selfEditable && changed ? (
+          <>
+            <input aria-label="Kendi rol değişikliği gerekçesi" placeholder="Gerekçe (en az 10 karakter)" value={selfReason} onChange={(e) => setSelfReason(e.target.value)} style={{ width: 220 }} />
+            <button className="primary" disabled={selfReason.trim().length < 10} onClick={() => act(() => post(`/api/admin/users/${u.membershipId}/roles`, { roles: sel, reason: selfReason.trim() }))}>Rollerimi kaydet</button>
+          </>
+        ) : null}
         {!self && changed ? <button className="primary" onClick={() => act(() => post(`/api/admin/users/${u.membershipId}/roles`, { roles: sel }))}>Rolleri kaydet</button> : null}
         {!self ? (
           <>

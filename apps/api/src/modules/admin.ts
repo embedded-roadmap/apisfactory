@@ -1,9 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
-import { withUser } from "../db/pool";
+import { withUser, type Db } from "../db/pool";
 import { hashPassword, verifyPassword } from "../lib/auth";
-import { AppError, conflict, notFound } from "../lib/errors";
+import { AppError, conflict, notFound, badRequest } from "../lib/errors";
 import { recordEvent } from "../lib/records";
 import { ctxOf, parse, tenant } from "../http/context";
 
@@ -38,6 +38,27 @@ export async function adminRoutes(app: FastifyInstance) {
     }),
   );
 
+  /**
+   * Kendi rolünü değiştirme kuralı: normalde yasak (kimse kendine yetki vermesin). Tek istisna: şirkette rolleri yönetebilen
+   * (admin.roles) BAŞKA etkin üye yoksa — aksi halde tek yöneticili şirket kendine hiç iş rolü ekleyemez. Bu durumda gerekçe
+   * zorunlu, rol yönetimi yetkisi kaldırılamaz (şirket kilitlenmesin) ve olay "selfChange" olarak kaydedilir.
+   */
+  async function otherRoleManagers(db: Db, membershipId: string) {
+    return Number((await db.query(
+      `select count(distinct m.id) n from memberships m join membership_roles mr on mr.membership_id = m.id
+         join role_permissions rp on rp.role_id = mr.role_id
+        where m.company_id = app_company_id() and m.status = 'active' and m.id <> $1 and rp.permission = 'admin.roles'`,
+      [membershipId],
+    )).rows[0].n);
+  }
+
+  app.get("/api/admin/self-role-change", async (req) =>
+    tenant(req, "admin.roles", async (db, actor) => {
+      const m = (await db.query(`select id from memberships where user_id = $1 and company_id = app_company_id()`, [actor.userId])).rows[0];
+      return { allowed: Boolean(m) && (await otherRoleManagers(db, m.id)) === 0 };
+    }),
+  );
+
   app.post("/api/admin/users", async (req) => {
     const input = parse(
       z.object({ email: z.string().email(), name: z.string().min(2).max(120), roles: z.array(z.string()).min(1), isExternal: z.boolean().default(false) }),
@@ -65,17 +86,23 @@ export async function adminRoutes(app: FastifyInstance) {
 
   app.post("/api/admin/users/:membershipId/roles", async (req) => {
     const { membershipId } = req.params as { membershipId: string };
-    const input = parse(z.object({ roles: z.array(z.string()) }), req.body);
+    const input = parse(z.object({ roles: z.array(z.string()), reason: z.string().trim().max(500).optional() }), req.body);
     return tenant(req, "admin.roles", async (db, actor) => {
       const m = await db.query(`select id, user_id from memberships where id = $1 and company_id = app_company_id() for update`, [membershipId]);
       if (!m.rows[0]) throw notFound("Üyelik");
-      if (m.rows[0].user_id === actor.userId) throw conflict("self_change", "Kendi rollerinizi değiştiremezsiniz; başka bir yöneticiden isteyin");
+      const self = m.rows[0].user_id === actor.userId;
+      if (self && (await otherRoleManagers(db, membershipId)) > 0) throw conflict("self_change", "Kendi rollerinizi değiştiremezsiniz; başka bir yöneticiden isteyin");
+      if (self && (input.reason ?? "").length < 10) throw badRequest("Kendi rolünüzü değiştirirken gerekçe zorunlu (en az 10 karakter)");
       const before = await db.query(`select r.code from membership_roles mr join roles r on r.id = mr.role_id where mr.membership_id = $1`, [membershipId]);
       const roles = await db.query(`select id, code from roles where code = any($1)`, [input.roles]);
       if (roles.rowCount !== input.roles.length) throw conflict("unknown_role", "Bilinmeyen rol");
+      if (self) {
+        const keeps = (await db.query(`select 1 from role_permissions where role_id = any($1) and permission = 'admin.roles' limit 1`, [roles.rows.map((r) => r.id)])).rowCount;
+        if (!keeps) throw conflict("last_admin", "Şirketin tek yöneticisi olarak rol yönetimi yetkinizi kaldıramazsınız; önce başka bir yönetici ekleyin");
+      }
       await db.query(`delete from membership_roles where membership_id = $1`, [membershipId]);
       for (const r of roles.rows) await db.query(`insert into membership_roles (company_id, membership_id, role_id) values (app_company_id(), $1, $2)`, [membershipId, r.id]);
-      await recordEvent(db, actor, { entityType: "membership", entityId: membershipId, eventType: "roles.changed", before: before.rows.map((x) => x.code), after: input.roles });
+      await recordEvent(db, actor, { entityType: "membership", entityId: membershipId, eventType: "roles.changed", before: before.rows.map((x) => x.code), after: input.roles, ...(self ? { reason: `Kendi rolünü değiştirdi (şirketin tek yöneticisi): ${input.reason}` } : {}) });
       return { membershipId, roles: input.roles };
     });
   });
