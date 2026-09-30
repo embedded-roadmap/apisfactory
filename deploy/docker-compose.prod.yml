@@ -1,0 +1,91 @@
+# Üretim: Türkiye'deki sunucuda API + kuyruk işçisi + PostgreSQL + Caddy (otomatik HTTPS). Web arayüzü Vercel'dedir.
+#   cd deploy && cp env.production.example .env && (değerleri doldurun) && docker compose -f docker-compose.prod.yml up -d --build
+# Veritabanı dışarı AÇILMAZ (port yayınlanmaz); yalnız 80/443 Caddy üzerinden.
+name: apisfactory
+
+x-api: &api
+  build: { context: .., dockerfile: deploy/api.Dockerfile }
+  image: apisfactory-api:latest
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    NODE_ENV: production
+    DATABASE_URL: postgres://apis_app:${APP_DB_PASSWORD}@db:5432/apisfactory
+    MIGRATION_DATABASE_URL: postgres://apis_owner:${OWNER_DB_PASSWORD}@db:5432/apisfactory
+  volumes:
+    - objects:/data/objects
+  depends_on:
+    db: { condition: service_healthy }
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+      OWNER_DB_PASSWORD: ${OWNER_DB_PASSWORD}
+    volumes:
+      - ./db-init.sh:/docker-entrypoint-initdb.d/01-init.sh:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d apisfactory"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Tek seferlik: şema değişikliklerini uygular, sonra çıkar. api/worker bunu bekler.
+  migrate:
+    <<: *api
+    restart: "no"
+    command: ["pnpm", "migrate"]
+
+  api:
+    <<: *api
+    command: ["pnpm", "start"]
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  worker:
+    <<: *api
+    command: ["pnpm", "outbox"]
+    healthcheck: { disable: true }
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  # Elle / cron ile çalıştırılır:  docker compose -f docker-compose.prod.yml run --rm backup
+  # Şifreli yedek ./backups dizinine yazılır (BACKUP_ENCRYPTION_KEY zorunlu); dizini başka bir diske/sunucuya kopyalayın.
+  backup:
+    <<: *api
+    restart: "no"
+    profiles: ["tools"]
+    command: ["node", "scripts/backup.mjs"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://apis_app:${APP_DB_PASSWORD}@db:5432/apisfactory
+      MIGRATION_DATABASE_URL: postgres://apis_owner:${OWNER_DB_PASSWORD}@db:5432/apisfactory
+      BACKUP_DIR: /backups
+    volumes:
+      - objects:/data/objects
+      - ./backups:/backups
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      API_DOMAIN: ${API_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [api]
+
+volumes:
+  pgdata:
+  objects:
+  caddy_data:
+  caddy_config:

@@ -5,3 +5,4 @@ dist
 *.log
 coverage
 apps/api/data/
+deploy/backups/
