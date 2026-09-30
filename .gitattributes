@@ -1,0 +1,3 @@
+# Linux sunucuda çalışan dağıtım dosyaları her zaman LF (CRLF ile sh betiği çalışmaz).
+*.sh text eol=lf
+deploy/** text eol=lf
