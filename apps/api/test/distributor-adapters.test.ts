@@ -42,10 +42,11 @@ describe("Yardımcılar", () => {
     expect(leadDays(null, "weeks")).toBeNull();
   });
 
-  it("kayıt defteri: üç adaptör var, hepsi DOĞRULANMADI olarak işaretli ve belgeye bağlı", () => {
+  it("kayıt defteri: üç adaptör var ve belgeye bağlı; DigiKey gerçek hesapla doğrulandı, diğerleri henüz değil", () => {
+    expect(DISTRIBUTOR_ADAPTERS.digikey!.verified).toBe(true);
     for (const k of ["digikey", "mouser", "farnell"]) {
       expect(DISTRIBUTOR_PROVIDERS[k]).toBe(DISTRIBUTOR_ADAPTERS[k]);
-      expect(DISTRIBUTOR_ADAPTERS[k]!.verified).toBe(false);
+      if (k !== "digikey") expect(DISTRIBUTOR_ADAPTERS[k]!.verified).toBe(false);
       expect(DISTRIBUTOR_ADAPTERS[k]!.docsUrl).toMatch(/^https:\/\//);
     }
     expect(DISTRIBUTOR_PROVIDERS.lcsc).toBeUndefined();
@@ -94,6 +95,28 @@ describe("DigiKey (Product Information v4)", () => {
     expect(log.every((r) => r.url.startsWith("https://api.digikey.com/"))).toBe(true);
     expect(await dk.lookup("STM32F103C8T6", ctx({ clientId: "c", clientSecret: "s" }, { environment: "production", manufacturer: "Microchip" }))).toBeNull();
     expect((await dk.lookup("STM32F103C8T6", ctx({ clientId: "c", clientSecret: "s" }, { environment: "production" })))!.lifecycle).toBe("nrnd");
+  });
+
+  it("productdetails 404 (aynı MPN birden çok üreticide) → keyword ExactMatches; üretici verilmişse süzülür, yoksa en yüksek stok (gerçek hesapta görülen biçim)", async () => {
+    const kwResp = {
+      ProductsCount: 6,
+      SearchLocaleUsed: { Site: "US", Language: "en", Currency: "USD" },
+      ExactMatches: [
+        { ManufacturerProductNumber: "NE555DR", Manufacturer: { Name: "Texas Instruments" }, QuantityAvailable: 205234, ProductStatus: { Status: "Active" }, ManufacturerLeadWeeks: "16", ProductUrl: "https://www.digikey.com/x/ti",
+          ProductVariations: [{ DigiKeyProductNumber: "296-6501-2-ND", MinimumOrderQuantity: 2500, StandardPricing: [{ BreakQuantity: 2500, UnitPrice: 0.1 }] }, { DigiKeyProductNumber: "296-6501-1-ND", MinimumOrderQuantity: 1, StandardPricing: [{ BreakQuantity: 1, UnitPrice: 0.45 }] }] },
+        { ManufacturerProductNumber: "NE555DR", Manufacturer: { Name: "UMW" }, ProductStatus: { Status: "Active" }, ManufacturerLeadWeeks: "8", ProductUrl: "https://www.digikey.com/x/umw",
+          ProductVariations: [{ DigiKeyProductNumber: "4518-NE555DRCT-ND", MinimumOrderQuantity: 1, StandardPricing: [{ BreakQuantity: 1, UnitPrice: 0.2 }] }] },
+      ],
+      Products: [],
+    };
+    respond = (r) => (r.url.endsWith("/token") ? { json: { access_token: "t", expires_in: 600 } } : r.url.endsWith("/productdetails") ? { status: 404, json: { title: "Not Found" } } : r.url.endsWith("/search/keyword") ? { json: kwResp } : { status: 500 });
+    const any = await dk.lookup("NE555DR", ctx({ clientId: "c", clientSecret: "s" }, { environment: "production", currency: "USD" }));
+    const kw = log.find((r) => r.url.endsWith("/search/keyword"))!;
+    expect(kw.method).toBe("POST");
+    expect(JSON.parse(kw.body)).toEqual({ Keywords: "NE555DR", Limit: 10, Offset: 0 });
+    expect(any).toMatchObject({ manufacturer: "Texas Instruments", sku: "296-6501-1-ND", stock: 205234, moq: 1, leadTimeDays: 112, currency: "USD", sourceRef: "https://www.digikey.com/x/ti" });
+    expect(await dk.lookup("NE555DR", ctx({ clientId: "c", clientSecret: "s" }, { environment: "production", manufacturer: "UMW" }))).toMatchObject({ manufacturer: "UMW", sku: "4518-NE555DRCT-ND", stock: null });
+    expect(await dk.lookup("NE555DR", ctx({ clientId: "c", clientSecret: "s" }, { environment: "production", manufacturer: "Microchip" }))).toBeNull();
   });
 
   it("jeton hatası sır içermeyen hata fırlatır", async () => {

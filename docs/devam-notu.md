@@ -1599,3 +1599,12 @@ gövde WSDL sırasıyla kurulur (testte sıra doğrulanır). `ResultCode "0"` = 
 döndürür ve alanları WSDL'de yazmaz — eşleme uydurulmadı; durum Aras panelinden izlenir (ekranda "takip sorgusu
 geliştirilmedi" uyarısı). Ayar: ödeyen (1/2), koli başına desi (isteğe bağlı). `cargo-adapters.test.ts` +4.
 `dis-bagimlilik-promptu.md` eski `sendLive`/`labelLive` adlarından arındırıldı, güncel duruma getirildi.
+
+## Oturum 41 devamı — DigiKey adaptörü GERÇEK hesapla doğrulandı (2026-09-30)
+
+Şirketin DigiKey üretim uygulaması (Production App, Product Information V4) anahtarıyla, salt okuma sorgularıyla denendi.
+Anahtar yalnız üretimde geçerli (sandbox "Invalid clientId") → ekranda ortam **Üretim** seçilmeli. Gerçek yanıtta belgede
+olmayan bir davranış bulundu ve düzeltildi: aynı MPN'yi birden çok üretici yapıyorsa (NE555DR: TI + UMW) `productdetails` 404
+döner → artık `search/keyword` `ExactMatches` kullanılır; üretici verilmişse süzülür, verilmemişse en yüksek stok seçilir.
+Doğrulanan: STM32F103C8T6, NE555DR (TI / UMW), LM358DR, GRM188R71H104KA93D (obsolete → ömür döngüsü), olmayan parça → yok.
+`verified: true`. Mouser ve element14 hâlâ doğrulanmadı. `distributor-adapters.test.ts` +1 (gerçek yanıt biçimiyle).

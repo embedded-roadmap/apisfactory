@@ -100,18 +100,36 @@ function digikeyLifecycle(p: any): DistributorOffer["lifecycle"] {
 
 const digikey: DistributorProvider = {
   credentialFields: ["clientId", "clientSecret"],
-  verified: false,
+  // Gerçek üretim hesabıyla doğrulandı (2026-09-30): productdetails, 404 → keyword ExactMatches, fiyat/stok/ömür eşlemesi.
+  verified: true,
   docsUrl: "https://developer.digikey.com/products/product-information-v4/productsearch/productdetails",
   async lookup(mpn, ctx) {
     const token = await digikeyToken(ctx.environment, ctx.credentials.clientId!, ctx.credentials.clientSecret!);
-    const res = await call(`${DIGIKEY_BASE[ctx.environment]}/products/v4/search/${encodeURIComponent(mpn)}/productdetails`, {
-      headers: { authorization: `Bearer ${token}`, "X-DIGIKEY-Client-Id": ctx.credentials.clientId!, "X-DIGIKEY-Locale-Currency": ctx.currency, accept: "application/json" },
-    });
-    if (res.status === 404) return null;
+    const headers = { authorization: `Bearer ${token}`, "X-DIGIKEY-Client-Id": ctx.credentials.clientId!, "X-DIGIKEY-Locale-Currency": ctx.currency, accept: "application/json" };
+    const res = await call(`${DIGIKEY_BASE[ctx.environment]}/products/v4/search/${encodeURIComponent(mpn)}/productdetails`, { headers });
     if (res.status === 401) dkTokens.delete(`${ctx.environment}:${ctx.credentials.clientId}`);
-    const j = await json(res, "DigiKey productdetails");
-    const p = j?.Product;
-    if (!p || !sameMpn(p.ManufacturerProductNumber, mpn) || !sameMfr(p.Manufacturer?.Name, ctx.manufacturer)) return null;
+    let p: any;
+    let locale: any;
+    if (res.status === 404) {
+      // Gerçek hesapla görüldü (2026-09-30): aynı MPN'yi birden çok üretici yapıyorsa (ör. NE555DR: TI + UMW) productdetails
+      // 404 döner. O zaman anahtar kelime aramasının ExactMatches listesi kullanılır; üretici verilmişse ona göre süzülür,
+      // verilmemişse stoğu en yüksek olan seçilir (seçilen üretici teklifte görünür).
+      const kw = await call(`${DIGIKEY_BASE[ctx.environment]}/products/v4/search/keyword`, {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({ Keywords: mpn, Limit: 10, Offset: 0 }),
+      });
+      const k = await json(kw, "DigiKey keyword");
+      const exact = ((k?.ExactMatches ?? []) as any[]).filter((x) => sameMpn(x.ManufacturerProductNumber, mpn) && sameMfr(x.Manufacturer?.Name, ctx.manufacturer));
+      if (!exact.length) return null;
+      p = [...exact].sort((a, b) => (num(b.QuantityAvailable) ?? -1) - (num(a.QuantityAvailable) ?? -1))[0];
+      locale = k?.SearchLocaleUsed;
+    } else {
+      const j = await json(res, "DigiKey productdetails");
+      p = j?.Product;
+      locale = j?.SearchLocaleUsed;
+      if (!p || !sameMpn(p.ManufacturerProductNumber, mpn) || !sameMfr(p.Manufacturer?.Name, ctx.manufacturer)) return null;
+    }
     // Birden çok paket türü (kesik bant, makara…) olabilir: fiyat merdiveni en küçük asgari adetli varyasyondan alınır.
     const vars: any[] = Array.isArray(p.ProductVariations) ? p.ProductVariations : [];
     const v = [...vars].sort((a, b) => (num(a.MinimumOrderQuantity) ?? 1e12) - (num(b.MinimumOrderQuantity) ?? 1e12))[0];
@@ -127,7 +145,7 @@ const digikey: DistributorProvider = {
       multiple: null, // DigiKey yanıtında sipariş katı alanı yok (StandardPackage üretici paketidir, sipariş katı değil)
       leadTimeDays: leadDays(p.ManufacturerLeadWeeks, "weeks"),
       lifecycle: digikeyLifecycle(p),
-      currency: String(j?.SearchLocaleUsed?.Currency ?? ctx.currency).toUpperCase(),
+      currency: String(locale?.Currency ?? ctx.currency).toUpperCase(),
       breaks,
       sourceRef: p.ProductUrl ?? `digikey:${v?.DigiKeyProductNumber ?? mpn}`,
     };
