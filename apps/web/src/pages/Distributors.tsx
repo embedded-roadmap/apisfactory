@@ -110,7 +110,7 @@ export function ItemOffers({ itemId, qty }: { itemId: string; qty: number }) {
           <thead><tr><th>Distribütör</th><th>SKU</th><th className="num">Stok</th><th className="num">MOQ</th><th className="num">Temin</th><th>Yaşam döngüsü</th><th className="num">Birim ({qty} ad.)</th><th>Kaynak</th><th>Alınma</th></tr></thead>
           <tbody>{d.offers.map((o: any) => (
             <tr key={o.connectorId}>
-              <td>{o.connector}</td><td className="mono">{o.sku ?? "—"}</td><td className="num">{num(o.stock, 0)}</td><td className="num">{num(o.moq, 0)}</td><td className="num">{o.leadTimeDays ?? "—"} g</td>
+              <td>{o.connector}</td><td className="mono">{o.sku ?? "—"}</td><td className="num">{num(o.stock, 0)}</td><td className="num">{num(o.moq, 0)}</td><td className="num" title={o.source === "api" && o.leadTimeDays !== null ? `Üretici temin süresi: ${o.leadTimeDays} gün (stok yetmezse)` : undefined}>{o.deliveryDays ?? o.leadTimeDays ?? "—"} g{o.source === "api" && (o.stock ?? 0) >= qty ? <div className="muted">stoktan</div> : null}</td>
               <td>{o.lifecycle && o.lifecycle !== "active" ? <span className="badge bad">{o.lifecycle.toUpperCase()}</span> : o.lifecycle ?? "—"}</td>
               <td className="num">{o.unitPrice !== null ? `${num(o.unitPrice)} ${o.currency}` : <span className="muted">gizli</span>}</td>
               <td>{o.testData ? <span className="badge mode warn">TEST VERİSİ</span> : <span className="muted">{o.sourceRef}</span>}</td>

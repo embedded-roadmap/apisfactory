@@ -1608,3 +1608,12 @@ olmayan bir davranış bulundu ve düzeltildi: aynı MPN'yi birden çok üretici
 döner → artık `search/keyword` `ExactMatches` kullanılır; üretici verilmişse süzülür, verilmemişse en yüksek stok seçilir.
 Doğrulanan: STM32F103C8T6, NE555DR (TI / UMW), LM358DR, GRM188R71H104KA93D (obsolete → ömür döngüsü), olmayan parça → yok.
 `verified: true`. Mouser ve element14 hâlâ doğrulanmadı. `distributor-adapters.test.ts` +1 (gerçek yanıt biçimiyle).
+
+## Oturum 41 devamı — DigiKey uygulama içi deneme ve temin süresi düzeltmesi (2026-10-04)
+
+Uygulamada uçtan uca denendi: BOM CSV → satın alma talebi → teklif talebi → Distribütör teklifleri kutusunda DigiKey canlı
+veri (STM32F103C8T6: stok 7.572, 100 ad. 5,0446 USD). Bulunan hata: canlı adaptörlerin leadTimeDays değeri ÜRETİCİ temin
+süresi (DigiKey ManufacturerLeadWeeks = 40 hf → 280 gün) ama otomatik teklif stok yeterken de bunu kullanıyordu. Yeni
+`effectiveLeadDays` (distributors.ts): kaynak api + stok yeterli → `API_STOCK_SHIP_DAYS` (7); stok yetmezse max(üretici, 14).
+Test bağlayıcısı / fiyat dosyası davranışı değişmedi. Teklif ekranında `deliveryDays` + "stoktan" etiketi, üretici süresi
+ipucunda. BOM tedarik görünümü de aynı hesabı kullanır. distributor-adapters.test +2.

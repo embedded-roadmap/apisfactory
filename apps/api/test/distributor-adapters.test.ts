@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DISTRIBUTOR_ADAPTERS, distributorDeps, leadDays, parseLocalizedPrice, resetDistributorTokenCache } from "../src/lib/distributor-adapters";
 import { DISTRIBUTOR_PROVIDERS } from "../src/lib/distributor-providers";
+import { API_STOCK_SHIP_DAYS, effectiveLeadDays } from "../src/modules/distributors";
 
 type Req = { method: string; url: string; headers: Headers; body: string };
 let log: Req[] = [];
@@ -187,5 +188,19 @@ describe("element14 / Farnell (Product Search REST)", () => {
     expect(log).toHaveLength(0);
     respond = () => ({ json: { manufacturerPartNumberSearchReturn: { numberOfResults: 0 } } });
     expect(await e14.lookup("NONE", ctx({ apiKey: "ek", storeId: "uk.farnell.com", storeCurrency: "GBP" }))).toBeNull();
+  });
+});
+
+describe("teklif temin süresi (gerçek DigiKey yanıtından, 2026-10-04)", () => {
+  it("canlı API: stok yetiyorsa sevk süresi, yetmiyorsa üretici temin süresi (en az 14 gün)", () => {
+    const dk = { source: "api", stock: 7572, leadTimeDays: 280 };
+    expect(effectiveLeadDays(dk, 100)).toBe(API_STOCK_SHIP_DAYS);
+    expect(effectiveLeadDays(dk, 10000)).toBe(280);
+    expect(effectiveLeadDays({ source: "api", stock: 0, leadTimeDays: null }, 1)).toBe(30);
+    expect(effectiveLeadDays({ source: "api", stock: 0, leadTimeDays: 5 }, 1)).toBe(14);
+  });
+  it("test bağlayıcısı ve fiyat dosyası: değer zaten teslim süresi, olduğu gibi kullanılır", () => {
+    expect(effectiveLeadDays({ source: "price_file", stock: 500, leadTimeDays: 3 }, 100)).toBe(3);
+    expect(effectiveLeadDays({ source: "test_connector", stock: 500, leadTimeDays: null }, 100)).toBe(7);
   });
 });

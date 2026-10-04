@@ -75,6 +75,21 @@ export function syntheticOffer(key: string, mpn: string, currency: string) {
   };
 }
 
+/** Canlı API'den gelen parça stoktaysa varsayılan sevk süresi (gün). */
+export const API_STOCK_SHIP_DAYS = 7;
+
+/**
+ * Teklif için geçerli temin süresi (gün). Canlı API adaptörlerinin leadTimeDays değeri ÜRETİCİ (fabrika) temin süresidir
+ * (DigiKey ManufacturerLeadWeeks, Mouser LeadTime) ve yalnız stok yetmezse geçerlidir — gerçek hesapla görüldü
+ * (2026-10-04): STM32F103C8T6 stok 7.572 iken 40 hafta (280 gün) geliyordu. Test bağlayıcısı ve fiyat dosyasında ise
+ * değer zaten teslim süresidir.
+ */
+export function effectiveLeadDays(o: { source?: string | null; stock: number | null; leadTimeDays: number | null }, qty: number) {
+  const enough = (o.stock ?? 0) >= qty;
+  if (enough) return o.source === "api" ? API_STOCK_SHIP_DAYS : o.leadTimeDays ?? 7;
+  return Math.max(o.leadTimeDays ?? 30, 14);
+}
+
 export function priceFor(breaks: Break[], qty: number) {
   const sorted = [...breaks].sort((a, b) => a.qty - b.qty);
   let p: number | null = null;
@@ -348,7 +363,7 @@ export async function distributorRoutes(app: FastifyInstance) {
       const r = await offersFor(db, actor, { id: it.id, mpn: it.mpn, manufacturer: it.manufacturer }, { refresh: !!q.refresh });
       const qty = q.qty ?? 1;
       const show = can(req, "field.cost.view");
-      const offers = hidePrices(r.offers, show).map((o) => ({ ...o, unitPrice: show ? priceFor(o.breaks, Math.max(qty, o.moq ?? 1)) : null, qty }));
+      const offers = hidePrices(r.offers, show).map((o) => ({ ...o, unitPrice: show ? priceFor(o.breaks, Math.max(qty, o.moq ?? 1)) : null, qty, deliveryDays: effectiveLeadDays(o, qty) }));
       return { item: it, ...r, offers };
     });
   });
@@ -391,7 +406,7 @@ export async function distributorRoutes(app: FastifyInstance) {
           });
           const pick = [...cands].sort((a, b2) => Number(b2.enough) - Number(a.enough) || (a.total ?? Infinity) - (b2.total ?? Infinity))[0];
           if (pick) {
-            best = { connector: pick.connector, sku: pick.sku, stock: pick.stock, enough: pick.enough, leadTimeDays: pick.leadTimeDays, buyQty: pick.buyQty, currency: pick.currency,
+            best = { connector: pick.connector, sku: pick.sku, stock: pick.stock, enough: pick.enough, leadTimeDays: effectiveLeadDays(pick, toBuy), buyQty: pick.buyQty, currency: pick.currency,
               unitPrice: show ? pick.unit : null, total: show ? pick.total : null, fetchedAt: pick.fetchedAt, stale: pick.stale, testData: pick.testData, offers: cands.length };
             if (pick.testData) testData = true;
             if (show && pick.total !== null) totals[pick.currency] = Math.round(((totals[pick.currency] ?? 0) + pick.total) * 100) / 100;
@@ -445,7 +460,7 @@ export async function distributorRoutes(app: FastifyInstance) {
         const buyQty = Math.max(r.qty, x.moq ?? 1);
         const unit = priceFor(x.breaks, buyQty);
         if (unit === null) { skipped.push(`${x.connector}: fiyat yok`); continue; }
-        const lead = (x.stock ?? 0) >= r.qty ? x.leadTimeDays ?? 7 : Math.max(x.leadTimeDays ?? 30, 14);
+        const lead = effectiveLeadDays(x, r.qty);
         const note = `${x.testData ? "TEST VERİSİ — " : ""}${x.connector} ${x.sku ?? ""} · stok ${x.stock ?? "?"} · ${x.sourceRef ?? x.source} · alındı ${new Date(x.fetchedAt).toISOString().slice(0, 16).replace("T", " ")}`;
         await db.query(
           `insert into rfq_quotes (company_id, rfq_id, supplier_id, unit_price, currency, lead_time_days, moq, valid_until, note, source, entered_by)
