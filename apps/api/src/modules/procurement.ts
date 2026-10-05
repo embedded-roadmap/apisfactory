@@ -371,16 +371,18 @@ export async function procurementRoutes(app: FastifyInstance) {
         const s = (await db.query(`select status from suppliers where id = $1`, [po.supplier_id])).rows[0];
         if (s.status !== "active") throw conflict("supplier_blocked", "Tedarikçi bloke; sipariş gönderilemez");
         const lines = (await db.query(
-          `select l.qty_ordered, l.unit_price, pr.requested_by as "requestedBy"
-             from purchase_order_lines l left join purchase_requests pr on pr.id = l.purchase_request_id
+          `select l.qty_ordered, l.unit_price
+             from purchase_order_lines l
             where l.po_id = $1`,
           [id],
         )).rows;
         const totalAmount = lines.reduce((sum, l) => sum + Number(l.qty_ordered) * Number(l.unit_price ?? 0), 0);
-        const requesterId: string | null = lines.find((l) => l.requestedBy)?.requestedBy ?? null;
+        // Yalnız parasal limit: "kendi talebini onaylama" yasağı talep onayında zaten uygulandı. requesterId burada
+        // verilirse talebi kendisi açan satın almacı, yönetici onayından sonra bile kendi siparişini gönderemez
+        // (gerçek kullanımda bulundu, 2026-10-05 — test/po-send-own-request.test.ts).
         const d = await assertApproval(
           db, "purchase_request", approverFromRequest(req, "purchase.request.approve"),
-          { requesterId, amount: totalAmount.toFixed(6), currency: po.currency },
+          { requesterId: null, amount: totalAmount.toFixed(6), currency: po.currency },
           { title: `Sipariş ${po.code} gönderimi`, entityType: "purchase_order", entityId: id },
         );
         await db.query(`update purchase_orders set status = 'sent', sent_at = now(), sent_by = $2 where id = $1`, [id, actor.userId]);

@@ -15,6 +15,7 @@ export function SalesPage() {
   return (
     <>
       <PageHeader title="Satış & Termin" sub="Teklif taslağı ile kesin sipariş ayrıdır. Kesinleştirme uygunluk ve devir kontrolünden geçer." />
+      {can("sales.create") ? <NewCustomer /> : null}
       {can("sales.create") ? <NewOrder onCreated={(id) => nav(`/sales/${id}`)} /> : null}
       <section className="card">
         {orders.isLoading ? <Loading /> : <ErrorNotice error={orders.error} />}
@@ -33,6 +34,33 @@ export function SalesPage() {
         ) : null}
       </section>
     </>
+  );
+}
+
+/**
+ * Tek müşteri ekleme. Gerçek kullanımda (bot testi, 2026-10-05) bulundu: müşteri yalnız CSV içe aktarımla eklenebiliyordu ve
+ * satış rolünün menüsünde İçe aktarım yok — yeni şirkette ilk sipariş girilemiyordu. Toplu ekleme için İçe aktarım duruyor.
+ */
+function NewCustomer() {
+  const qc = useQueryClient();
+  const [f, setF] = useState({ code: "", name: "" });
+  const [added, setAdded] = useState<string | null>(null);
+  const create = useMutation({
+    mutationFn: () => post<{ id: string; code: string; name: string }>("/api/customers", { code: f.code.trim(), name: f.name.trim() }),
+    onSuccess: (c) => { setAdded(c.name); setF({ code: "", name: "" }); qc.invalidateQueries({ queryKey: ["customers"] }); },
+  });
+  return (
+    <form className="card" onSubmit={(e: FormEvent) => { e.preventDefault(); setAdded(null); create.mutate(); }}>
+      <h2>Yeni müşteri</h2>
+      <ErrorNotice error={create.error} />
+      <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
+        <label className="field" style={{ width: 160 }}>Müşteri kodu<input required maxLength={64} value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })} placeholder="ör. MUS-001" /></label>
+        <label className="field" style={{ flex: 1, minWidth: 200 }}>Müşteri adı<input required maxLength={200} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></label>
+        <button className="primary" disabled={create.isPending}>Ekle</button>
+        {added ? <span className="badge ok">{added} eklendi</span> : null}
+      </div>
+      <p className="muted" style={{ margin: 0 }}>Vergi kimliği, kredi limiti ve fatura e-postası Alacaklar ekranından girilir. Toplu ekleme: İçe aktarım.</p>
+    </form>
   );
 }
 

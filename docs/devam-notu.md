@@ -1617,3 +1617,29 @@ süresi (DigiKey ManufacturerLeadWeeks = 40 hf → 280 gün) ama otomatik teklif
 `effectiveLeadDays` (distributors.ts): kaynak api + stok yeterli → `API_STOCK_SHIP_DAYS` (7); stok yetmezse max(üretici, 14).
 Test bağlayıcısı / fiyat dosyası davranışı değişmedi. Teklif ekranında `deliveryDays` + "stoktan" etiketi, üretici süresi
 ipucunda. BOM tedarik görünümü de aynı hesabı kullanır. distributor-adapters.test +2.
+
+## Oturum 41 devamı — 8 bot hesapla uçtan uca doğal akış testi (yerel, 2026-10-05)
+
+Yerel ortamda (localhost) BOT-TEST şirketi: yönetici + Ar-Ge, satın alma, depo, üretim, kalite, satış, muhasebe botları
+(şifreler apps/api/data/test-bots.txt, git dışı). Zincir tarayıcıdan gerçek ekranlarla yürütüldü: ürün → BOM CSV → revizyon
+→ 3 birim devir onayı → satın alma talebi → yönetici onayı → RFQ (2 tedarikçi) → gerekçeli seçim → sipariş → teyit → kısmi
+mal kabul → giriş kalite (28/2) → müşteri → satış siparişi → termin → kesinleştirme (otomatik talepler) → siparişsiz kabul
+→ iş emri (pilot) → malzeme çıkışı → 6 operasyon → cihaz testi (9 geçti, 1 limit dışı) → hurda → son kalite → sevkiyat
+(barkodla paketleme, kontrol listesi) → teslim → fatura MF-000001 (9 × 1.250 + %20 KDV = 13.500 TRY).
+
+Doğrulanan kurallar: kendi talebini onaylama, gerekçesiz pahalı teklif, PO kalemi uyuşmazlığı, operasyon sırası, malzeme
+çıkışsız hazırlık, kalite kapısı, limit dışı ölçümle geçti, serbest bırakılmamış cihazla iş emri kapatma, hurda cihaz sevki,
+aynı seri iki kez paket, kontrol listesiz paket kapatma.
+
+Düzeltilen: (1) satın almacı kendi açtığı (yönetici onaylı) talebin siparişini gönderemiyordu — gönderimde yalnız parasal
+limit (procurement.ts, test/po-send-own-request.test.ts); (2) tek müşteri ekleme ekranı yoktu (Sales.tsx NewCustomer);
+(3) kurucuya iş rolleri seçeneği (setup); (4) selamlama saate göre. Tam paket 480/480.
+
+Açık bulgular (düzeltilmedi): geçici şifre ilk girişte değiştirilmeye zorlanmıyor (güvenlik); BOM içe aktarma başarısı ham
+JSON gösteriyor; sayı biçimi tutarsız (172 TRY / 185,5 / 8600.00 / 30.000000); doğrulama hataları İngilizce zod metni
+("note: String must contain at least 3 character(s)") ve durum kodu ("scrapped") gösteriyor; hata mesajlarına teknik
+kod ekleniyor; izin olmayan düğmeler görünür (kendi talebinde Onayla, kapı öncesi Son kalite), pasif düğmede neden yok;
+malzeme çıkışı hatası kimin yapacağını söylemiyor; "Çıkış" (oturum) ile "Çıkış yap" (malzeme) karışıyor; "Yayımla (seri
+üret)" pilotta yanıltıcı; satın alma talebi kalem listesinde mamul de var; siparişsiz kabulde tedarikçi serbest metin;
+termin "temin süresi tanımsız" deyip nereden tanımlanacağını söylemiyor; satış siparişinde adres kaydı yokken varsayılan
+seçili görünüyor (sunucu varsayılanı kullandığı için sevkiyat doğru).

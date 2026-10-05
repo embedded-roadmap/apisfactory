@@ -31,7 +31,7 @@ export function TodayPage() {
   const integrations = useQuery({ queryKey: ["integrations"], queryFn: () => get<{ key: string; name: string; mode: string; note: string }[]>("/api/integrations") });
   return (
     <>
-      <PageHeader title={`Günaydın, ${me?.user.name.split(" ")[0] ?? ""}`} sub="Rollerinize atanmış açık işler" />
+      <PageHeader title={`${greeting()}, ${me?.user.name.split(" ")[0] ?? ""}`} sub="Rollerinize atanmış açık işler" />
       <MentionsCard />
       <UpcomingMeetings />
       <section className="card">
@@ -104,4 +104,11 @@ function UpcomingMeetings() {
       ))}</tbody></table>
     </section>
   );
+}
+
+/** Saate göre selamlama (önceden her saatte "Günaydın" diyordu). */
+function greeting(h = new Date().getHours()) {
+  if (h >= 5 && h < 12) return "Günaydın";
+  if (h >= 12 && h < 18) return "İyi günler";
+  return "İyi akşamlar";
 }
