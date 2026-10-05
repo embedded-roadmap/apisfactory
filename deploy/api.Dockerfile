@@ -13,7 +13,8 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/api/package.json apps/api/
 COPY packages/shared/package.json packages/shared/
-RUN pnpm install --frozen-lockfile --filter "@apisfactory/api..."
+# --prod=false: çalıştırıcı tsx devDependency'dir; NODE_ENV=production iken pnpm onu atlardı ("tsx: not found").
+RUN pnpm install --frozen-lockfile --prod=false --filter "@apisfactory/api..."
 
 COPY packages/shared packages/shared
 COPY apps/api apps/api

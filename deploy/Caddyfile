@@ -1,7 +1,5 @@
 # API alan adı için otomatik Let's Encrypt sertifikası ve ters vekil.
-{
-	email {$ACME_EMAIL}
-}
+# E-posta gerekmez (Let's Encrypt 2025'te süre bitimi e-postalarını kaldırdı); Caddy sertifikayı kendisi yeniler.
 
 {$API_DOMAIN} {
 	encode gzip

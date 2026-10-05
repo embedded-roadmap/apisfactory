@@ -77,7 +77,18 @@ cd apisfactory && git pull && cd deploy
 docker compose -f docker-compose.prod.yml up -d --build     # migrate önce çalışır, sonra api/worker yeniden başlar
 ```
 
-## Doğrulanmamış olanlar
+## İlk gerçek kurulum (2026-10-05)
 
-- İmaj bu geliştirme ortamında **derlenmedi** (Docker Hub'a erişim yok); compose dosyası `docker compose config` ile
-  doğrulandı, web `VITE_API_URL` ile derlendi. İlk kurulumda `docker compose ... logs -f` ile izleyin.
+Hosting Dünyam VPS (İstanbul / Datacasa, VMware, Ubuntu 24.04, 3 vCPU, 4 GB) üzerinde uçtan uca kuruldu:
+Docker Ubuntu deposundan (`docker.io`, `docker-compose-v2`), ufw yalnız 22/80/443, SSH yalnız anahtarla
+(`/etc/ssh/sshd_config.d/00-apisfactory.conf`: `PasswordAuthentication no`). Kod `/opt/apisfactory`, sırlar sunucuda
+`openssl rand -hex 32` ile üretildi (sohbete/depoya yazılmadı). 71 migration, 143 tablo; `apis_app`/`apis_owner`
+süper kullanıcı değil, BYPASSRLS yok. İlk yedek alındı, günlük cron 03:00.
+
+Kurulumda bulunan iki hata düzeltildi:
+
+- `api.Dockerfile`: `tsx` devDependency, `NODE_ENV=production` iken pnpm atlıyordu → `--prod=false`.
+- `Caddyfile`: `email` zorunluydu; Let's Encrypt 2025'te süre bitimi e-postalarını kaldırdı → `ACME_EMAIL` kaldırıldı.
+
+Web panel konsolu panodan yapıştırmayı kabul etmeyebilir: sağlayıcı panelindeki "Yapıştır" düğmesi tuşları tek tek
+yazar (konsola tıklayıp Enter gerekir). SSH anahtarı yüklendikten sonra kurulumun geri kalanı uzaktan yapılır.

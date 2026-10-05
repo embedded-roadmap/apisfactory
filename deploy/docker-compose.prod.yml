@@ -77,7 +77,6 @@ services:
     ports: ["80:80", "443:443"]
     environment:
       API_DOMAIN: ${API_DOMAIN}
-      ACME_EMAIL: ${ACME_EMAIL}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
