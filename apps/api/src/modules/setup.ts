@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { CompanySetupInput, type Session } from "@apisfactory/shared";
+import { CompanySetupInput, FOUNDER_WORK_ROLES, type Session } from "@apisfactory/shared";
 import { withUser, withTenant } from "../db/pool";
 import { config } from "../config";
 import { signToken } from "../lib/auth";
@@ -38,13 +38,14 @@ export async function setupRoutes(app: FastifyInstance) {
       const a = await createCompany(db, { code: input.companyCode, name: input.companyName, isDemo: false });
       // İlk kullanıcı hem sistem yöneticisi (admin.users/admin.roles) hem de yönetici (iş kararları)
       // yetkisiyle başlar — kurucu şirketi gerçekten çalıştırabilsin diye; ayrı roller sonradan
-      // /admin'den istendiği gibi düzenlenebilir.
+      // /admin'den istendiği gibi düzenlenebilir. "Tüm işleri ben yapıyorum" seçilirse (küçük şirket) iş rolleri de
+      // verilir — gerçek kullanımda görüldü (2026-10-05): yalnız admin+manager olan kurucu ilk ürününü açamıyordu.
       const userId = await createUser(db, {
         email: input.adminEmail,
         name: input.adminName,
         password: input.adminPassword,
         companyId: a.companyId,
-        roles: ["admin", "manager"],
+        roles: input.founderDoesAll ? ["admin", "manager", ...FOUNDER_WORK_ROLES] : ["admin", "manager"],
         roleIds: a.roleIds,
       });
 

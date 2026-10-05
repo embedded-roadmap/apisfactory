@@ -21,7 +21,15 @@ export const CompanySetupInput = z.object({
   adminName: z.string().min(2).max(120),
   adminEmail: z.string().email(),
   adminPassword: z.string().min(10).max(200),
+  /** Küçük şirket: kurucu tüm iş rollerini de alır (FOUNDER_WORK_ROLES). Verilmezse yalnız admin + manager. */
+  founderDoesAll: z.boolean().optional().default(false),
 });
+
+/**
+ * "Tüm işleri ben yapıyorum" seçeneğinde kurucuya admin + manager'a ek olarak verilen iş rolleri.
+ * technician (istasyon operatörü) ve subcontractor (dış kullanıcı) bilinçli olarak dışarıda.
+ */
+export const FOUNDER_WORK_ROLES = ["rd", "purchasing", "warehouse", "production", "quality", "sales", "accounting"] as const;
 
 export const CreateItemInput = z.object({
   code: z.string().min(1).max(64),

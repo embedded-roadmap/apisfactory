@@ -15,6 +15,7 @@ export function CompanySetupPage({ onCancel }: { onCancel: () => void }) {
   const [adminName, setAdminName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
+  const [founderDoesAll, setFounderDoesAll] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
 
@@ -23,7 +24,7 @@ export function CompanySetupPage({ onCancel }: { onCancel: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      const s = await api<Session>("POST", "/api/setup/company", { companyName, companyCode, adminName, adminEmail, adminPassword });
+      const s = await api<Session>("POST", "/api/setup/company", { companyName, companyCode, adminName, adminEmail, adminPassword, founderDoesAll });
       auth.set({ session: s, companyId: s.companies[0]!.id });
     } catch (err) {
       setError(err);
@@ -61,6 +62,16 @@ export function CompanySetupPage({ onCancel }: { onCancel: () => void }) {
           Parola
           <input type="password" autoComplete="new-password" required minLength={10} value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} />
           <span className="muted">En az 10 karakter.</span>
+        </label>
+        <label className="row" style={{ alignItems: "flex-start" }}>
+          <input type="checkbox" checked={founderDoesAll} onChange={(e) => setFounderDoesAll(e.target.checked)} />
+          <span>
+            Tüm işleri ben yapıyorum
+            <span className="muted" style={{ display: "block" }}>
+              Ar-Ge, satın alma, depo, üretim, kalite, satış ve muhasebe rolleri de size verilir. Ekibiniz varsa işareti kaldırın;
+              rolleri Kullanıcılar & roller ekranından dağıtırsınız.
+            </span>
+          </span>
         </label>
         <button className="primary" disabled={busy}>{busy ? "Kuruluyor…" : "Şirketi oluştur"}</button>
         <button type="button" onClick={onCancel} disabled={busy}>Zaten hesabım var — giriş yap</button>

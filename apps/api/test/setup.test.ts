@@ -68,6 +68,22 @@ describe("R39: hazır akışlarla hızlı şirket kurulumu", () => {
     expect(sub.json().status).toBe("trial");
   });
 
+  it("'tüm işleri ben yapıyorum' seçilirse kurucu iş rollerini de alır ve ilk ürününü açabilir", async () => {
+    const r = await app.inject({
+      method: "POST",
+      url: "/api/setup/company",
+      payload: { companyName: "Tek Kişilik Ltd.", companyCode: "tek-1", adminName: "Kurucu", adminEmail: "kurucu@tek.test", adminPassword: "kurucu-parola-1", founderDoesAll: true },
+    });
+    expect(r.statusCode).toBe(200);
+    const s = r.json();
+    const h = { authorization: `Bearer ${s.token}`, "x-company-id": s.companies[0].id };
+    const me = (await app.inject({ method: "GET", url: "/api/me", headers: h })).json();
+    expect(me.roles.sort()).toEqual(["accounting", "admin", "manager", "production", "purchasing", "quality", "rd", "sales", "warehouse"]);
+    expect(me.permissions).toContain("product.create");
+    expect(me.roles).not.toContain("subcontractor");
+    expect(me.roles).not.toContain("technician");
+  });
+
   it("mükerrer şirket kodu reddedilir", async () => {
     await app.inject({
       method: "POST",
