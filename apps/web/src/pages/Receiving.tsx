@@ -13,6 +13,8 @@ export function ReceivingPage() {
   const rows = useQuery({ queryKey: ["receipts"], queryFn: () => get<ReceiptRow[]>("/api/receipts") });
   const items = useQuery({ queryKey: ["items", "component"], queryFn: () => get<Item[]>("/api/items?kind=component"), enabled: can("inventory.receive") });
   const poLines = useQuery({ queryKey: ["openPoLines"], queryFn: () => get<any[]>("/api/receiving/open-po-lines"), enabled: can("inventory.receive") });
+  // Siparişsiz kabulde kayıtlı tedarikçi önerisi (serbest yazım hâlâ mümkün) — bot testi: aynı firma farklı yazılıyordu.
+  const suppliers = useQuery({ queryKey: ["suppliers"], queryFn: () => get<{ id: string; name: string; status: string }[]>("/api/suppliers"), enabled: can("inventory.receive") && can("purchase.view") });
   const [form, setForm] = useState({ supplierName: "", itemId: "", qty: "", lotNo: "", dateCode: "", poLineId: "" });
   // Tekrar gönderimde çift kayıt oluşmasın diye form başına tek anahtar
   const [key, setKey] = useState(newKey());
@@ -41,9 +43,11 @@ export function ReceivingPage() {
             </select>
           </label>
           <div className="grid4">
-            <label className="field">Tedarikçi<input required value={form.supplierName} onChange={(e) => setForm({ ...form, supplierName: e.target.value })} /></label>
+            <label className="field">Tedarikçi<input required list="receiving-suppliers" disabled={!!form.poLineId} value={form.supplierName} onChange={(e) => setForm({ ...form, supplierName: e.target.value })} />
+              <datalist id="receiving-suppliers">{suppliers.data?.filter((x) => x.status === "active").map((x) => <option key={x.id} value={x.name} />)}</datalist>
+            </label>
             <label className="field">Kalem
-              <select required value={form.itemId} onChange={(e) => setForm({ ...form, itemId: e.target.value })}>
+              <select required disabled={!!form.poLineId} title={form.poLineId ? "Kalem sipariş satırından gelir" : undefined} value={form.itemId} onChange={(e) => setForm({ ...form, itemId: e.target.value })}>
                 <option value="">Seçin…</option>
                 {items.data?.map((i) => <option key={i.id} value={i.id}>{i.code} · {i.mpn}</option>)}
               </select>
@@ -75,7 +79,7 @@ function ReceiptLine({ r }: { r: ReceiptRow }) {
   const can = useCan();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [acc, setAcc] = useState(r.qty);
+  const [acc, setAcc] = useState(String(Number(r.qty)));
   const [rej, setRej] = useState("0");
   const [note, setNote] = useState("");
   const decide = useMutation({

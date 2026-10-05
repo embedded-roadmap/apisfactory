@@ -450,7 +450,7 @@ export async function productionRoutes(app: FastifyInstance) {
         if (op.seq === 10) {
           const mats = await materialStatus(db, wo);
           const missing = mats.filter((m) => !m.complete);
-          if (missing.length) throw conflict("materials_incomplete", "Malzeme çıkışı tamamlanmadan hazırlık kapatılamaz", { missing: missing.map((m) => ({ item: m.itemCode, remaining: m.remaining })) });
+          if (missing.length) throw conflict("materials_incomplete", "Malzeme çıkışı tamamlanmadan hazırlık kapatılamaz — çıkışı depo, bu iş emrinin Malzeme tablosundan (Stoktan çık) yapar", { missing: missing.map((m) => ({ item: m.itemCode, remaining: m.remaining })) });
         }
         // Ara kontrol / paketleme listesi (varsa) güncel sürümüyle geçmeden operasyon kapanmaz.
         await assertChecksPassed(db, { type: "operation", id: opId }, `Operasyon ${op.seq}. ${op.name}`);

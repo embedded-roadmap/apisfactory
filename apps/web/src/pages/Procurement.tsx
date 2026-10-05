@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, NavLink, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, newKey, post } from "../lib/api";
-import { Empty, ErrorNotice, Loading, PageHeader, fmt, fmtDate, useCan } from "../lib/ui";
+import { Empty, ErrorNotice, Loading, PageHeader, fmt, fmtDate, fmtMoney, useCan } from "../lib/ui";
 import { History } from "./Sales";
 import { Discussion } from "../components/Discussion";
 import { ItemOffers } from "./Distributors";
@@ -147,8 +147,8 @@ export function RfqPage() {
               <tr key={x.id} style={{ background: r.awardedQuoteId === x.id ? "var(--accent-soft)" : undefined }}>
                 <td>{open ? <input type="radio" name="pick" aria-label={`${x.supplierName} seç`} style={{ minHeight: 0 }} checked={pick === x.id} onChange={() => setPick(x.id)} /> : null}</td>
                 <td>{x.supplierName} {x.supplierStatus !== "active" ? <span className="badge bad">bloke</span> : null}{x.offeredItemCode ? <div><span className="badge warn">alternatif: {x.offeredItemCode}</span></div> : null}{x.source === "test_connector" ? <div className="muted" style={{ fontSize: 12 }}>{x.note?.startsWith("TEST") ? <span className="badge mode warn">TEST VERİSİ</span> : null} otomatik (distribütör)</div> : null}</td>
-                <td className="num">{x.unitPrice !== null ? `${fmt(x.unitPrice)} ${x.currency}` : "—"}</td>
-                <td className="num">{x.total ?? "—"} {x.cheapest ? <span className="badge ok">en ucuz</span> : null}</td>
+                <td className="num">{x.unitPrice !== null ? `${fmtMoney(x.unitPrice)} ${x.currency}` : "—"}</td>
+                <td className="num">{fmtMoney(x.total)} {x.cheapest ? <span className="badge ok">en ucuz</span> : null}</td>
                 <td className="num">{x.leadTimeDays} gün {x.fastest ? <span className="badge ok">en hızlı</span> : null}</td>
                 <td>{x.readyDate} {x.meetsNeedDate === false ? <span className="badge bad">ihtiyaç sonrası</span> : null}</td>
                 <td>{x.moq ? <>{fmt(x.moq)}{x.moqAbove ? <span className="badge warn">talepten fazla</span> : null}</> : "—"}</td>
@@ -241,7 +241,7 @@ export function PurchaseOrderPage() {
   const manage = can("purchase.order.manage");
   return (
     <>
-      <PageHeader title={`${p.code} — ${p.supplierName}`} sub={<>{p.supplierEmail ?? "e-posta yok"} · {p.total ? `toplam ${fmt(p.total)} ${p.currency}` : ""} · oluşturan {p.createdBy} {fmtDate(p.createdAt)} · <Link to="/purchasing/orders">← Siparişler</Link></>}
+      <PageHeader title={`${p.code} — ${p.supplierName}`} sub={<>{p.supplierEmail ?? "e-posta yok"} · {p.total ? `toplam ${fmtMoney(p.total)} ${p.currency}` : ""} · oluşturan {p.createdBy} {fmtDate(p.createdAt)} · <Link to="/purchasing/orders">← Siparişler</Link></>}
         actions={<span className={`badge ${PO_STATUS[p.status]![1]}`}>{PO_STATUS[p.status]![0]}</span>} />
       <ErrorNotice error={act.error} />
       {p.sentAt ? <div className="notice info">Gönderim <span className="badge mode warn">TEST</span>: {fmtDate(p.sentAt)} ({p.sentBy}) — tedarikçiye gerçek e-posta/EDI gönderilmedi; çıkış kutusuna yazıldı.</div> : null}
@@ -260,7 +260,7 @@ export function PurchaseOrderPage() {
             return (
               <tr key={l.id}>
                 <td><span className="mono">{l.itemCode}</span><div className="muted">{l.mpn} {l.prCode ? `· ${l.prCode}` : ""}</div></td>
-                <td className="num">{fmt(l.qtyOrdered)}</td><td className="num">{fmt(l.qtyReceived)}</td><td className="num">{l.unitPrice !== null ? fmt(l.unitPrice) : "—"}</td>
+                <td className="num">{fmt(l.qtyOrdered)}</td><td className="num">{fmt(l.qtyReceived)}</td><td className="num">{l.unitPrice !== null ? fmtMoney(l.unitPrice) : "—"}</td>
                 <td>{l.requestedDate ?? "—"}</td>
                 <td>{l.confirmedDate ?? <span className="badge warn">teyitsiz</span>} {l.overdue ? <span className="badge bad">gecikti</span> : null}</td>
                 <td className="muted" style={{ fontSize: 13 }}>{l.confirmations.map((x: any, i: number) => <div key={i}>{x.date}{x.slipDays ? ` (${x.slipDays > 0 ? "+" : ""}${x.slipDays} g)` : ""}{x.reference ? ` · ${x.reference}` : ""}{x.note ? ` · ${x.note}` : ""} — {x.by}</div>)}</td>

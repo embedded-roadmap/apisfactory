@@ -66,7 +66,7 @@ export async function adminRoutes(app: FastifyInstance) {
     );
     return tenant(req, "admin.users", async (db, actor) => {
       const temporaryPassword = randomBytes(9).toString("base64url");
-      const ensured = (await db.query(`select * from admin_ensure_user($1, $2, $3)`, [input.email, input.name, await hashPassword(temporaryPassword)])).rows[0];
+      const ensured = (await db.query(`select * from admin_ensure_invited_user($1, $2, $3)`, [input.email, input.name, await hashPassword(temporaryPassword)])).rows[0];
       const userId = ensured.user_id as string;
       if (userId === actor.userId) throw conflict("self_change", "Kendi üyeliğinizi bu ekrandan değiştiremezsiniz");
       const existing = await db.query(`select id from memberships where user_id = $1 and company_id = app_company_id()`, [userId]);
@@ -124,6 +124,7 @@ export async function adminRoutes(app: FastifyInstance) {
   app.post("/api/auth/password", async (req) => {
     const c = ctxOf(req);
     const input = parse(z.object({ current: z.string().min(1), next: z.string().min(10).max(200) }), req.body);
+    if (input.next === input.current) throw new AppError(400, "password_unchanged", "Yeni parola mevcut paroladan farklı olmalı");
     await withUser(c.userId, async (db) => {
       const hash = (await db.query(`select auth_password_hash() as h`)).rows[0].h as string;
       if (!(await verifyPassword(input.current, hash))) throw new AppError(400, "invalid_credentials", "Mevcut parola hatalı");

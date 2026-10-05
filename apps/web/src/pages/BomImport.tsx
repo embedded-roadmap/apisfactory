@@ -22,6 +22,12 @@ export function BomImportPage() {
         ]}
         onPreview={(a) => post<ImportPreview>("/api/imports/bom/preview", { productId: id, ...a })}
         onCommit={(jobId, resolutions) => post(`/api/imports/${jobId}/commit`, { resolutions })}
+        renderResult={(r) => (
+          <>
+            BOM v{r.versionNo} oluşturuldu: {r.lines} satır, {r.createdItems} yeni kalem. Taslak olarak kaydedildi; ürün sayfasından yayımlayın.{" "}
+            <Link to={`/products/${id}`}>Ürüne dön →</Link>
+          </>
+        )}
         resolveOptions={async (row) => {
           const items = await get<Item[]>(`/api/items?q=${encodeURIComponent(row.values.mpn ?? "")}&kind=component`);
           return items.map((i) => ({ id: i.id, label: `${i.code} · ${i.manufacturer ?? "?"} ${i.mpn ?? ""}` }));

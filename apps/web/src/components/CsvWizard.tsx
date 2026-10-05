@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import Papa from "papaparse";
 import type { ImportPreview } from "@apisfactory/shared";
 import { ErrorNotice, StateBadge } from "../lib/ui";
@@ -15,6 +15,8 @@ export function CsvWizard(props: {
   onCommit: (jobId: string, resolutions: Record<string, string>) => Promise<unknown>;
   resolveOptions?: (row: ImportPreview["rows"][number]) => Promise<{ id: string; label: string }[]>;
   columns: string[];
+  /** İşlem sonucu için özel gösterim (verilmezse sayısal alanların okunur özeti). */
+  renderResult?: (result: any) => ReactNode;
 }) {
   const [file, setFile] = useState<{ name: string; content: string; headers: string[] } | null>(null);
   const [mapping, setMapping] = useState<Record<string, string>>({});
@@ -147,7 +149,20 @@ export function CsvWizard(props: {
           </div>
         </section>
       ) : null}
-      {result ? <div className="notice ok" role="status">İşlendi: <span className="mono">{JSON.stringify(result)}</span></div> : null}
+      {result ? <div className="notice ok" role="status">{props.renderResult ? props.renderResult(result) : <>İşlendi. {resultSummary(result)}</>}</div> : null}
     </div>
   );
+}
+
+/** Sunucunun işlem sonucundaki sayıların okunur özeti; kimlik alanları gösterilmez (bot testi bulgusu: ham JSON görünüyordu). */
+const RESULT_LABELS: Record<string, string> = {
+  versionNo: "BOM sürümü", lines: "satır", createdItems: "yeni kalem", created: "yeni kayıt", updated: "güncellenen",
+  orders: "sipariş", invoices: "fatura", payments: "ödeme", receipts: "tahsilat", workOrders: "iş emri", devices: "cihaz", moves: "stok hareketi",
+};
+function resultSummary(r: unknown): string {
+  if (!r || typeof r !== "object") return "";
+  return Object.entries(r as Record<string, unknown>)
+    .filter(([k, v]) => typeof v === "number" && RESULT_LABELS[k])
+    .map(([k, v]) => (k === "versionNo" ? `${RESULT_LABELS[k]} v${v}` : `${v} ${RESULT_LABELS[k]}`))
+    .join(" · ");
 }

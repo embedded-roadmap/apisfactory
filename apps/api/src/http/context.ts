@@ -17,6 +17,8 @@ export type ReqCtx = {
   delegated: Record<string, string>;
   /** Aktif vekâlet verenler ve rolleri (görev listesi ve limit hesabı için). */
   delegators: { userId: string; roles: string[]; permissions: string[] }[];
+  /** Yöneticinin verdiği geçici parolayla giriş: parola değişene kadar yalnız izinli uçlar (app.ts). */
+  mustChangePassword?: boolean;
 };
 
 declare module "fastify" {
@@ -43,15 +45,19 @@ export async function authenticate(req: FastifyRequest): Promise<ReqCtx> {
     throw new AppError(401, "unauthenticated", "Oturum geçersiz veya süresi dolmuş");
   }
 
-  const active = await withUser(userId, async (db) => {
-    const r = await db.query("select 1 from sessions where id = $1 and revoked_at is null and expires_at > now()", [sessionId]);
-    return r.rowCount === 1;
+  const session = await withUser(userId, async (db) => {
+    const r = await db.query(
+      "select auth_must_change_password() as must from sessions where id = $1 and revoked_at is null and expires_at > now()",
+      [sessionId],
+    );
+    return r.rows[0] as { must: boolean } | undefined;
   });
-  if (!active) throw new AppError(401, "unauthenticated", "Oturum sonlandırılmış");
+  if (!session) throw new AppError(401, "unauthenticated", "Oturum sonlandırılmış");
+  const mustChangePassword = session.must;
 
   const rawCompany = req.headers["x-company-id"];
   const companyId = typeof rawCompany === "string" && UUID.test(rawCompany) ? rawCompany : null;
-  if (!companyId) return { userId, sessionId, companyId: null, isExternal: false, roles: [], permissions: new Set(), delegated: {}, delegators: [] };
+  if (!companyId) return { userId, sessionId, companyId: null, isExternal: false, roles: [], permissions: new Set(), delegated: {}, delegators: [], mustChangePassword };
 
   const access = await withTenant({ companyId, userId }, async (db) => {
     const m = await db.query(
@@ -98,7 +104,7 @@ export async function authenticate(req: FastifyRequest): Promise<ReqCtx> {
     };
   });
   if (!access) throw forbidden();
-  return { userId, sessionId, companyId, ...access };
+  return { userId, sessionId, companyId, ...access, mustChangePassword };
 }
 
 export function ctxOf(req: FastifyRequest): ReqCtx {

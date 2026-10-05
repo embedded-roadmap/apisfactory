@@ -102,10 +102,16 @@ tr.click:hover td { background: var(--surface-2); }
 .login { min-height: 100vh; display: grid; place-items: center; background: #12130f; padding: 16px; }
 .login .card { width: 100%; max-width: 420px; }
 
+.menu-toggle, .menu-close { display: none; }
 @media (max-width: 900px) {
   .shell { grid-template-columns: 1fr; }
-  .side { flex-direction: row; overflow-x: auto; padding: 10px; }
-  .side .brand, .side .spacer { display: none; }
+  /* Menü yatay şerit yerine "☰ Menü" ile açılan dikey panel */
+  .menu-toggle { display: inline-flex; }
+  .side { display: none; }
+  .side.open { display: flex; position: fixed; inset: 0 auto 0 0; width: min(82vw, 300px); z-index: 50; overflow-y: auto; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.45); }
+  .side.open .brand { display: flex; align-items: center; justify-content: space-between; }
+  .side.open .menu-close { display: inline-flex; background: transparent; color: inherit; border: 0; font-size: 18px; min-height: 0; padding: 4px 8px; }
+  .side .spacer { display: none; }
   .grid2, .grid4 { grid-template-columns: 1fr; }
   .content { padding: 16px; }
 }

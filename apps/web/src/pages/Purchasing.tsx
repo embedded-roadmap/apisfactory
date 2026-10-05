@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { PurchasingTabs } from "./Procurement";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post, newKey } from "../lib/api";
-import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, useCan } from "../lib/ui";
+import { Empty, ErrorNotice, Loading, PageHeader, StateBadge, fmt, useCan, useMe } from "../lib/ui";
 
 export function PurchasingPage() {
   const can = useCan();
@@ -11,6 +11,10 @@ export function PurchasingPage() {
   const qc = useQueryClient();
   const rfq = useMutation({ mutationFn: (purchaseRequestId: string) => post<any>("/api/rfqs", { purchaseRequestId }), onSuccess: (r) => nav(`/purchasing/rfqs/${r.id}`) });
   const prs = useQuery({ queryKey: ["prs"], queryFn: () => get<any[]>("/api/purchase-requests") });
+  // Kendi talebinde onay düğmesi yalnız politika izin veriyorsa gösterilir (bot testi: düğme görünüp hep hata veriyordu).
+  const myId = useMe().me?.user.id;
+  const policies = useQuery({ queryKey: ["workflowPolicies"], queryFn: () => get<any>("/api/workflow/policies") });
+  const selfAllowed = !!policies.data?.current?.find((c: any) => c.kind === "purchase_request")?.policy?.allowSelfApproval;
   const [note, setNote] = useState<Record<string, string>>({});
   const decide = useMutation({
     mutationFn: (v: { id: string; decision: "approve" | "reject" }) => post(`/api/purchase-requests/${v.id}/decision`, { decision: v.decision, note: note[v.id] || undefined }),
@@ -43,7 +47,9 @@ export function PurchasingPage() {
                   <td className="num">{p.estimatedAmount ? `${fmt(p.estimatedAmount)} ${p.currency}` : p.amountSource ? <span className="muted" title={p.amountSource}>bilinmiyor</span> : "—"}</td>
                   <td><StateBadge value={p.status} /></td>
                   <td>
-                    {can("purchase.request.approve") && p.status === "open" ? (
+                    {can("purchase.request.approve") && p.status === "open" && p.requestedById === myId && !selfAllowed ? (
+                      <span className="muted">Kendi talebiniz — başka bir yetkili onaylar</span>
+                    ) : can("purchase.request.approve") && p.status === "open" ? (
                       <div className="row">
                         <input aria-label="Not" placeholder="Not / ret gerekçesi" value={note[p.id] ?? ""} onChange={(e) => setNote({ ...note, [p.id]: e.target.value })} />
                         <button className="primary" onClick={() => decide.mutate({ id: p.id, decision: "approve" })}>Onayla</button>
@@ -77,7 +83,8 @@ function NewRequest() {
     <section className="card">
       <h2>Yeni satın alma talebi</h2>
       <form className="row" onSubmit={(e: FormEvent) => { e.preventDefault(); create.mutate(); }}>
-        <label className="field">Kalem<select aria-label="Talep kalemi" required value={f.itemId} onChange={(e) => setF({ ...f, itemId: e.target.value })}><option value="">Seçin</option>{items.data?.map((i) => <option key={i.id} value={i.id}>{i.code} — {i.name}</option>)}</select></label>
+        <label className="field">Kalem<select aria-label="Talep kalemi" required value={f.itemId} onChange={(e) => setF({ ...f, itemId: e.target.value })}><option value="">Seçin</option>{/* Mamul (kendi ürettiğimiz ürün) satın alma talebine konmaz — bot testi bulgusu */}
+              {items.data?.filter((i) => i.kind !== "product").map((i) => <option key={i.id} value={i.id}>{i.code} — {i.name}</option>)}</select></label>
         <label className="field" style={{ width: 110 }}>Miktar<input aria-label="Talep miktarı" required inputMode="decimal" value={f.qty} onChange={(e) => setF({ ...f, qty: e.target.value })} /></label>
         <label className="field">İhtiyaç tarihi<input type="date" value={f.needDate} onChange={(e) => setF({ ...f, needDate: e.target.value })} /></label>
         {can("rd.project.view") ? (

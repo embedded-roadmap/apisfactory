@@ -31,7 +31,7 @@ export function AdminPage() {
         {created ? (
           <div className="notice ok" role="status">
             {created.email} eklendi.{" "}
-            {created.password ? <>Geçici parola (yalnızca bir kez gösterilir): <b className="mono">{created.password}</b>. E-posta bağlayıcısı bağlı olmadığı için kullanıcıya siz iletin.</> : "Kullanıcının mevcut hesabı şirkete bağlandı; parolası değişmedi."}
+            {created.password ? <>Geçici parola (yalnızca bir kez gösterilir): <b className="mono">{created.password}</b>. E-posta bağlayıcısı bağlı olmadığı için kullanıcıya siz iletin. Kullanıcı ilk girişte kendi parolasını belirlemeden işlem yapamaz.</> : "Kullanıcının mevcut hesabı şirkete bağlandı; parolası değişmedi."}
           </div>
         ) : null}
         <div className="grid4">
@@ -114,12 +114,18 @@ function UserRow({ u, roles, self, selfEditable, act }: { u: any; roles: any[]; 
   );
 }
 
-export function PasswordPage() {
+export function PasswordPage({ forced = false, onChanged }: { forced?: boolean; onChanged?: () => void } = {}) {
   const [f, setF] = useState({ current: "", next: "", again: "" });
-  const ch = useMutation({ mutationFn: () => post("/api/auth/password", { current: f.current, next: f.next }) });
+  const ch = useMutation({ mutationFn: () => post("/api/auth/password", { current: f.current, next: f.next }), onSuccess: () => onChanged?.() });
   return (
     <>
       <PageHeader title="Parola değiştir" sub="Değişiklikten sonra diğer cihazlardaki oturumlarınız sonlandırılır." />
+      {forced ? (
+        <div className="notice warn" style={{ maxWidth: 480 }}>
+          Yöneticinizin verdiği geçici parolayla giriş yaptınız. Devam etmek için kendi parolanızı belirleyin; "Mevcut parola"
+          alanına geçici parolayı yazın.
+        </div>
+      ) : null}
       <form className="card" style={{ maxWidth: 480 }} onSubmit={(e) => { e.preventDefault(); if (f.next === f.again) ch.mutate(); }}>
         <ErrorNotice error={ch.error} />
         {ch.isSuccess ? <div className="notice ok">Parola değişti.</div> : null}
@@ -127,9 +133,10 @@ export function PasswordPage() {
         <label className="field">Yeni parola (en az 10 karakter)<input type="password" autoComplete="new-password" minLength={10} required value={f.next} onChange={(e) => setF({ ...f, next: e.target.value })} /></label>
         <label className="field">Yeni parola tekrar<input type="password" autoComplete="new-password" required value={f.again} onChange={(e) => setF({ ...f, again: e.target.value })} /></label>
         {f.again && f.next !== f.again ? <div className="notice warn">Parolalar eşleşmiyor.</div> : null}
-        <button className="primary" disabled={ch.isPending}>Değiştir</button>
+        {f.next && f.next === f.current ? <div className="notice warn">Yeni parola mevcut paroladan farklı olmalı.</div> : null}
+        <button className="primary" disabled={ch.isPending || (!!f.next && f.next === f.current)}>Değiştir</button>
       </form>
-      <NotifyPhoneCard />
+      {forced ? null : <NotifyPhoneCard />}
     </>
   );
 }

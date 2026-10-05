@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, useSyncExternalStore, type ComponentType, type FormEvent } from "react";
-import { Link, NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { Link, NavLink, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Locale, Me, Permission, Session } from "@apisfactory/shared";
 import { api, auth, get, post } from "./lib/api";
@@ -194,6 +194,9 @@ const NAV: { to: string; key: string; perm?: Permission }[] = [
 
 function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) => void }) {
   const t = useT();
+  // Dar ekranda menü açılır liste (bot testi: telefonda 28 öğelik yatay şerit kullanılamıyordu).
+  const [menuOpen, setMenuOpen] = useState(false);
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const me = useQuery({ queryKey: ["me", auth.get().companyId], queryFn: () => get<Me>("/api/me") });
   const companies = useQuery({ queryKey: ["companies"], queryFn: () => get<{ id: string; name: string; isDemo: boolean }[]>("/api/companies") });
@@ -202,6 +205,8 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
   async function logout() {
     await post("/api/auth/logout").catch(() => {});
     qc.clear();
+    // Sonraki kişi öncekinin son sayfasında (ör. /admin) açılmasın — bot testi bulgusu.
+    navigate("/", { replace: true });
     auth.clear();
   }
   if (me.isLoading) return <div className="content"><Loading /></div>;
@@ -218,6 +223,15 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
       </div>
     );
   }
+  if (me.data!.mustChangePassword) {
+    // Yöneticinin verdiği geçici parolayla girildi: API de başka isteğe izin vermez (password_change_required).
+    return (
+      <div className="content" style={{ maxWidth: 560, margin: "0 auto" }}>
+        <Suspense fallback={<Loading />}><PasswordPage forced onChanged={() => qc.invalidateQueries({ queryKey: ["me"] })} /></Suspense>
+        <button onClick={logout}>Çıkış</button>
+      </div>
+    );
+  }
   const perms = new Set(me.data!.permissions);
   // Fason/dış kullanıcı: genel menü ve günlük iş akışı yerine yalnız kendisine atanan işler (prompt §19).
   const external = me.data!.roles.includes("subcontractor");
@@ -225,9 +239,11 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
   return (
     <MeContext.Provider value={{ me: me.data!, locale, setLocale }}>
       <div className="shell">
-        <nav className="side" aria-label="Ana menü">
+        <nav id="main-nav" className={`side${menuOpen ? " open" : ""}`} aria-label="Ana menü"
+          onClick={(e) => { if ((e.target as HTMLElement).closest("a")) setMenuOpen(false); }}>
           <div className="brand">
             <Logo /> apis<span>factory</span>
+            <button type="button" className="menu-close" aria-label="Menüyü kapat" onClick={() => setMenuOpen(false)}>✕</button>
           </div>
           {external ? <NavLink to="/" end>{t("nav.subcontractJobs")}</NavLink> : <NavItems perms={perms} />}
           <div className="spacer" />
@@ -235,6 +251,7 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
         <div className="main">
           <header className="top">
             <div className="row">
+              <button type="button" className="menu-toggle" aria-expanded={menuOpen} aria-controls="main-nav" onClick={() => setMenuOpen(!menuOpen)}>☰ Menü</button>
               <strong>{me.data!.company.name}</strong>
               {current?.isDemo ? <span className="badge mode warn">DEMO</span> : null}
               {companies.data && companies.data.length > 1 ? (

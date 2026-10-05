@@ -231,6 +231,22 @@ export function History({ entityType, id }: { entityType: string; id: string }) 
 }
 
 /** Tahmini termin (aralık) ve müşteriye taahhüt tarihi ayrı gösterilir; tahmin taahhüdü sessizce değiştirmez. */
+/**
+ * Kalem temin süresini termin ekranından girme. API (/api/items/:id/lead-time) vardı ama hiçbir ekran kullanmıyordu —
+ * "temin süresi tanımsız" uyarısı kullanıcı tarafından çözülemiyordu (bot testi, 2026-10-05).
+ */
+function LeadTimeInline({ itemId, onSaved }: { itemId: string; onSaved: () => void }) {
+  const [days, setDays] = useState("");
+  const save = useMutation({ mutationFn: () => post(`/api/items/${itemId}/lead-time`, { days: Number(days) }), onSuccess: onSaved });
+  return (
+    <div className="row" style={{ gap: 4, marginTop: 4 }}>
+      <input aria-label="Temin süresi (gün)" inputMode="numeric" placeholder="gün" style={{ width: 70 }} value={days} onChange={(e) => setDays(e.target.value.replace(/\D/g, ""))} />
+      <button type="button" disabled={!days || save.isPending} onClick={() => save.mutate()}>Kaydet</button>
+      <ErrorNotice error={save.error} />
+    </div>
+  );
+}
+
 function EstimatePanel({ id }: { id: string }) {
   const can = useCan();
   const qc = useQueryClient();
@@ -265,7 +281,7 @@ function EstimatePanel({ id }: { id: string }) {
           {e.materials.length ? (
             <table>
               <thead><tr><th>Malzeme</th><th className="num">Gerekli</th><th>Kaynak</th><th>Hazır</th></tr></thead>
-              <tbody>{e.materials.map((m: any) => <tr key={m.itemCode}><td className="mono">{m.itemCode}</td><td className="num">{fmt(m.requiredQty)}</td><td>{m.source}</td><td>{m.readyDate ?? "—"}</td></tr>)}</tbody>
+              <tbody>{e.materials.map((m: any) => <tr key={m.itemCode}><td className="mono">{m.itemCode}</td><td className="num">{fmt(m.requiredQty)}</td><td>{m.source}{m.source === "temin süresi tanımsız" && m.itemId && can("purchase.request.approve") ? <LeadTimeInline itemId={m.itemId} onSaved={() => compute.mutate()} /> : m.source === "temin süresi tanımsız" ? <div className="muted" style={{ fontSize: 12 }}>Satın alma veya yönetici bu ekrandan girer</div> : null}</td><td>{m.readyDate ?? "—"}</td></tr>)}</tbody>
             </table>
           ) : null}
           <details><summary className="muted">Varsayımlar</summary><ul>{e.assumptions.map((a: string) => <li key={a}>{a}</li>)}</ul></details>

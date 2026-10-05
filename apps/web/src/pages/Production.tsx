@@ -83,6 +83,8 @@ export function WorkOrderPage() {
   if (q.error) return <ErrorNotice error={q.error} />;
   const wo = q.data;
   const s = wo.stats;
+  // Kalite kapısı operasyonu bitmeden serbest bırakma sunucuda reddedilir; düğme de o zamana kadar gösterilmez.
+  const gateDone = (wo.operations as any[]).filter((o) => o.isQualityGate).every((o) => o.status === "done");
   return (
     <>
       <PageHeader
@@ -92,8 +94,9 @@ export function WorkOrderPage() {
           <div className="row">
             <StateBadge value={wo.status} prefix="wo" />
             {wo.productionStage && wo.productionStage !== "series" ? <span className="badge warn">{({ prototype: "prototip", pilot: "pilot", series: "seri" } as Record<string, string>)[wo.productionStage]}</span> : null}
-            {can("production.plan") && wo.status === "planned" ? <button className="primary" onClick={() => act.mutate(() => post(`/api/work-orders/${id}/release`))}>Yayımla (seri üret)</button> : null}
-            {can("quality.final.release") && wo.status === "in_progress" && s.passed > 0 ? <button className="primary" onClick={() => act.mutate(() => post(`/api/work-orders/${id}/release-to-stock`))}>Son kalite: {s.passed} cihazı serbest bırak</button> : null}
+            {can("production.plan") && wo.status === "planned" ? <button className="primary" onClick={() => act.mutate(() => post(`/api/work-orders/${id}/release`))}>Yayımla (seri numaralarını oluştur)</button> : null}
+            {can("quality.final.release") && wo.status === "in_progress" && s.passed > 0 && gateDone ? <button className="primary" onClick={() => act.mutate(() => post(`/api/work-orders/${id}/release-to-stock`))}>Son kalite: {s.passed} cihazı serbest bırak</button> : null}
+            {can("quality.final.release") && wo.status === "in_progress" && s.passed > 0 && !gateDone ? <span className="muted">Son kalite: üretim kalite kapısı operasyonunu tamamlayınca serbest bırakılabilir</span> : null}
             {can("production.plan") && wo.status === "in_progress" ? <button onClick={() => act.mutate(() => post(`/api/work-orders/${id}/complete`))}>İş emrini kapat</button> : null}
           </div>
         }
@@ -260,7 +263,7 @@ function MaterialRow({ m, woId, canIssue, onDone }: { m: any; woId: string; canI
       <tr>
         <td className="mono">{m.itemCode}</td><td className="mono">{m.mpn}</td><td className="num">{fmt(m.required)}</td><td className="num">{fmt(m.issued)}{Number(m.issuedAsAlternate) > 0 ? <div className="muted">alternatif {fmt(m.issuedAsAlternate)}</div> : null}</td>
         <td className="num">{m.complete ? <span className="badge ok">Tamam</span> : fmt(m.remaining)}</td>
-        <td>{canIssue && !m.complete ? <button onClick={() => setOpen(!open)}>Çıkış yap</button> : null}</td>
+        <td>{canIssue && !m.complete ? <button onClick={() => setOpen(!open)}>Stoktan çık</button> : null}</td>
       </tr>
       {open ? (
         <tr>

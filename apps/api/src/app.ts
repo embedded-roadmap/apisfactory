@@ -37,6 +37,8 @@ import cors from "@fastify/cors";
 import { ZodError } from "zod";
 import { config } from "./config";
 import { AppError, mapDbError } from "./lib/errors";
+import { applyTurkishZodMessages } from "@apisfactory/shared";
+import { humanizeStatuses } from "./lib/humanize";
 import { authenticate } from "./http/context";
 import { authRoutes } from "./modules/auth";
 import { setupRoutes } from "./modules/setup";
@@ -51,7 +53,11 @@ import { adminRoutes } from "./modules/admin";
 import { subscriptionRoutes } from "./modules/subscription";
 import { companyExportRoutes } from "./modules/company-export";
 
+/** Parola değişikliği zorunluyken izin verilen uçlar. */
+const PASSWORD_CHANGE_ALLOWED = new Set(["POST /api/auth/password", "POST /api/auth/logout", "GET /api/me", "GET /api/companies"]);
+
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
+  applyTurkishZodMessages();
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 8 * 1024 * 1024 });
   await app.register(cors, { origin: config.corsOrigin.split(","), allowedHeaders: ["authorization", "content-type", "x-company-id", "idempotency-key", "x-correlation-id"] });
 
@@ -66,11 +72,15 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
     if (!req.url.startsWith("/api/")) return;
     if ((req.routeOptions.config as { public?: boolean } | undefined)?.public) return;
     req.ctx = await authenticate(req);
+    // Geçici parolayla girmiş kullanıcı önce parolasını değiştirir (072_must_change_password.sql).
+    if (req.ctx.mustChangePassword && !PASSWORD_CHANGE_ALLOWED.has(`${req.method} ${req.url.split("?")[0]}`)) {
+      throw new AppError(403, "password_change_required", "Yöneticinin verdiği geçici parolayı değiştirmeniz gerekiyor");
+    }
   });
 
   app.setErrorHandler((err, req, reply) => {
     const mapped = err instanceof AppError ? err : mapDbError(err);
-    if (mapped) return reply.status(mapped.status).send({ error: { code: mapped.code, message: mapped.message, details: mapped.details } });
+    if (mapped) return reply.status(mapped.status).send({ error: { code: mapped.code, message: humanizeStatuses(mapped.message), details: mapped.details } });
     if (err instanceof ZodError) return reply.status(400).send({ error: { code: "bad_request", message: "Girdi doğrulanamadı", details: err.flatten() } });
     const status = (err as { statusCode?: number }).statusCode;
     if (status && status < 500) return reply.status(status).send({ error: { code: "bad_request", message: (err as Error).message } });

@@ -63,8 +63,8 @@ export function CompanySetupPage({ onCancel }: { onCancel: () => void }) {
           <input type="password" autoComplete="new-password" required minLength={10} value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} />
           <span className="muted">En az 10 karakter.</span>
         </label>
-        <label className="row" style={{ alignItems: "flex-start" }}>
-          <input type="checkbox" checked={founderDoesAll} onChange={(e) => setFounderDoesAll(e.target.checked)} />
+        <label className="row" style={{ alignItems: "flex-start", flexWrap: "nowrap", gap: 8 }}>
+          <input type="checkbox" style={{ minHeight: 0, width: "auto", flex: "none", marginTop: 3 }} checked={founderDoesAll} onChange={(e) => setFounderDoesAll(e.target.checked)} />
           <span>
             Tüm işleri ben yapıyorum
             <span className="muted" style={{ display: "block" }}>

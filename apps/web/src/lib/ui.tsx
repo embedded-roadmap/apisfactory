@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from "react";
-import { DEFAULT_ROLES, t as translate, type Locale, type Me, type Permission } from "@apisfactory/shared";
+import { DEFAULT_ROLES, FIELD_LABELS, t as translate, type Locale, type Me, type Permission } from "@apisfactory/shared";
 import { Link } from "react-router-dom";
 import { ApiError } from "./api";
 
@@ -38,9 +38,9 @@ export function ErrorNotice({ error }: { error: unknown }) {
   const e = error as ApiError;
   const msg = e.status === 403 ? "Bu işlem için yetkiniz yok." : e.message;
   return (
-    <div className="notice bad" role="alert">
+    // Teknik hata kodu ekranda değil, ipucunda (destek için hâlâ okunabilir).
+    <div className="notice bad" role="alert" title={e.code ? `Hata kodu: ${e.code}` : undefined}>
       <strong>{msg}</strong>
-      {e.code && e.status !== 403 ? <span className="mono"> ({e.code})</span> : null}
       {e.details && typeof e.details === "object" && "lines" in (e.details as object) ? (
         <ul>
           {((e.details as any).lines as any[]).map((l) => (
@@ -58,7 +58,7 @@ export function ErrorNotice({ error }: { error: unknown }) {
       ) : null}
       {e.details && typeof e.details === "object" && (e.details as any).fieldErrors ? (
         <ul>
-          {Object.entries((e.details as any).fieldErrors as Record<string, string[]>).flatMap(([f, msgs]) => msgs.map((m) => <li key={f + m}><span className="mono">{f}</span>: {m}</li>))}
+          {Object.entries((e.details as any).fieldErrors as Record<string, string[]>).flatMap(([f, msgs]) => msgs.map((m) => <li key={f + m}><b>{FIELD_LABELS[f] ?? f}</b>: {m}</li>))}
           {(((e.details as any).formErrors as string[] | undefined) ?? []).map((m) => <li key={m}>{m}</li>)}
         </ul>
       ) : null}
@@ -90,6 +90,9 @@ export function PageHeader({ title, actions, sub }: { title: string; actions?: R
 
 export const fmt = (v: string | number | null | undefined) =>
   v == null ? "—" : Number(v).toLocaleString("tr-TR", { maximumFractionDigits: 6 });
+/** Para tutarı: her zaman 2 ondalık, Türkçe ayraç (8.600,00). Bot testi: aynı tabloda "185,5" ve "8600.00" görünüyordu. */
+export const fmtMoney = (v: string | number | null | undefined) =>
+  v == null || v === "" ? "—" : Number(v).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const fmtDate = (v: string | null | undefined) => (v ? new Date(v).toLocaleString("tr-TR") : "—");
 
 /**

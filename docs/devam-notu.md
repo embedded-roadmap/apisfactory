@@ -1643,3 +1643,26 @@ malzeme çıkışı hatası kimin yapacağını söylemiyor; "Çıkış" (oturum
 üret)" pilotta yanıltıcı; satın alma talebi kalem listesinde mamul de var; siparişsiz kabulde tedarikçi serbest metin;
 termin "temin süresi tanımsız" deyip nereden tanımlanacağını söylemiyor; satış siparişinde adres kaydı yokken varsayılan
 seçili görünüyor (sunucu varsayılanı kullandığı için sevkiyat doğru).
+
+## Oturum 41 devamı — bot testi açık bulgularının düzeltilmesi (2026-10-05)
+
+Önceki bölümdeki "açık bulgular" listesinin hepsi kapatıldı:
+
+- Geçici parola: 072_must_change_password.sql (users.must_change_password; admin_ensure_invited_user yalnız yönetici
+  davetinde işaretler, auth_set_password temizler). API preHandler işaretliyken yalnız /api/me, /api/auth/password,
+  /api/auth/logout, /api/companies uçlarına izin verir (password_change_required); arayüz yalnız parola ekranını gösterir.
+  Yeni parola eskisiyle aynı olamaz (password_unchanged). test/must-change-password.test.ts.
+- Doğrulama mesajları Türkçe (shared/zod-tr.ts, sunucu açılışında z.setErrorMap); hata kutusu alan adlarını Türkçe
+  gösterir (FIELD_LABELS), teknik kod yalnız ipucunda. Sunucu hata mesajındaki ham durum kodları Türkçeye çevrilir
+  (lib/humanize.ts); eksik 15 durum etiketi i18n sözlüğüne eklendi (converted, sent, issued…).
+- İçe aktarma sonucu okunur özet (ham JSON değil); BOM içe aktarmada "Ürüne dön".
+- Para biçimi fmtMoney (8.600,00); kalite kararı varsayılanı 30 (30.000000 değil).
+- Kendi talebinde Onayla yalnız politika izin verirse; Son kalite düğmesi kapı tamamlanınca; Paketi kapat ipucu;
+  malzeme çıkışı hatası depoyu söyler; "Stoktan çık", "Yayımla (seri numaralarını oluştur)".
+- Satın alma talebinde mamul listelenmez; mal kabulde sipariş satırı seçiliyken kalem/tedarikçi kilitli, siparişsiz
+  kabulde kayıtlı tedarikçi önerisi.
+- Kalem temin süresi termin ekranından girilebilir (API vardı, hiçbir ekran kullanmıyordu).
+- Sipariş adresi: kayıtlı değilse "varsayılan kullanılacak" gösterilir (seçili gibi görünmez).
+- Mobil: menü "☰ Menü" ile açılan dikey panel; çıkışta adres / sayfasına döner; kurulum onay kutusu düzeni.
+
+Tam paket 482/482, tsc (api/web/mobil) ve eslint temiz, vite build başarılı.

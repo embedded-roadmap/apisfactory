@@ -38,7 +38,10 @@ export function OrderDelivery({ order }: { order: SalesOrder & { customerId: str
   });
   const s = st.data;
   const active = (addrs.data ?? []).filter((a) => a.active);
-  const current = active.find((a) => a.id === s?.deliveryAddressId) ?? active.find((a) => a.isDefault);
+  // Siparişe kayıtlı adres; kayıtlı değilse sevkiyatta müşterinin varsayılanı kullanılır (sunucu). Bot testi: varsayılan
+  // "seçili" görünüyordu ama siparişe kaydedilmemişti, kullanıcı seçimi tetikleyemiyordu.
+  const current = active.find((a) => a.id === s?.deliveryAddressId);
+  const fallback = active.find((a) => a.isDefault);
   return (
     <section className="card">
       <div className="row between">
@@ -50,7 +53,7 @@ export function OrderDelivery({ order }: { order: SalesOrder & { customerId: str
         <label className="field" style={{ flex: 1 }}>Teslim adresi
           <select disabled={!can("sales.create") || !s || ["shipped", "cancelled"].includes(s.status)} value={current?.id ?? ""}
             onChange={(e) => { const addressId = e.target.value; act.mutate(() => post(`/api/sales-orders/${order.id}/delivery`, { addressId })); }}>
-            <option value="" disabled>{active.length ? "Seçin" : "Kayıtlı adres yok"}</option>
+            <option value="" disabled>{!active.length ? "Kayıtlı adres yok" : fallback ? `Seçilmedi — varsayılan kullanılacak: ${fallback.label}` : "Seçin"}</option>
             {active.map((a) => <option key={a.id} value={a.id}>{a.label}{a.isDefault ? " (varsayılan)" : ""} — {addressText(a)}</option>)}
           </select>
         </label>
@@ -525,7 +528,7 @@ function PackageCard({ p, edit, onDone }: { p: any; edit: boolean; onDone: () =>
             <label key={k} className="row" style={{ gap: 6 }}><input type="checkbox" style={{ minHeight: 0 }} checked={!!check[k]} onChange={(e) => setCheck({ ...check, [k]: e.target.checked })} />{label}</label>
           ))}
           <label className="field" style={{ width: 100 }}>kg<input inputMode="decimal" value={weight} onChange={(e) => setWeight(e.target.value)} /></label>
-          <button style={{ alignSelf: "flex-end" }} disabled={CHECK.some(([k]) => !check[k])}
+          <button style={{ alignSelf: "flex-end" }} disabled={CHECK.some(([k]) => !check[k])} title={CHECK.some(([k]) => !check[k]) ? "Kapatmak için kontrol listesinin tüm maddelerini işaretleyin" : undefined}
             onClick={() => act.mutate(() => post(`/api/packages/${p.id}/close`, { checklist: Object.fromEntries(CHECK.map(([k]) => [k, !!check[k]])), weightKg: weight ? Number(weight) : undefined }))}>
             Paketi kapat
           </button>

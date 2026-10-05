@@ -49,7 +49,7 @@ type Estimate = {
   queueDays: number;
   bottleneck: string | null;
   reasons: string[];
-  materials: { itemCode: string; requiredQty: string; source: string; readyDate: string | null }[];
+  materials: { itemId?: string; itemCode: string; requiredQty: string; source: string; readyDate: string | null }[];
   workCenters: { code: string; ownMinutes: number; queueMinutes: number; dailyMinutes: number }[];
   assumptions: string[];
 };
@@ -185,7 +185,7 @@ export async function computeEstimate(db: Db, orderId: string, today = iso(new D
         }
       }
       if (ready && ready > materialReady) materialReady = ready;
-      materials.push({ itemCode: m.code, requiredQty: fromMicro(gross), source, readyDate: ready });
+      materials.push({ itemId: m.item_id, itemCode: m.code, requiredQty: fromMicro(gross), source, readyDate: ready });
     }
   }
 

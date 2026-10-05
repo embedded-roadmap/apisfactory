@@ -15,6 +15,8 @@ export type Me = {
   company: { id: string; name: string; code: string };
   roles: string[];
   permissions: Permission[];
+  /** Yöneticinin verdiği geçici parola henüz değiştirilmedi: arayüz yalnız parola ekranını gösterir. */
+  mustChangePassword?: boolean;
 };
 
 export type Item = {

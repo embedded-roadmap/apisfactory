@@ -64,6 +64,7 @@ export async function authRoutes(app: FastifyInstance) {
         company: co.rows[0],
         roles: c.roles,
         permissions: [...c.permissions] as Permission[],
+        mustChangePassword: !!c.mustChangePassword,
       };
     });
   });
