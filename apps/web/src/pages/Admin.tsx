@@ -16,7 +16,7 @@ export function AdminPage() {
     mutationFn: () => post<any>("/api/admin/users", { email: f.email, name: f.name, roles: [f.role] }),
     onSuccess: (r) => { setCreated({ email: f.email, password: r.temporaryPassword }); setF({ ...f, email: "", name: "" }); qc.invalidateQueries({ queryKey: ["admin-users"] }); },
   });
-  const act = useMutation({ mutationFn: (fn: () => Promise<unknown>) => fn(), onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-users"] }); qc.invalidateQueries({ queryKey: ["self-role-change"] }); } });
+  const act = useMutation({ mutationFn: (fn: () => Promise<unknown>) => fn(), onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-users"] }); qc.invalidateQueries({ queryKey: ["self-role-change"] }); qc.invalidateQueries({ queryKey: ["me"] }); } });
   const selfChange = useQuery({ queryKey: ["self-role-change"], queryFn: () => get<{ allowed: boolean }>("/api/admin/self-role-change"), enabled: can("admin.roles") });
 
   return (

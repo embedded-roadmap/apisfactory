@@ -198,7 +198,8 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
   const [menuOpen, setMenuOpen] = useState(false);
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const me = useQuery({ queryKey: ["me", auth.get().companyId], queryFn: () => get<Me>("/api/me") });
+  // Rol/yetki başka yöneticice değişebilir: sekmeye dönünce tazelenir (genel ayarda kapalı).
+  const me = useQuery({ queryKey: ["me", auth.get().companyId], queryFn: () => get<Me>("/api/me"), refetchOnWindowFocus: true, staleTime: 30_000 });
   const companies = useQuery({ queryKey: ["companies"], queryFn: () => get<{ id: string; name: string; isDemo: boolean }[]>("/api/companies") });
   const current = companies.data?.find((c) => c.id === auth.get().companyId);
 
