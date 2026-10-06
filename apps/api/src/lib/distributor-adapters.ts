@@ -15,7 +15,7 @@ type Fetch = typeof fetch;
 export const distributorDeps: { fetch: Fetch; timeoutMs: number } = { fetch: (...a) => fetch(...a), timeoutMs: 15_000 };
 
 /** Hata mesajına erişim bilgisi veya yanıt gövdesi konmaz (çağıran zaten ayrıntıyı kullanıcıya göstermez). */
-class UpstreamError extends Error {}
+export class UpstreamError extends Error {}
 
 async function call(url: string, init: RequestInit): Promise<Response> {
   const ctl = new AbortController();

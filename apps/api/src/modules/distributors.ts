@@ -8,6 +8,7 @@ import { recordEvent, type Actor } from "../lib/records";
 import { normalizeDecimal, parseCsv, sha256 } from "../lib/csv";
 import { can, parse, tenant } from "../http/context";
 import { decryptSecret } from "../lib/secrets";
+import { UpstreamError } from "../lib/distributor-adapters";
 import { assertLiveAllowed, credentialsSchema, saveConnectorCredentials } from "../lib/connector-credentials";
 import { DISTRIBUTOR_PROVIDERS, type DistributorEnvironment, type DistributorOffer } from "../lib/distributor-providers";
 
@@ -166,9 +167,19 @@ async function lookupLive(db: Db, actor: Actor, c: Connector, item: { id: string
   let offer: DistributorOffer | null;
   try {
     offer = await provider.lookup(item.mpn, { credentials: decryptSecret<Record<string, string>>(c.credentials_enc), environment: c.environment, currency: c.currency, manufacturer: item.manufacturer });
-  } catch {
+  } catch (e) {
     await log("error");
-    return { row: undefined, warning: `${c.name}: distribütör API'si yanıt vermedi veya hata döndü; önbellekteki teklif gösteriliyor` };
+    // Canlı kullanımda (2026-10-06) üretim anahtarı "sandbox" ortamında kaydedilmişti; ekran yalnız "hata döndü" diyordu.
+    // Adaptör hataları ("DigiKey token: HTTP 401") gizli bilgi içermez; diğer hatalarda yalnız tür yazılır (adres/anahtar sızmaz).
+    const detail = e instanceof UpstreamError ? e.message : (e as Error)?.name ?? "Error";
+    console.warn(JSON.stringify({ msg: "distributor_lookup_failed", connector: c.key, environment: c.environment, detail }));
+    if (/HTTP 40[13]|invalid.?(client|auth)|unauthori|InvalidAuthorization|access_token yok/i.test(detail)) {
+      return { row: undefined, warning: `${c.name}: kimlik doğrulama reddedildi — erişim bilgisini ve ortamı (${c.environment === "sandbox" ? "şu an TEST ORTAMI; üretim anahtarıysa Üretim seçin" : "Üretim"}) kontrol edin; önbellekteki teklif gösteriliyor` };
+    }
+    if ((e as Error)?.name === "AbortError" || (e as Error)?.name === "TimeoutError") {
+      return { row: undefined, warning: `${c.name}: distribütör API'si zamanında yanıt vermedi; önbellekteki teklif gösteriliyor` };
+    }
+    return { row: undefined, warning: `${c.name}: distribütör API'si hata döndü${e instanceof UpstreamError ? ` (${detail})` : ""}; önbellekteki teklif gösteriliyor` };
   }
   await log(offer ? "ok" : "not_found");
   if (!offer) return { row: null, warning: null };

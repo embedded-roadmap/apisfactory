@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { call, clearTokens, expectOk, setupWorld, type World } from "./helpers";
 import { closePool } from "../src/db/pool";
 import { DISTRIBUTOR_PROVIDERS, type DistributorProvider } from "../src/lib/distributor-providers";
+import { UpstreamError } from "../src/lib/distributor-adapters";
 
 let w: World;
 let A: string;
@@ -16,6 +17,7 @@ const SECRET = "distributor-gizli-sir-555";
 const mapping = { refdes: "Designator", manufacturer: "Manufacturer", mpn: "MPN", qty: "Quantity", description: "Description", dnp: "DNP" };
 const seen: Record<string, { mpn?: string; creds?: Record<string, string>; env?: string; manufacturer?: string | null; calls: number }> = { digikey: { calls: 0 }, farnell: { calls: 0 } };
 let farnellFails = false;
+let farnellAuthFails = false;
 
 async function conn(key: string) {
   return expectOk(await call(w.app, P, A, "GET", "/api/distributors")).find((c: any) => c.key === key);
@@ -49,6 +51,7 @@ beforeAll(async () => {
       seen.farnell!.calls++;
       Object.assign(seen.farnell!, { mpn, creds: ctx.credentials });
       if (farnellFails) throw new Error(`upstream 500 apiKey=${ctx.credentials.apiKey}`);
+      if (farnellAuthFails) throw new UpstreamError("element14: HTTP 401");
       return mpn === "MCU-LIVE" ? { sku: "F-9", manufacturer: null, stock: 0, moq: 10, multiple: 10, leadTimeDays: 42, lifecycle: "nrnd", currency: "EUR", breaks: [{ qty: 10, price: 1.9 }], sourceRef: "farnell:F-9" } : null;
     },
   };
@@ -129,7 +132,7 @@ describe("Distribütör canlı API altyapısı (madde 4)", () => {
     farnellFails = false;
     expect(r.offers.find((o: any) => o.connectorKey === "farnell")).toMatchObject({ sku: "F-9" });
     const warn = r.warnings.find((x: string) => x.startsWith("Farnell"));
-    expect(warn).toMatch(/yanıt vermedi veya hata döndü/);
+    expect(warn).toMatch(/hata döndü; önbellekteki teklif/);
     expect(JSON.stringify(r)).not.toContain(SECRET);
     await w.owner.query("begin");
     await w.owner.query(`select set_config('app.company_id', $1, true)`, [A]);
@@ -137,6 +140,13 @@ describe("Distribütör canlı API altyapısı (madde 4)", () => {
     await w.owner.query("rollback");
     expect(outcomes.at(-1)).toBe("error");
     expect(outcomes.filter((o) => o === "error")).toHaveLength(1);
+  });
+
+  it("kimlik doğrulama reddi ayrı uyarıyla gösterilir (ortam/anahtar kontrolü yönlendirmesi)", async () => {
+    farnellAuthFails = true;
+    const r = await offers(true);
+    farnellAuthFails = false;
+    expect(r.warnings.find((x: string) => x.startsWith("Farnell"))).toMatch(/kimlik doğrulama reddedildi/);
   });
 
   it("şema: erişim bilgisi olmadan canlı mod veri tabanında da engellenir; entegrasyon özeti CANLI gösterir", async () => {
