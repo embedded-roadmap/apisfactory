@@ -107,6 +107,25 @@ export async function adminRoutes(app: FastifyInstance) {
     });
   });
 
+  /**
+   * Parolasını unutan üyeye geçici parola (073). Kullanıcı ilk girişte kendi parolasını belirler (072); tüm oturumları
+   * kapanır. Başka şirkette de üyeliği olan kullanıcı sıfırlanamaz (hesap ele geçirme riski) — kendisi parola ekranından
+   * değiştirir ya da diğer şirketin yöneticisi devreye girer.
+   */
+  app.post("/api/admin/users/:membershipId/reset-password", async (req) => {
+    const { membershipId } = req.params as { membershipId: string };
+    const input = parse(z.object({ reason: z.string().min(3).max(500) }), req.body);
+    return tenant(req, "admin.users", async (db, actor) => {
+      const temporaryPassword = randomBytes(9).toString("base64url");
+      const r = (await db.query(`select admin_reset_member_password($1, $2) as result`, [membershipId, await hashPassword(temporaryPassword)])).rows[0].result as string;
+      if (r === "not_found") throw notFound("Üyelik");
+      if (r === "self") throw conflict("self_change", "Kendi parolanızı Parola ekranından değiştirin");
+      if (r === "multi_company") throw conflict("multi_company", "Bu kullanıcı başka bir şirketin de üyesi; parolası buradan sıfırlanamaz. Kullanıcı Parola ekranından kendisi değiştirmeli.");
+      await recordEvent(db, actor, { entityType: "membership", entityId: membershipId, eventType: "password.reset", reason: input.reason });
+      return { membershipId, temporaryPassword };
+    });
+  });
+
   app.post("/api/admin/users/:membershipId/status", async (req) => {
     const { membershipId } = req.params as { membershipId: string };
     const input = parse(z.object({ status: z.enum(["active", "suspended"]), reason: z.string().min(3) }), req.body);

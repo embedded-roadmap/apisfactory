@@ -77,6 +77,17 @@ function UserRow({ u, roles, self, selfEditable, act }: { u: any; roles: any[]; 
   const [sel, setSel] = useState<string[]>(u.roles);
   const [reason, setReason] = useState("");
   const [selfReason, setSelfReason] = useState("");
+  const [reset, setReset] = useState<{ password?: string; error?: unknown } | null>(null);
+  async function resetPassword() {
+    if (!window.confirm(`${u.name} için geçici parola üretilsin mi? Kişinin tüm oturumları kapanır; ilk girişte kendi parolasını belirler.`)) return;
+    try {
+      const r = await post<{ temporaryPassword: string }>(`/api/admin/users/${u.membershipId}/reset-password`, { reason: reason.trim() });
+      setReset({ password: r.temporaryPassword });
+      setReason("");
+    } catch (error) {
+      setReset({ error });
+    }
+  }
   const changed = sel.slice().sort().join() !== u.roles.slice().sort().join();
   return (
     <tr>
@@ -107,8 +118,15 @@ function UserRow({ u, roles, self, selfEditable, act }: { u: any; roles: any[]; 
             <button disabled={reason.trim().length < 3} onClick={() => { act(() => post(`/api/admin/users/${u.membershipId}/status`, { status: u.status === "active" ? "suspended" : "active", reason: reason.trim() })); setReason(""); }}>
               {u.status === "active" ? "Askıya al" : "Etkinleştir"}
             </button>
+            <button disabled={reason.trim().length < 3 || u.status !== "active"} title="Parolasını unutan kişiye geçici parola verir" onClick={resetPassword}>Parolayı sıfırla</button>
           </>
         ) : null}
+        {reset?.password ? (
+          <div className="notice ok" style={{ width: "100%" }}>
+            Geçici parola (yalnızca bir kez gösterilir): <b className="mono">{reset.password}</b>. Kişiye siz iletin; ilk girişte kendi parolasını belirleyecek.
+          </div>
+        ) : null}
+        {reset?.error ? <div style={{ width: "100%" }}><ErrorNotice error={reset.error} /></div> : null}
       </td>
     </tr>
   );
