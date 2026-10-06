@@ -87,6 +87,11 @@ export async function adminRoutes(app: FastifyInstance) {
   app.post("/api/admin/users/:membershipId/roles", async (req) => {
     const { membershipId } = req.params as { membershipId: string };
     const input = parse(z.object({ roles: z.array(z.string()), reason: z.string().trim().max(500).optional() }), req.body);
+    // Fason üretici dış kullanıcıdır: menüsü yalnız fason işleriyle sınırlanır. Diğer rollerle karışırsa iç kullanıcı
+    // (yönetici dahil) kendi menüsünü kaybeder — canlı kullanımda tüm roller işaretlenince görüldü (2026-10-06).
+    if (input.roles.includes("subcontractor") && input.roles.length > 1) {
+      throw badRequest("Fason üretici (dış kullanıcı) rolü diğer rollerle birlikte verilemez; fason firma için ayrı kullanıcı açın");
+    }
     return tenant(req, "admin.roles", async (db, actor) => {
       const m = await db.query(`select id, user_id from memberships where id = $1 and company_id = app_company_id() for update`, [membershipId]);
       if (!m.rows[0]) throw notFound("Üyelik");

@@ -73,6 +73,13 @@ export function AdminPage() {
   );
 }
 
+/** Fason üretici (dış kullanıcı) tek başına verilir: seçilince diğer roller kalkar, başka rol seçilince o kalkar. */
+function toggleRole(sel: string[], code: string, on: boolean): string[] {
+  if (!on) return sel.filter((x) => x !== code);
+  if (code === "subcontractor") return ["subcontractor"];
+  return [...sel.filter((x) => x !== "subcontractor"), code];
+}
+
 function UserRow({ u, roles, self, selfEditable, act }: { u: any; roles: any[]; self: boolean; selfEditable: boolean; act: (fn: () => Promise<unknown>) => void }) {
   const [sel, setSel] = useState<string[]>(u.roles);
   const [reason, setReason] = useState("");
@@ -96,7 +103,7 @@ function UserRow({ u, roles, self, selfEditable, act }: { u: any; roles: any[]; 
         <div className="row" style={{ gap: 6 }}>
           {roles.map((r) => (
             <label key={r.code} className="row" style={{ gap: 4, fontSize: 13 }}>
-              <input type="checkbox" style={{ minHeight: 0 }} disabled={self && !selfEditable} checked={sel.includes(r.code)} onChange={(e) => setSel(e.target.checked ? [...sel, r.code] : sel.filter((x) => x !== r.code))} />
+              <input type="checkbox" style={{ minHeight: 0 }} disabled={self && !selfEditable} checked={sel.includes(r.code)} onChange={(e) => setSel(toggleRole(sel, r.code, e.target.checked))} />
               {r.name}
             </label>
           ))}
@@ -109,6 +116,7 @@ function UserRow({ u, roles, self, selfEditable, act }: { u: any; roles: any[]; 
           <>
             <input aria-label="Kendi rol değişikliği gerekçesi" placeholder="Gerekçe (en az 10 karakter)" value={selfReason} onChange={(e) => setSelfReason(e.target.value)} style={{ width: 220 }} />
             <button className="primary" disabled={selfReason.trim().length < 10} onClick={() => act(() => post(`/api/admin/users/${u.membershipId}/roles`, { roles: sel, reason: selfReason.trim() }))}>Rollerimi kaydet</button>
+            {selfReason.trim().length < 10 ? <span className="muted" style={{ width: "100%", fontSize: 12 }}>Kaydetmek için gerekçe yazın (en az 10 karakter; {selfReason.trim().length}/10).</span> : null}
           </>
         ) : null}
         {!self && changed ? <button className="primary" onClick={() => act(() => post(`/api/admin/users/${u.membershipId}/roles`, { roles: sel }))}>Rolleri kaydet</button> : null}

@@ -61,3 +61,12 @@ describe("yönetici parola sıfırlaması", () => {
     expect(denied.status).toBe(403);
   });
 });
+
+describe("fason üretici rolü", () => {
+  it("diğer rollerle birlikte verilemez (dış kullanıcı menüsü iç kullanıcıyı kilitlerdi); tek başına verilebilir", async () => {
+    const id = await membership("quality@a.test");
+    const mixed = await call(w.app, "admin@a.test", A, "POST", `/api/admin/users/${id}/roles`, { roles: ["quality", "subcontractor"] });
+    expect(mixed.status).toBe(400);
+    expectOk(await call(w.app, "admin@a.test", A, "POST", `/api/admin/users/${id}/roles`, { roles: ["subcontractor"] }));
+  });
+});
