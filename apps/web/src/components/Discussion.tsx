@@ -175,7 +175,7 @@ export function Discussion({ entityType, entityId }: { entityType: string; entit
           })}
           <button className="primary" disabled={!body.trim() || send.isPending} style={{ marginLeft: "auto" }}>Gönder</button>
         </div>
-        <span className="muted" style={{ fontSize: 13 }}>Yalnız bu kaydı görme yetkisi olan kişilerden bahsedilebilir; bahsedilen kişiye günlük işlerinde bildirim düşer.</span>
+        {entityType !== "direct" ? <span className="muted" style={{ fontSize: 13 }}>Yalnız bu kaydı görme yetkisi olan kişilerden bahsedilebilir; bahsedilen kişiye günlük işlerinde bildirim düşer.</span> : null}
         <ErrorNotice error={send.error} />
       </form>
     </section>

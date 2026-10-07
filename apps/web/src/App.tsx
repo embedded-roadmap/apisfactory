@@ -1,11 +1,14 @@
 import { lazy, Suspense, useState, useSyncExternalStore, type ComponentType, type FormEvent } from "react";
 import { Link, NavLink, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Locale, Me, Permission, Session } from "@apisfactory/shared";
+import type { Locale, Me, Session } from "@apisfactory/shared";
 import { api, auth, get, post } from "./lib/api";
 import { ErrorNotice, Loading, MeContext, useT } from "./lib/ui";
 import { CompanySetupPage, OnboardingPage } from "./pages/Setup";
 import { OfflinePage } from "./pages/Offline";
+import { NavGroups } from "./components/Navigation";
+import { GlobalSearch } from "./components/GlobalSearch";
+import { PeopleDock } from "./components/PeopleDock";
 
 /**
  * Sayfalar rota bazında ayrı parçalara bölünür (ilk açılışta tek büyük paket yerine yalnız gereken sayfa indirilir).
@@ -160,37 +163,6 @@ function CompanyPicker({ session }: { session: Session }) {
   );
 }
 
-const NAV: { to: string; key: string; perm?: Permission }[] = [
-  { to: "/", key: "nav.today", perm: "task.view" },
-  { to: "/planning", key: "nav.planning", perm: "task.view" },
-  { to: "/products", key: "nav.products", perm: "product.view" },
-  { to: "/rd-projects", key: "nav.rdProjects", perm: "rd.project.view" },
-  { to: "/inventory", key: "nav.inventory", perm: "inventory.view" },
-  { to: "/receiving", key: "nav.receiving", perm: "inventory.view" },
-  { to: "/production", key: "nav.production", perm: "production.view" },
-  { to: "/quality", key: "nav.quality", perm: "production.view" },
-  { to: "/changes", key: "nav.changes", perm: "change.view" },
-  { to: "/sales", key: "nav.sales", perm: "sales.view" },
-  { to: "/shipments", key: "nav.shipments", perm: "shipment.view" },
-  { to: "/returns", key: "nav.returns", perm: "rma.view" },
-  { to: "/devices", key: "nav.devices", perm: "production.view" },
-  { to: "/purchasing", key: "nav.purchasing", perm: "purchase.view" },
-  { to: "/receivables", key: "nav.receivables", perm: "receivable.view" },
-  { to: "/payables", key: "nav.payables", perm: "invoice.view" },
-  { to: "/subscription", key: "nav.subscription", perm: "subscription.view" },
-  { to: "/imports", key: "nav.imports" },
-  { to: "/reports", key: "nav.reports", perm: "report.view" },
-  { to: "/reports/executive", key: "nav.reportsExecutive", perm: "report.view" },
-  { to: "/scenarios", key: "nav.scenarios", perm: "report.view" },
-  { to: "/subcontract-jobs", key: "nav.subcontractJobs", perm: "subcontract.manage" },
-  { to: "/workflow", key: "nav.workflow", perm: "task.view" },
-  { to: "/collaboration/channels", key: "nav.channels", perm: "task.view" },
-  { to: "/collaboration/direct", key: "nav.direct", perm: "task.view" },
-  { to: "/events", key: "nav.events", perm: "audit.view" },
-  { to: "/admin", key: "nav.admin", perm: "admin.users" },
-  { to: "/help", key: "nav.help" },
-  { to: "/onboarding", key: "nav.onboarding" },
-];
 
 function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) => void }) {
   const t = useT();
@@ -246,7 +218,7 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
             <Logo /> apis<span>factory</span>
             <button type="button" className="menu-close" aria-label="Menüyü kapat" onClick={() => setMenuOpen(false)}>✕</button>
           </div>
-          {external ? <NavLink to="/" end>{t("nav.subcontractJobs")}</NavLink> : <NavItems perms={perms} />}
+          {external ? <NavLink to="/" end>{t("nav.subcontractJobs")}</NavLink> : <NavGroups perms={perms} />}
           <div className="spacer" />
         </nav>
         <div className="main">
@@ -262,7 +234,8 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
               ) : null}
             </div>
             <div className="row">
-              <span className="muted">{me.data!.user.name} · {me.data!.roles.join(", ")}</span>
+              {!external ? <GlobalSearch perms={perms} /> : null}
+              <span className="muted top-user" title={`Roller: ${me.data!.roles.join(", ")}`}>{me.data!.user.name}</span>
               <select aria-label="Dil" value={locale} onChange={(e) => setLocale(e.target.value as Locale)}>
                 <option value="tr">TR</option>
                 <option value="en">EN</option>
@@ -353,22 +326,11 @@ function Shell({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) =
           </main>
         </div>
       </div>
+      {!external ? <PeopleDock /> : null}
     </MeContext.Provider>
   );
 }
 
-function NavItems({ perms }: { perms: Set<string> }) {
-  const t = useT();
-  return (
-    <>
-      {NAV.filter((n) => !n.perm || perms.has(n.perm)).map((n) => (
-        <NavLink key={n.to} to={n.to} end={n.to === "/"}>
-          {t(n.key)}
-        </NavLink>
-      ))}
-    </>
-  );
-}
 
 export function Logo() {
   return (
